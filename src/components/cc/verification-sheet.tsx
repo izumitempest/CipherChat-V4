@@ -15,6 +15,7 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
+import { SheetGrabber } from "@/components/cc/sheet-grabber";
 import { groupFingerprint, keyFingerprint } from "@/lib/identity";
 import { loadVerified } from "@/lib/local";
 import { getSession } from "@/lib/session";
@@ -70,6 +71,7 @@ export function VerificationSheet({
         side={isDesktop ? "right" : "bottom"}
         className="flex flex-col rounded-t-[18px] border-hairline bg-paper px-5 pb-8 pt-5 md:max-w-[440px] md:rounded-t-none md:rounded-l-[18px]"
       >
+        {!isDesktop && <SheetGrabber />}
         <SheetHeader className="p-0 text-left">
           <SheetTitle className="t-title">Verify participants</SheetTitle>
           <SheetDescription className="mt-1 font-sans text-[13px] leading-[19px] text-mute">

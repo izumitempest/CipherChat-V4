@@ -109,6 +109,21 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Presence whispers: "someone is writing" — transient, never stored.
+  socket.on(
+    "member:typing",
+    (data: { roomId: string; memberId: string; alias: string }) => {
+      if (!data?.roomId || !data?.memberId) return;
+      for (const s of memberSockets(data.roomId, socket.id)) {
+        s.emit("member:typing", {
+          roomId: data.roomId,
+          memberId: data.memberId,
+          alias: data.alias,
+        });
+      }
+    },
+  );
+
   socket.on("member:leave", (data: { roomId: string; memberId: string; alias: string }) => {
     if (!data?.roomId || !data?.memberId) return;
     for (const s of memberSockets(data.roomId, socket.id)) {

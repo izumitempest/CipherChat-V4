@@ -21,6 +21,7 @@ import { PrimaryAction, SecondaryAction } from "@/components/cc/actions";
 import { SealMark } from "@/components/cc/mark";
 import { ThemeToggle } from "@/components/cc/theme-toggle";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
+import { SheetGrabber } from "@/components/cc/sheet-grabber";
 import { fmtAgo } from "@/lib/format";
 import { getSession } from "@/lib/session";
 import { useApp } from "@/store/app";
@@ -240,6 +241,7 @@ export function UnlockSheet({
         side={isDesktop ? "right" : "bottom"}
         className="rounded-t-[18px] border-hairline bg-paper px-5 pb-8 pt-5 md:max-w-[440px] md:rounded-t-none md:rounded-l-[18px]"
       >
+        {!isDesktop && <SheetGrabber />}
         <SheetHeader className="p-0 text-left">
           <SheetTitle className="t-title">{card?.localName ?? "Room"}</SheetTitle>
           <SheetDescription className="mt-1 font-sans text-[13px] leading-[19px] text-mute">

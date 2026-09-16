@@ -24,6 +24,7 @@ import {
 import { Field, TextField } from "@/components/cc/fields";
 import { DestructiveAction, SecondaryAction } from "@/components/cc/actions";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
+import { SheetGrabber } from "@/components/cc/sheet-grabber";
 import { loadVerified } from "@/lib/local";
 import { getSession } from "@/lib/session";
 import { useApp } from "@/store/app";
@@ -76,6 +77,7 @@ export function SettingsSheet({
           side={isDesktop ? "right" : "bottom"}
           className="flex flex-col overflow-y-auto overscroll-contain scroll-quiet rounded-t-[18px] border-hairline bg-paper px-5 pb-8 pt-5 md:max-w-[440px] md:rounded-t-none md:rounded-l-[18px]"
         >
+        {!isDesktop && <SheetGrabber />}
           <SheetHeader className="p-0 text-left">
             <SheetTitle className="t-title">Room settings</SheetTitle>
             <SheetDescription className="mt-1 font-sans text-[13px] leading-[19px] text-mute">

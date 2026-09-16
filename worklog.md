@@ -101,3 +101,28 @@ Stage Summary:
 - CipherChat complete and verified: all S1–S9 with real browser E2EE, two-member flows browser-tested, design review scores 9/9/8/8 with flagged issues fixed.
 - Dev server: Next.js :3000 (via gateway :81 externally), relay :3003 — both running.
 - Next phase owners (cron webDevReview): keep iterating on styling detail and features per the standing brief in this worklog + DESIGN.md.
+
+---
+Task ID: 9, 10, 11, 12
+Agent: lead (Z.ai Code) — webDevReview round 1 (cron)
+Task: QA sweep + feature round (typing indicators, drag-drop/paste attach, time-gap dividers, char limit, sheet grabbers)
+
+Work Log (current status / done / verified):
+- Status assessment: S1–S9 stable from prior rounds; both services up; fresh smoke test (landing → create room → message) + dark-mode sheet screenshots passed VLM defect scan ("fine" × 3); 0 console errors on clean load.
+- QA bug found & fixed: TWO stale `bun --hot` relay processes existed; the port owner had hot-reloaded without registering new handlers. Cleanly killed both, restarted — bun --hot does NOT reliably apply new socket.io connection handlers; ALWAYS manually restart the relay after editing mini-services/relay-service/index.ts (kill the old PIDs first, check `ss -tlnp | grep 3003`).
+- New features, all browser-verified with two live sessions:
+  1. Typing indicators: relay `member:typing` broadcast (blind, transient); store typing map with 3.5s TTL + prune timers, 2.5s emit throttle, cleared on message arrival; quiet ink-alias whisper line in a reserved 26px strip above the composer ("Velvet Owl is writing…" / "A and B are writing…" / "Several people are writing…"), aria-live=polite, no layout jump.
+  2. Composer attachments now arrive three ways: paperclip, drag-and-drop (dashed forest "Release to attach" overlay on the composer while hovering, verified appears + clears), clipboard paste into the textarea (verified, replaces slip). pickFile now chunked base64 (8KB) for large files.
+  3. Time-gap dividers: quiet centered t-meta timestamp between messages >30 min apart ("17:04" / "Wed · 17:04" across days), role=separator. Tested with temporary 5s threshold, reverted to 30 min.
+  4. Message length guard: maxLength 4000 + near-limit counter ("100 characters left", terracotta at zero with calm copy), aria-describedby, appears/disappears verified.
+  5. Sheet grabbers: 36×4 centered mute handle on all mobile bottom sheets (create, unlock, invite, verify, settings) — not on desktop right-side sheets.
+- lint clean, tsc src-errors 0, dev.log clean (200/201s only), relay :3003 single healthy process.
+
+Unresolved issues / risks:
+- None open from this round. Known accepted behaviors: offline members miss relayed messages (by design, ephemerality); typing whisper requires both parties online (fine); relay restart drops presence briefly until socket.io auto-reconnect (a few seconds).
+
+Priority recommendations for next phase:
+- Styled scroll-to-bottom affordance when scrolled up in a long room (quiet, appears only when needed).
+- PWA installability: minimal no-cache service worker (manifest + icons already exist).
+- Optional: keyboard shortcut hints (Escape closes sheets — already native via Radix); "delivered" state on self messages beyond relay ack if a peer-ack protocol is desired (design decision needed: brief says quiet).
+- Remember: manual relay restart required after any edit to mini-services/relay-service/index.ts.

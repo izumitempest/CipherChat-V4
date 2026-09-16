@@ -17,6 +17,7 @@ import {
 import { Field, PasswordField, TextField } from "@/components/cc/fields";
 import { PrimaryAction, SecondaryAction, QuietAction } from "@/components/cc/actions";
 import { SealMark } from "@/components/cc/mark";
+import { SheetGrabber } from "@/components/cc/sheet-grabber";
 import { ThemeToggle } from "@/components/cc/theme-toggle";
 import { generatePassphrase } from "@/lib/identity";
 import { useApp } from "@/store/app";
@@ -111,6 +112,7 @@ function CreateRoomSheet({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="bottom" className="rounded-t-[18px] border-t border-hairline bg-paper px-5 pb-8 pt-5">
+        <SheetGrabber />
         <SheetHeader className="p-0 text-left">
           <SheetTitle className="t-title">Create a room</SheetTitle>
           <SheetDescription className="mt-1 font-sans text-[13px] leading-[19px] text-mute">

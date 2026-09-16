@@ -18,11 +18,16 @@ import { Field, PasswordField } from "@/components/cc/fields";
 import { PrimaryAction, QuietAction } from "@/components/cc/actions";
 import { SealMark } from "@/components/cc/mark";
 import { getSession } from "@/lib/session";
-import { useApp } from "@/store/app";
+import { useApp, type TypingSignal } from "@/store/app";
+import { fmtTime } from "@/lib/format";
 import type { MessageView, MemberPublic } from "@/lib/types";
 
 const EMPTY_MESSAGES: MessageView[] = [];
 const EMPTY_MEMBERS: MemberPublic[] = [];
+const EMPTY_TYPING: TypingSignal[] = [];
+
+/** Messages quiet down across a gap wider than this. */
+const TIME_GAP_MS = 30 * 60 * 1000;
 
 export function ChatScreen({ roomId }: { roomId: string }) {
   // Subscribe to the room's message memory: entering a room resets it,
@@ -143,21 +148,14 @@ function ActiveRoom({ roomId }: { roomId: string }) {
               </div>
             )
           ) : (
-            groups.map(({ message, position }) =>
-              message.kind === "system" ? (
-                <SystemLine key={message.id} text={message.text ?? ""} />
-              ) : (
-                <MessageBubble
-                  key={message.id}
-                  message={message}
-                  position={position}
-                  onOpenFile={(m) => setViewing(m)}
-                />
-              ),
-            )
+            <TimeAwareMessages groups={groups} onOpenFile={(m) => setViewing(m)} />
           )}
         </div>
       </div>
+
+      {/* Reserved strip — someone is writing, quietly. The space is
+          always there so nothing jumps when a whisper begins. */}
+      <TypingLine roomId={roomId} />
 
       <Composer key={roomId} />
 
@@ -170,6 +168,103 @@ function ActiveRoom({ roomId }: { roomId: string }) {
         onSpent={(m) => m.viewOnce && spendViewOnce(roomId, m.id)}
       />
     </div>
+  );
+}
+
+/* ------------------------------------------ message flow ---- */
+
+/** Messages between long silences get a quiet timestamp divider —
+ *  the machine noting the passage of time, nothing more. */
+function TimeAwareMessages({
+  groups,
+  onOpenFile,
+}: {
+  groups: ReturnType<typeof useMessageGroups>;
+  onOpenFile: (m: MessageView) => void;
+}) {
+  const rendered: React.ReactNode[] = [];
+  let lastTs: number | null = null;
+  for (const { message, position } of groups) {
+    if (message.kind !== "system") {
+      if (lastTs !== null && message.ts - lastTs > TIME_GAP_MS) {
+        rendered.push(<TimeDivider key={`d-${message.id}`} ts={message.ts} />);
+      }
+      lastTs = message.ts;
+    }
+    rendered.push(
+      message.kind === "system" ? (
+        <SystemLine key={message.id} text={message.text ?? ""} />
+      ) : (
+        <MessageBubble
+          key={message.id}
+          message={message}
+          position={position}
+          onOpenFile={onOpenFile}
+        />
+      ),
+    );
+  }
+  return <>{rendered}</>;
+}
+
+function TimeDivider({ ts }: { ts: number }) {
+  const d = new Date(ts);
+  const sameDay = d.toDateString() === new Date().toDateString();
+  const label = sameDay
+    ? fmtTime(ts)
+    : `${d.toLocaleDateString([], { weekday: "short" })} · ${fmtTime(ts)}`;
+  return (
+    <p className="t-meta py-2.5 text-center" role="separator">
+      {label}
+    </p>
+  );
+}
+
+/* --------------------------------------------- the whisper ---- */
+
+function TypingLine({ roomId }: { roomId: string }) {
+  const typing = useApp((s) => s.typing[roomId] ?? EMPTY_TYPING);
+  const members = useApp((s) => s.members[roomId] ?? EMPTY_MEMBERS);
+
+  const named = typing.map((t) => ({
+    alias: t.alias,
+    colorIdx: members.find((m) => m.memberId === t.memberId)?.colorIdx ?? 0,
+  }));
+
+  let content: React.ReactNode = null;
+  if (named.length === 1) {
+    content = (
+      <>
+        <TypingAlias {...named[0]} /> is writing…
+      </>
+    );
+  } else if (named.length === 2) {
+    content = (
+      <>
+        <TypingAlias {...named[0]} /> and <TypingAlias {...named[1]} /> are
+        writing…
+      </>
+    );
+  } else if (named.length > 2) {
+    content = <>Several people are writing…</>;
+  }
+
+  return (
+    <div className="mx-auto flex h-[26px] w-full max-w-[720px] items-center justify-center px-5">
+      {content ? (
+        <p className="t-meta settle" aria-live="polite">
+          {content}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function TypingAlias({ alias, colorIdx }: { alias: string; colorIdx: number }) {
+  return (
+    <span className="font-medium" style={{ color: `var(--ink-${colorIdx})` }}>
+      {alias}
+    </span>
   );
 }
 

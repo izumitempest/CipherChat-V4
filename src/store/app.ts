@@ -63,6 +63,13 @@ export interface JoinResult {
   reason?: "wrong-password" | "not-found" | "burned" | "room-full" | "error";
 }
 
+/** Someone is writing — transient, expires by its own clock. */
+export interface TypingSignal {
+  memberId: string;
+  alias: string;
+  at: number;
+}
+
 interface AppState {
   ready: boolean;
   device: DeviceIdentity | null;
@@ -73,6 +80,7 @@ interface AppState {
   roomCards: RoomCard[];
   messages: Record<string, MessageView[]>;
   members: Record<string, MemberPublic[]>;
+  typing: Record<string, TypingSignal[]>;
   relayOnline: boolean;
   resealing: Record<string, boolean>;
   sealing: SealingState | null;
@@ -89,6 +97,7 @@ interface AppState {
     file?: Omit<FilePayload, "sha"> & { viewOnce?: boolean },
     ttlOverride?: TtlChoice,
   ) => Promise<void>;
+  emitTyping: (roomId: string) => void;
   spendViewOnce: (roomId: string, messageId: string) => void;
   burnRoom: (roomId: string) => Promise<void>;
   finishRoomBurn: (roomId: string) => void;
@@ -102,6 +111,40 @@ interface AppState {
 
 /* ------------ TTL burn scheduling (module memory) ------------ */
 const burnTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/* ------------ typing whispers (transient by design) ------------ */
+const TYPING_TTL_MS = 3500;
+const TYPING_EMIT_THROTTLE_MS = 2500;
+const typingLastEmit = new Map<string, number>();
+const typingPruneTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function pruneTypingLater(roomId: string) {
+  const existing = typingPruneTimers.get(roomId);
+  if (existing) clearTimeout(existing);
+  const t = setTimeout(() => {
+    typingPruneTimers.delete(roomId);
+    useApp.setState((s) => {
+      const fresh = (s.typing[roomId] ?? []).filter(
+        (x) => Date.now() - x.at < TYPING_TTL_MS,
+      );
+      return { typing: { ...s.typing, [roomId]: fresh } };
+    });
+  }, TYPING_TTL_MS + 100);
+  typingPruneTimers.set(roomId, t);
+}
+
+function clearTyping(roomId: string, memberId: string) {
+  useApp.setState((s) => {
+    const list = s.typing[roomId] ?? [];
+    if (!list.some((t) => t.memberId === memberId)) return {};
+    return {
+      typing: {
+        ...s.typing,
+        [roomId]: list.filter((t) => t.memberId !== memberId),
+      },
+    };
+  });
+}
 
 function scheduleBurn(
   roomId: string,
@@ -143,6 +186,7 @@ export const useApp = create<AppState>()((set, get) => ({
   roomCards: [],
   messages: {},
   members: {},
+  typing: {},
   relayOnline: false,
   resealing: {},
   sealing: null,
@@ -478,6 +522,22 @@ export const useApp = create<AppState>()((set, get) => ({
     }
 
     getRelay().emit("message:send", { roomId: session.roomId, envelope });
+  },
+
+  /* --------------------------------------------- typing ------- */
+
+  emitTyping: (roomId) => {
+    const session = getSession(roomId);
+    if (!session) return;
+    const now = Date.now();
+    const last = typingLastEmit.get(roomId) ?? 0;
+    if (now - last < TYPING_EMIT_THROTTLE_MS) return;
+    typingLastEmit.set(roomId, now);
+    getRelay().emit("member:typing", {
+      roomId,
+      memberId: session.memberId,
+      alias: session.alias,
+    });
   },
 
   /* --------------------------------------------- view-once --- */
@@ -853,10 +913,27 @@ function wireRelay(
           [roomId]: [...(s.messages[roomId] ?? []), view],
         },
       }));
+      // The message arrived — the whisper is over.
+      clearTyping(roomId, sender.memberId);
       touchCard(roomId, get().activeRoomId !== roomId);
       if (view.expiresAt) {
         scheduleBurn(roomId, view.id, view.expiresAt, onMessageBurn);
       }
+    },
+  );
+
+  relay.on(
+    "member:typing",
+    ({ roomId, memberId, alias }: { roomId: string; memberId: string; alias: string }) => {
+      const session = getSession(roomId);
+      if (!session || memberId === session.memberId) return;
+      useApp.setState((s) => {
+        const list = (s.typing[roomId] ?? []).filter((t) => t.memberId !== memberId);
+        return {
+          typing: { ...s.typing, [roomId]: [...list, { memberId, alias, at: Date.now() }] },
+        };
+      });
+      pruneTypingLater(roomId);
     },
   );
 }

@@ -22,15 +22,19 @@ export interface Attachment {
   dataB64: string;
 }
 
+export const MESSAGE_CHAR_LIMIT = 4000;
+
 export function Composer() {
   const roomId = useApp((s) => s.activeRoomId);
   const sendMessage = useApp((s) => s.sendMessage);
+  const emitTyping = useApp((s) => s.emitTyping);
   const relayOnline = useApp((s) => s.relayOnline);
   const resealing = useApp((s) => (roomId ? s.resealing[roomId] : false));
 
   const [text, setText] = useState("");
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [viewOnce, setViewOnce] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   // Keyed by room — fresh state per room, seeded from its local setting.
   const [ttl, setTtl] = useState<TtlChoice>(() =>
     roomId ? (getSession(roomId)?.defaultTtl ?? 0) : 0,
@@ -67,13 +71,22 @@ export function Composer() {
     }
     const buf = new Uint8Array(await file.arrayBuffer());
     let s = "";
-    for (let i = 0; i < buf.length; i++) s += String.fromCharCode(buf[i]);
+    const CHUNK = 8192;
+    for (let i = 0; i < buf.length; i += CHUNK) {
+      s += String.fromCharCode(...buf.subarray(i, i + CHUNK));
+    }
     setAttachment({
       name: file.name,
       mime: file.type || "application/octet-stream",
       size: file.size,
       dataB64: btoa(s),
     });
+  }
+
+  /** Files can arrive three ways: the paperclip, a paste, a drop. */
+  function takeEventFiles(list: FileList | null) {
+    const file = list?.[0];
+    if (file) void pickFile(file);
   }
 
   async function submit() {
@@ -90,8 +103,40 @@ export function Composer() {
     await sendMessage(sending, file, ttlNow);
   }
 
+  const nearLimit = text.length > MESSAGE_CHAR_LIMIT - 200;
+  const charsLeft = MESSAGE_CHAR_LIMIT - text.length;
+
   return (
-    <div className="composer-blur sticky bottom-0 z-20 border-t border-hairline shadow-float">
+    <div
+      className={cn(
+        "composer-blur sticky bottom-0 z-20 border-t shadow-float",
+        dragOver ? "border-forest/45" : "border-hairline",
+      )}
+      onDragOver={(e) => {
+        if (disabled) return;
+        e.preventDefault();
+        setDragOver(true);
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+        setDragOver(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+        if (disabled) return;
+        takeEventFiles(e.dataTransfer.files);
+      }}
+    >
+      {/* the drop slip — paper waiting to receive */}
+      {dragOver ? (
+        <div className="mx-auto w-full max-w-[720px] px-3 pt-3">
+          <div className="settle flex h-16 items-center justify-center rounded-[12px] border border-dashed border-forest/40 bg-wash font-sans text-[13px] font-medium text-forest">
+            <Paperclip className="mr-2 size-4" aria-hidden />
+            Release to attach
+          </div>
+        </div>
+      ) : null}
       <div className="mx-auto w-full max-w-[720px] px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
         {/* attachment slip */}
         {attachment ? (
@@ -156,7 +201,18 @@ export function Composer() {
             rows={1}
             value={text}
             disabled={disabled}
-            onChange={(e) => setText(e.target.value)}
+            maxLength={MESSAGE_CHAR_LIMIT}
+            onChange={(e) => {
+              setText(e.target.value);
+              if (e.target.value.trim()) emitTyping(roomId ?? "");
+            }}
+            onPaste={(e) => {
+              const files = e.clipboardData?.files;
+              if (files && files.length > 0) {
+                e.preventDefault();
+                takeEventFiles(files);
+              }
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -165,6 +221,7 @@ export function Composer() {
             }}
             placeholder="Write a message…"
             aria-label="Message"
+            aria-describedby={nearLimit ? "cc-char-count" : undefined}
             className="max-h-[66px] min-h-[44px] flex-1 resize-none rounded-[12px] border border-hairline bg-paper px-3.5 py-[11px] font-serif text-[15.5px] leading-[22px] text-charcoal transition-colors duration-150 placeholder:text-mute/70 focus:border-forest/45 focus:outline-none focus:ring-2 focus:ring-forest/15 disabled:cursor-not-allowed disabled:opacity-50"
           />
 
@@ -211,6 +268,20 @@ export function Composer() {
             </button>
           )}
         </div>
+        {nearLimit ? (
+          <p
+            id="cc-char-count"
+            className={cn(
+              "t-meta mt-1.5 text-right",
+              charsLeft <= 0 && "text-terracotta/70",
+            )}
+            aria-live="polite"
+          >
+            {charsLeft <= 0
+              ? "At the limit — the message is as long as a letter can be"
+              : `${charsLeft} characters left`}
+          </p>
+        ) : null}
       </div>
     </div>
   );
