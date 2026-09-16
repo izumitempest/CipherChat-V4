@@ -1,0 +1,39 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// The server is a blind relay. It stores room lifecycle + a member
+// registry (public keys, for fingerprint verification). It never
+// stores message content — messages exist only as live relayed
+// ciphertext and in the memory of connected members.
+
+model Room {
+  id           String    @id // public room code used in invite links
+  verifier     String? // encrypted known-plaintext set by the creator (JSON {iv, ct})
+  creatorToken String // secret held only by the creator, authorizes burn
+  epoch        Int       @default(1) // key-derivation epoch; bumped on member leave (key rotation)
+  burned       Boolean   @default(false)
+  burnedAt     DateTime?
+  createdAt    DateTime  @default(now())
+  members      Member[]
+}
+
+model Member {
+  id         String   @id @default(cuid())
+  roomId     String
+  pubkey     String // ECDSA P-256 public key (JWK JSON) — identity lives here
+  alias      String // deterministic alias derived from the key fingerprint
+  colorIdx   Int // deterministic ink index 0-7
+  joinedAt   DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  active     Boolean  @default(true)
+  room       Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, pubkey])
+  @@index([roomId])
+}

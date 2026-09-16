@@ -1,0 +1,474 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ============================================================
+   CipherChat — Design Tokens
+   Warm paper & deep forest. A letter you'd trust.
+   Forest = trust/security/identity/primary. Terracotta =
+   destruction & impermanence ONLY. No third accent exists.
+   ============================================================ */
+
+@theme inline {
+  /* shadcn bridges */
+  --color-background: var(--paper);
+  --color-foreground: var(--charcoal);
+  --color-card: var(--side);
+  --color-card-foreground: var(--charcoal);
+  --color-popover: var(--paper);
+  --color-popover-foreground: var(--charcoal);
+  --color-primary: var(--forest);
+  --color-primary-foreground: var(--paper);
+  --color-secondary: var(--side);
+  --color-secondary-foreground: var(--charcoal);
+  --color-muted: var(--side);
+  --color-muted-foreground: var(--mute);
+  --color-accent: var(--wash);
+  --color-accent-foreground: var(--charcoal);
+  --color-destructive: var(--terracotta);
+  --color-destructive-foreground: var(--paper);
+  --color-border: var(--hairline);
+  --color-input: var(--hairline);
+  --color-ring: var(--forest);
+
+  /* CipherChat tokens */
+  --color-paper: var(--paper);
+  --color-side: var(--side);
+  --color-charcoal: var(--charcoal);
+  --color-mute: var(--mute);
+  --color-wash: var(--wash);
+  --color-forest: var(--forest);
+  --color-forest-deep: var(--forest-deep);
+  --color-terracotta: var(--terracotta);
+  --color-terracotta-deep: var(--terracotta-deep);
+  --color-ember: var(--ember);
+  --color-ash: var(--ash);
+  --color-hairline: var(--hairline);
+
+  /* Identity inks (deterministic per member, muted by design) */
+  --color-ink-0: var(--ink-0);
+  --color-ink-1: var(--ink-1);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-ink-4: var(--ink-4);
+  --color-ink-5: var(--ink-5);
+  --color-ink-6: var(--ink-6);
+  --color-ink-7: var(--ink-7);
+
+  /* Fonts: Lora speaks for humans, Inter for the machine */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-lora), ui-serif, Georgia, serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 18px;
+}
+
+:root {
+  /* Light — "Daylight desk" (default) */
+  --paper: #f4f1eb;
+  --side: #ebe7df;
+  --charcoal: #2c2a28;
+  --mute: rgba(44, 42, 40, 0.7);
+  --wash: rgba(58, 79, 65, 0.07);
+  --forest: #3a4f41;
+  --forest-deep: #2b3d31;
+  --terracotta: #c85a40;
+  --terracotta-deep: #a8492f;
+  --ember: #e8a87c;
+  --ash: #b7b2a8;
+  --hairline: rgba(44, 42, 40, 0.08);
+
+  /* Identity inks — muted stationery inks, never red, never neon */
+  --ink-0: #5a7263;
+  --ink-1: #75806b;
+  --ink-2: #7a6853;
+  --ink-3: #70757d;
+  --ink-4: #5c6878;
+  --ink-5: #8a744c;
+  --ink-6: #77697a;
+  --ink-7: #4c6456;
+
+  --grain-opacity: 0.028;
+  --grain-blend: multiply;
+}
+
+.dark {
+  /* Dark — "Nightfall": the same desk by lamplight. Not an inversion. */
+  --paper: #17181a;
+  --side: #212226;
+  --charcoal: #f4f1eb;
+  --mute: rgba(244, 241, 235, 0.58);
+  --wash: rgba(116, 148, 128, 0.09);
+  --forest: #4a6453;
+  --forest-deep: #5b7a66;
+  --terracotta: #e0745d;
+  --terracotta-deep: #ea8a74;
+  --ember: #eab489;
+  --ash: #6e6a63;
+  --hairline: rgba(244, 241, 235, 0.09);
+
+  --ink-0: #86a38d;
+  --ink-1: #a3ac96;
+  --ink-2: #ac9a82;
+  --ink-3: #9aa0a8;
+  --ink-4: #8b9aac;
+  --ink-5: #c0a874;
+  --ink-6: #a996b0;
+  --ink-7: #7b9a88;
+
+  --grain-opacity: 0.05;
+  --grain-blend: soft-light;
+}
+
+@layer base {
+  * {
+    @apply border-hairline outline-ring/40;
+  }
+  html {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(44, 42, 40, 0.22) transparent;
+  }
+  body {
+    @apply bg-paper text-charcoal font-sans antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background: rgba(58, 79, 65, 0.22);
+  }
+  .dark ::selection {
+    background: rgba(116, 148, 128, 0.3);
+  }
+  button,
+  a {
+    touch-action: manipulation;
+  }
+  :focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--forest) 65%, transparent);
+    outline-offset: 2px;
+  }
+}
+
+/* ---------- Paper grain: 2–3% noise on the base canvas ---------- */
+.grain {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  pointer-events: none;
+  opacity: var(--grain-opacity);
+  mix-blend-mode: var(--grain-blend);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 240px 240px;
+}
+
+/* ---------- Quiet scrollbars ---------- */
+.scroll-quiet {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(44, 42, 40, 0.18) transparent;
+}
+.scroll-quiet::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.scroll-quiet::-webkit-scrollbar-thumb {
+  background: rgba(44, 42, 40, 0.18);
+  border-radius: 3px;
+}
+.dark .scroll-quiet {
+  scrollbar-color: rgba(244, 241, 235, 0.16) transparent;
+}
+.dark .scroll-quiet::-webkit-scrollbar-thumb {
+  background: rgba(244, 241, 235, 0.16);
+}
+
+/* ============================================================
+   MOTION — physical, never decorative
+   durations: 150 state / 250 entrance / 400 overlay / 600 burn
+   standard easing: cubic-bezier(0.2, 0, 0, 1)
+   ============================================================ */
+
+/* The one intentional idle element: the seal breathes */
+@keyframes breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.022);
+  }
+}
+.mark-breathe {
+  animation: breathe 6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  transform-origin: center;
+}
+
+/* Cards settle with weight */
+@keyframes settle {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.settle {
+  animation: settle 250ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+/* Send: a slight rise, spring-tempered */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  60% {
+    transform: translateY(-1px) scale(1);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.rise {
+  animation: rise 250ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+/* S3 — the vault: seal arc fills with weight */
+@keyframes seal-arc {
+  from {
+    stroke-dashoffset: var(--seal-circumference);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes seal-press {
+  0%,
+  86% {
+    transform: scale(1);
+  }
+  92% {
+    transform: scale(0.955);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.seal-press {
+  animation: seal-press 1740ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+/* S6a — a single message burns: ember edge, char to ash, recedes */
+@keyframes msg-burn {
+  0% {
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--ember) 90%, transparent),
+      0 0 16px -4px color-mix(in oklab, var(--ember) 70%, transparent);
+  }
+  30% {
+    filter: brightness(0.86) sepia(0.22);
+  }
+  60% {
+    filter: brightness(0.66) sepia(0.34) contrast(0.92);
+    opacity: 0.85;
+    transform: translateY(-3px);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-14px);
+    filter: blur(1.5px) brightness(0.5) sepia(0.4);
+  }
+}
+.msg-burning {
+  animation: msg-burn 600ms cubic-bezier(0.2, 0, 0, 1) forwards;
+}
+
+/* S6b — the room burns: paper chars from the edges inward */
+@keyframes char-close {
+  from {
+    transform: translate(-50%, -50%) scale(3.4);
+  }
+  to {
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+@keyframes ember-rim {
+  0% {
+    opacity: 0;
+  }
+  22% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes char-veil {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes char-grain {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.5;
+  }
+}
+@keyframes burn-line-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes burn-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* Quiet pulse for connection issues — 2 cycles only, then settles */
+@keyframes dot-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.dot-pulse {
+  animation: dot-pulse 1.6s ease-in-out 3;
+}
+
+/* Reduced motion: burns and dissolves become 150ms opacity fades.
+   Mandatory, not optional. The seal holds still. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 150ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 150ms !important;
+    scroll-behavior: auto !important;
+  }
+  .msg-burning {
+    animation-name: burn-out;
+    filter: none !important;
+    transform: none !important;
+  }
+  .mark-breathe {
+    animation: none !important;
+  }
+}
+
+/* ---------- Typography helpers ---------- */
+@layer components {
+  .t-display {
+    font-family: var(--font-lora), Georgia, serif;
+    font-weight: 600;
+    font-size: 30px;
+    line-height: 36px;
+    letter-spacing: -0.01em;
+  }
+  .t-title {
+    font-family: var(--font-lora), Georgia, serif;
+    font-weight: 600;
+    font-size: 20px;
+    line-height: 28px;
+    letter-spacing: -0.005em;
+  }
+  .t-body {
+    font-family: var(--font-lora), Georgia, serif;
+    font-weight: 400;
+    font-size: 15.5px;
+    line-height: 1.5;
+  }
+  .t-label {
+    font-family: var(--font-inter), sans-serif;
+    font-weight: 500;
+    font-size: 13px;
+    letter-spacing: 0.01em;
+  }
+  .t-meta {
+    font-family: var(--font-inter), sans-serif;
+    font-weight: 400;
+    font-size: 11px;
+    letter-spacing: 0.01em;
+    color: var(--mute);
+  }
+  .t-fingerprint {
+    font-family: var(--font-plex-mono), monospace;
+    font-size: 15px;
+    letter-spacing: 0.04em;
+    font-variant-ligatures: none;
+    user-select: all;
+  }
+
+  /* ---------- Materials ---------- */
+  .shadow-float {
+    box-shadow: 0 1px 2px rgba(28, 24, 20, 0.08);
+  }
+  .composer-blur {
+    background: color-mix(in oklab, var(--paper) 82%, transparent);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+
+  /* ---------- Message bubbles: paper that may burn ---------- */
+  .bubble-other {
+    background: var(--side);
+    border: 1px solid var(--hairline);
+    border-radius: 18px;
+  }
+  .bubble-self {
+    background: color-mix(in oklab, var(--forest) 9%, var(--paper));
+    border: 1px solid color-mix(in oklab, var(--forest) 15%, transparent);
+    border-radius: 18px;
+  }
+  .dark .bubble-self {
+    background: color-mix(in oklab, var(--forest) 14%, var(--paper));
+    border-color: color-mix(in oklab, var(--forest) 22%, transparent);
+  }
+  /* A spent view-once card carries the ember at its edge. */
+  .spent-card {
+    border-radius: 10px;
+    border: 1px solid var(--hairline);
+    background: var(--paper);
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--ember) 55%, transparent);
+  }
+}
+
+.dark .shadow-float {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* ---------- Overlays & toasts inherit the paper world ---------- */
+[data-slot="sheet-overlay"],
+[data-slot="dialog-overlay"] {
+  background: rgba(30, 26, 21, 0.42);
+}
+.dark [data-slot="sheet-overlay"],
+.dark [data-slot="dialog-overlay"] {
+  background: rgba(0, 0, 0, 0.55);
+}
+.toaster {
+  font-family: var(--font-inter), sans-serif;
+  --border-radius: 12px;
+}
