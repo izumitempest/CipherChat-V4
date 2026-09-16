@@ -195,3 +195,21 @@ Priority recommendations for next phase:
 - Consider scroll-into-view of the focused field inside tall sheets on iOS (Safari usually handles it; only worth adding if field-testing shows gaps).
 - Continue standing brief: styling detail + features. Ideas parked from round 2: room-list keyboard shortcut, file-viewer Escape/focus-trap audit.
 - Remember: manual relay restart required after any edit to mini-services/relay-service/index.ts; test typing with real keystrokes; arbitrary shadow values beat shadcn base shadow-md.
+
+---
+Task ID: 18
+Agent: lead (Z.ai Code) — user request (documentation)
+
+Task: Write a detailed markdown reference of all available components, how they work, and what they do
+
+Work Log:
+- Read every component in full for accuracy: cc/ (actions, mark, sealing, burn-overlay, bubble, chat-header, composer, fields, file-viewer, invite-sheet, verification-sheet, settings-sheet, sheet-grabber, theme-toggle, sw-register, app), screens/ (landing, invite, room-list, chat), hooks (use-is-desktop, use-keyboard-inset), page.tsx/layout.tsx
+- Skimmed the data layer for exact API surfaces: store/app.ts (state shape + all actions), lib/ exports (crypto, identity, session, local, relay, format, types), globals.css (typography classes, keyframes, materials)
+- Determined actual shadcn/ui usage by import grep: only Sheet, Dialog, ContextMenu, Sonner are used; documented the rest as available-but-unused stock
+- Wrote /home/z/my-project/COMPONENTS.md (project root, beside DESIGN.md): 12 sections — architecture map, app shell, all four screens (S1/S2/S4/S5-S8 with state tables), chat surface (ChatHeader, Composer with full element/behavior table, bubble grouping + CopyMenu arm logic, FileViewer), all five sheets, both ceremony overlays (S3 vault press, S6 phase chain), the verb/action system, hooks (incl. the keyboard-inset math), styling system (tokens, typography classes, materials, motion, iOS zoom guard), shadcn inventory, data layer (store + lib + REST/relay surface), and a 10-point conventions checklist for adding new components
+- Verified after: lint clean, page loads 200 with 0 errors, dev.log clean
+
+Stage Summary:
+- COMPONENTS.md is now the third pillar of project documentation (DESIGN.md = tokens/rationale, worklog.md = history, COMPONENTS.md = the component/behavior reference)
+- Every component entry includes: file, spec screen, props/API, states, and internal mechanics
+- No code changed this round — documentation only
