@@ -109,6 +109,24 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Early burn: the author retires their own letter ahead of its clock.
+  // The sig is checked by receivers against the author's registered key —
+  // the relay stays blind and cannot forge one.
+  socket.on(
+    "message:burn",
+    (data: { roomId: string; messageId: string; senderId?: string; sig?: string }) => {
+      if (!data?.roomId || !data?.messageId) return;
+      for (const s of memberSockets(data.roomId, socket.id)) {
+        s.emit("message:burn", {
+          roomId: data.roomId,
+          messageId: data.messageId,
+          senderId: data.senderId,
+          sig: data.sig,
+        });
+      }
+    },
+  );
+
   // Presence whispers: "someone is writing" — transient, never stored.
   socket.on(
     "member:typing",

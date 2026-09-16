@@ -5,7 +5,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, Copy, Lock } from "lucide-react";
+import { ChevronDown, Copy, Hourglass, Lock, X } from "lucide-react";
 import { toast } from "sonner";
 import { ChatHeader } from "@/components/cc/chat-header";
 import { Composer } from "@/components/cc/composer";
@@ -18,6 +18,7 @@ import { Field, PasswordField } from "@/components/cc/fields";
 import { PrimaryAction, QuietAction } from "@/components/cc/actions";
 import { SealMark } from "@/components/cc/mark";
 import { getSession } from "@/lib/session";
+import { markTtlHintSeen, ttlHintSeen } from "@/lib/local";
 import { useApp, type TypingSignal } from "@/store/app";
 import { fmtTime } from "@/lib/format";
 import type { MessageView, MemberPublic } from "@/lib/types";
@@ -48,6 +49,7 @@ function ActiveRoom({ roomId }: { roomId: string }) {
   const members = useApp((s) => s.members[roomId] ?? EMPTY_MEMBERS);
   const navigate = useApp((s) => s.navigate);
   const spendViewOnce = useApp((s) => s.spendViewOnce);
+  const burnMessage = useApp((s) => s.burnMessage);
   const session = getSession(roomId);
   const isCreator = !!session?.creatorToken;
 
@@ -59,6 +61,25 @@ function ActiveRoom({ roomId }: { roomId: string }) {
   const [verifyOpen, setVerifyOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [viewing, setViewing] = useState<MessageView | null>(null);
+  // The timer explained once — the flag lives on this device.
+  const [hintRoom, setHintRoom] = useState<string | null>(() =>
+    !ttlHintSeen() && (getSession(roomId)?.defaultTtl ?? 0) > 0
+      ? roomId
+      : null,
+  );
+  // Adjusting state when the room prop changes — the sanctioned way,
+  // no effect needed. A room that already expires its letters
+  // explains itself once, quietly.
+  const [hintRoomChecked, setHintRoomChecked] = useState(roomId);
+  if (roomId !== hintRoomChecked) {
+    setHintRoomChecked(roomId);
+    setHintRoom(
+      !ttlHintSeen() && (getSession(roomId)?.defaultTtl ?? 0) > 0
+        ? roomId
+        : null,
+    );
+  }
+  const ttlHint = hintRoom === roomId;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const groups = useMessageGroups(messages);
@@ -121,6 +142,21 @@ function ActiveRoom({ roomId }: { roomId: string }) {
     }
   }, [inviteOpen, isCreator, roomId]);
 
+  const dismissTtlHint = useCallback(() => {
+    setHintRoom(null);
+    markTtlHintSeen();
+  }, []);
+
+  // A room that already expires its letters explains itself once.
+  // (Handled during render above — the state adjusts when the room
+  // prop changes, which is the sanctioned no-effect pattern.)
+
+  // The hint never lingers — it states its fact and leaves.
+  useEffect(() => {
+    if (!ttlHint) return;
+    const t = setTimeout(dismissTtlHint, 10_000);
+    return () => clearTimeout(t);
+  }, [ttlHint, dismissTtlHint]);
   const solo = members.filter((m) => m.connected !== false).length <= 1;
   const empty = messages.length === 0;
 
@@ -189,7 +225,11 @@ function ActiveRoom({ roomId }: { roomId: string }) {
                 </div>
               )
             ) : (
-              <TimeAwareMessages groups={groups} onOpenFile={(m) => setViewing(m)} />
+              <TimeAwareMessages
+                groups={groups}
+                onOpenFile={(m) => setViewing(m)}
+                onBurnMessage={(m) => void burnMessage(roomId, m.id)}
+              />
             )}
           </div>
         </div>
@@ -224,7 +264,25 @@ function ActiveRoom({ roomId }: { roomId: string }) {
           always there so nothing jumps when a whisper begins. */}
       <TypingLine roomId={roomId} />
 
-      <Composer key={roomId} />
+      {ttlHint ? (
+        <div className="settle mx-auto flex w-full max-w-[720px] items-center gap-2 px-5 pb-1.5 pt-2">
+          <Hourglass className="size-3.5 shrink-0 text-terracotta" aria-hidden />
+          <p className="t-meta min-w-0 flex-1">
+            Messages set to expire burn themselves when the clock runs out —
+            for everyone.
+          </p>
+          <button
+            type="button"
+            aria-label="Dismiss"
+            onClick={dismissTtlHint}
+            className="relative flex size-8 shrink-0 items-center justify-center rounded-[8px] text-mute transition-colors duration-150 hover:bg-wash hover:text-charcoal before:absolute before:-inset-1.5 before:content-['']"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+      ) : null}
+
+      <Composer key={roomId} onTtlArmed={() => setHintRoom(roomId)} />
 
       <InviteSheet roomId={roomId} open={inviteOpen} onOpenChange={setInviteOpen} />
       <VerificationSheet roomId={roomId} open={verifyOpen} onOpenChange={setVerifyOpen} />
@@ -245,9 +303,11 @@ function ActiveRoom({ roomId }: { roomId: string }) {
 function TimeAwareMessages({
   groups,
   onOpenFile,
+  onBurnMessage,
 }: {
   groups: ReturnType<typeof useMessageGroups>;
   onOpenFile: (m: MessageView) => void;
+  onBurnMessage: (m: MessageView) => void;
 }) {
   const rendered: React.ReactNode[] = [];
   let lastTs: number | null = null;
@@ -267,6 +327,7 @@ function TimeAwareMessages({
           message={message}
           position={position}
           onOpenFile={onOpenFile}
+          onBurn={() => onBurnMessage(message)}
         />
       ),
     );

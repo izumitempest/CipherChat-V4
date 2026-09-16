@@ -10,6 +10,7 @@ import {
   Copy,
   Download,
   FileText,
+  Flame,
   Hourglass,
   Image as ImageIcon,
   Mail,
@@ -20,17 +21,28 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { fmtBytes, fmtTime, fmtTtlRemaining } from "@/lib/format";
 import type { MessageView } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-/* Right-click (desktop) or press-and-hold (touch) — the one quiet
- * affordance a letter needs: taking the words with you. */
-function CopyMenu({ message, children }: { message: MessageView; children: React.ReactNode }) {
+/* Right-click (desktop) or press-and-hold (touch) — the quiet
+ * affordances a letter needs: taking the words with you, or burning
+ * the page you wrote. Only your own messages can burn. */
+function CopyMenu({
+  message,
+  onBurn,
+  children,
+}: {
+  message: MessageView;
+  onBurn?: () => void;
+  children: React.ReactNode;
+}) {
   const isFile = message.kind === "file" && message.file;
   const value = isFile ? message.file!.name : message.text ?? "";
+  const [armed, setArmed] = useState(false);
   async function copyText() {
     try {
       await navigator.clipboard.writeText(value);
@@ -39,8 +51,12 @@ function CopyMenu({ message, children }: { message: MessageView; children: React
       toast("Copying wasn't permitted by the browser");
     }
   }
+  function burn() {
+    onBurn?.();
+    toast("The message was burned for everyone");
+  }
   return (
-    <ContextMenu>
+    <ContextMenu onOpenChange={(open) => !open && setArmed(false)}>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent className="min-w-[10rem] rounded-[12px] border-hairline bg-paper p-1 shadow-[0_1px_2px_rgba(28,24,20,0.08)]">
         <ContextMenuItem
@@ -50,6 +66,31 @@ function CopyMenu({ message, children }: { message: MessageView; children: React
           <Copy className="size-3.5 text-mute" aria-hidden />
           {isFile ? "Copy file name" : "Copy text"}
         </ContextMenuItem>
+        {onBurn ? (
+          <>
+            <ContextMenuSeparator className="my-1 bg-hairline" />
+            <ContextMenuItem
+              onSelect={(e) => {
+                if (!armed) {
+                  // First press asks the question; the second answers it.
+                  e.preventDefault();
+                  setArmed(true);
+                  return;
+                }
+                burn();
+              }}
+              className={cn(
+                "gap-2 rounded-[8px] px-2.5 py-2 font-sans text-[13px] transition-colors duration-150 focus:text-paper data-highlighted:text-paper",
+                armed
+                  ? "bg-terracotta text-paper focus:bg-terracotta data-highlighted:bg-terracotta"
+                  : "text-terracotta focus:bg-terracotta/10 data-highlighted:bg-terracotta/10",
+              )}
+            >
+              <Flame className="size-3.5" aria-hidden />
+              {armed ? "Burn for everyone" : "Burn message"}
+            </ContextMenuItem>
+          </>
+        ) : null}
       </ContextMenuContent>
     </ContextMenu>
   );
@@ -91,10 +132,12 @@ export function MessageBubble({
   message,
   position,
   onOpenFile,
+  onBurn,
 }: {
   message: MessageView;
   position: BubblePosition;
   onOpenFile: (message: MessageView) => void;
+  onBurn?: () => void;
 }) {
   const self = message.self;
   const burning = message.status === "burning";
@@ -123,7 +166,7 @@ export function MessageBubble({
           </p>
         ) : null}
 
-        <CopyMenu message={message}>
+        <CopyMenu message={message} onBurn={self && message.status === "sent" ? onBurn : undefined}>
           <div
             className={cn(
               "rise px-3.5 py-2",

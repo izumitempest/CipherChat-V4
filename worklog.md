@@ -158,3 +158,40 @@ Priority recommendations for next phase:
 - File viewer: add keyboard Escape close + focus trap audit if not present.
 - Optional deep polish: skeleton shimmer for the room list first paint on very slow devices (currently instant from localStorage).
 - Remember: test typing indicators with real keystrokes; use arbitrary shadow values to beat shadcn base shadow-md.
+
+---
+Task ID: 16, 17
+Agent: lead (Z.ai Code) — webDevReview round 3 (user-reported bug)
+
+Task: Fix "on mobile, the keyboard covers the modal/bottom popup" + explain the apparent loop
+
+Current project status / assessment:
+- Both services healthy (Next :3000 single, relay :3003 single bun --hot). lint clean, tsc src/ clean, dev.log clean.
+- Root cause of the bug: all mobile sheets are Radix dialogs with `position: fixed; bottom: 0`, and the chat shell is `h-dvh`. iOS Safari OVERLAYS the page with the keyboard (layout viewport never resizes) → keyboard rises over the sheet inputs and the composer. Android Chrome (default `interactive-widget=resizes-visual`) keeps fixed elements anchored to the un-resized ICB too.
+- The "stuck in a loop" question: the mandated 15-min `webDevReview` cron job fires a fresh review round every 15 minutes; each round's agent-browser QA produces the wall of identical `GET / 200` lines in dev.log. It is scheduled work, not a deadlock. Cron job "CipherChat webDevReview (every 15 min)" verified present with the exact mandated description (job_id 390512).
+
+Work Log (done / verified):
+1. `src/hooks/use-keyboard-inset.ts` (NEW): global hook mounted once in CipherChatApp. Tracks focus in/out on input/textarea/select/contenteditable; while editing, measures the keyboard's covered height via the standard visual-viewport formula (documentElement.clientHeight − vv.height − vv.offsetTop, clamped 0..60% layout height) on vv resize/scroll + window resize, and publishes it as `--kb-inset` (px) on <html>. No editable focused → stays 0px, so desktop/headless/URL-bar collapse never false-positives (browser-verified: focus in headless leaves var at 0px). rAF-batched; focusout re-checks activeElement after a tick so focus hops between fields don't flap.
+2. `layout.tsx`: viewport meta now includes `interactive-widget=resizes-content` — Android Chrome resizes the layout viewport for the keyboard, so dvh shells + fixed sheets rise natively (kb-inset reads ~0 there; the two mechanisms never double-count). Verified served in HTML meta tag.
+3. `ui/sheet.tsx` bottom variant: `bottom-0` → `bottom-[var(--kb-inset,0px)]` + `max-h-[calc(100dvh-var(--kb-inset,0px))]` + `transition-[bottom,max-height] duration-[250ms]`. `bottom` is a position property → composes cleanly with the slide keyframes (no transform conflict). Tall sheets now cap at the visible viewport and scroll inside.
+4. `cc/app.tsx`: shell gets `pb-[var(--kb-inset,0px)] transition-[padding-bottom] duration-[250ms]` — the composer, typing strip and message column rise above the keyboard; the message scroller shrinks to the visible area (scrollTop clamps naturally: stays pinned to bottom if it was at bottom).
+5. Sheets hardened for the new max-h cap: invite, create (landing), unlock (room-list) SheetContents now `overflow-y-auto overscroll-contain scroll-quiet` (settings + verification already had internal scroll).
+6. globals.css: (a) `--kb-inset: 0px` default in :root; (b) iOS input-zoom guard — `@supports (-webkit-touch-callout: none) and (pointer: coarse) { input, textarea, select { font-size: 16px } }`, unlayered so it outranks Tailwind utilities. This kills Safari's focus-zoom on 15/15.5px fields which magnified the keyboard-cover problem. Desktop Safari unaffected (pointer: fine).
+7. QA (agent-browser 390×844, keyboard simulated by publishing exactly what the hook publishes on-device: `--kb-inset: 301px`):
+   - Create sheet: bottom 844 → 543 (= 844−301), password field bottom 408 (fully visible), max-h 543.
+   - Chat: shell padding-bottom 301px, composer bottom 832 → 531, message column shrank 844→448 bottom edge; typed + SENT a real message post-fix (bubble rendered, "Typing above the keyboard" + time).
+   - Settings sheet (tallest, has input): bottom 543, top 0, max-h 543, overflow-y auto — Burn button below the fold inside the scrollable sheet (by design: destructive action not adjacent to keyboard).
+   - Blur → hook resets var to 0px → sheet/composer settle back (844/832) — verified on all three surfaces.
+   - Desktop 1280×800: shell padding 0, layout unchanged.
+   - VLM review of 4 screenshots: no overlap/clipping/broken layout; composer + typed text fully visible above keyboard zone.
+   - 0 page errors, 0 console errors; lint clean; tsc src/ errors 0; dev.log clean.
+
+Unresolved issues / risks:
+- The visualViewport inset formula is the standard approximation; if a future device reports visualViewport oddly (foldables, split-screen), `--kb-inset` could mis-measure — it is clamped (0..60% of layout height) and only active while an editable is focused, so worst case is a conservative offset.
+- Pinch-zoomed typing (vv.scale ≠ 1) is not compensated (accepted; same as most keyboard-aware libs).
+- Real-device iOS/Android validation still recommended when a physical device is available (headless cannot summon a true virtual keyboard; the published-var simulation was verified instead, which exercises the identical CSS path).
+
+Priority recommendations for next phase:
+- Consider scroll-into-view of the focused field inside tall sheets on iOS (Safari usually handles it; only worth adding if field-testing shows gaps).
+- Continue standing brief: styling detail + features. Ideas parked from round 2: room-list keyboard shortcut, file-viewer Escape/focus-trap audit.
+- Remember: manual relay restart required after any edit to mini-services/relay-service/index.ts; test typing with real keystrokes; arbitrary shadow values beat shadcn base shadow-md.

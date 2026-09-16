@@ -193,6 +193,17 @@ export function canonicalFor(payload: {
   ].join("|");
 }
 
+/** Canonical string for an early-burn announcement. Only the author's
+ *  key can produce a valid signature over it, so no one can burn
+ *  someone else's letter. */
+export function burnCanonical(
+  roomId: string,
+  senderId: string,
+  messageId: string,
+): string {
+  return ["v1", "burn", roomId, senderId, messageId].join("|");
+}
+
 export async function signCanonical(
   privJwk: JsonWebKey,
   canonical: string,

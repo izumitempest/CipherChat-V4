@@ -111,7 +111,7 @@ function CreateRoomSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="rounded-t-[18px] border-t border-hairline bg-paper px-5 pb-8 pt-5">
+      <SheetContent side="bottom" className="overflow-y-auto overscroll-contain scroll-quiet rounded-t-[18px] border-t border-hairline bg-paper px-5 pb-8 pt-5">
         <SheetGrabber />
         <SheetHeader className="p-0 text-left">
           <SheetTitle className="t-title">Create a room</SheetTitle>

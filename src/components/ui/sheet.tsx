@@ -66,7 +66,11 @@ function SheetContent({
           side === "top" &&
             "data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top inset-x-0 top-0 h-auto border-b",
           side === "bottom" &&
-            "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom inset-x-0 bottom-0 h-auto border-t",
+            // Keyboard-aware: the sheet sits above the on-screen
+            // keyboard (--kb-inset, 0px when none) and never grows
+            // past the visible viewport. `bottom` is a position
+            // property, so it composes with the slide keyframes.
+            "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom inset-x-0 bottom-[var(--kb-inset,0px)] max-h-[calc(100dvh-var(--kb-inset,0px))] h-auto border-t transition-[bottom,max-height] duration-[250ms]",
           className
         )}
         {...props}

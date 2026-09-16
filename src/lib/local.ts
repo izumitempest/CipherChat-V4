@@ -88,6 +88,27 @@ export function saveVerified(roomId: string, memberIds: string[]): void {
   localStorage.setItem(`cc.verified.${roomId}`, JSON.stringify(memberIds));
 }
 
+/* ---------------- one-time education ---------------- */
+
+const TTL_HINT_KEY = "cc.ttlHintShown";
+
+/** Has the timer already explained itself on this device? */
+export function ttlHintSeen(): boolean {
+  try {
+    return !!localStorage.getItem(TTL_HINT_KEY);
+  } catch {
+    return false;
+  }
+}
+
+export function markTtlHintSeen(): void {
+  try {
+    localStorage.setItem(TTL_HINT_KEY, "1");
+  } catch {
+    /* private mode — it will show again next session */
+  }
+}
+
 /* ---------------- per-room local settings ---------------- */
 
 export interface RoomSettings {

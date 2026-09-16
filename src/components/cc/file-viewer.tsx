@@ -5,11 +5,12 @@
 
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Download, FileText, X } from "lucide-react";
 import { downloadFile } from "@/components/cc/bubble";
 import { fmtBytes } from "@/lib/format";
 import type { MessageView } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 export function FileViewer({
   message,
@@ -20,6 +21,10 @@ export function FileViewer({
   onClose: () => void;
   onSpent: (message: MessageView) => void;
 }) {
+  const [zoomFor, setZoomFor] = useState<string | null>(null);
+  // Derived: zoom belongs to the file being viewed — a new file
+  // starts at arm's length, no effect needed.
+  const zoomed = !!message && message.id === zoomFor;
   useEffect(() => {
     if (!message?.viewOnce) return;
     onSpent(message);
@@ -56,12 +61,32 @@ export function FileViewer({
           <X className="size-5" />
         </button>
       </div>
-      <div className="flex flex-1 items-center justify-center overflow-hidden px-5 pb-10">
+      <div
+        className={cn(
+          "flex flex-1 justify-center overflow-auto px-5 pb-10",
+          zoomed ? "items-start" : "items-center",
+        )}
+      >
         {isImage && file.dataB64 ? (
           <img
             src={`data:${file.mime};base64,${file.dataB64}`}
             alt={file.name}
-            className="settle max-h-full max-w-full rounded-[12px] border border-hairline object-contain shadow-float"
+            onClick={() => setZoomFor(zoomed ? null : message.id)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setZoomFor(zoomed ? null : message.id);
+              }
+            }}
+            tabIndex={0}
+            role="button"
+            aria-label={`${file.name} — ${zoomed ? "zoom out" : "zoom in"}`}
+            className={cn(
+              "settle rounded-[12px] border border-hairline object-contain shadow-float outline-none focus-visible:ring-2 focus-visible:ring-forest/45 focus-visible:ring-offset-2 focus-visible:ring-offset-paper",
+              zoomed
+                ? "h-auto max-h-none w-[220%] max-w-none cursor-zoom-out"
+                : "max-h-full max-w-full cursor-zoom-in",
+            )}
           />
         ) : (
           <div className="settle w-full max-w-[320px] rounded-[18px] border border-hairline bg-side p-6 text-center">

@@ -51,6 +51,10 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  // Android Chrome: resize the layout viewport for the on-screen
+  // keyboard so fixed bottom sheets and dvh shells rise above it.
+  // iOS ignores this and is handled by --kb-inset (use-keyboard-inset).
+  interactiveWidget: "resizes-content",
 };
 
 export default function RootLayout({

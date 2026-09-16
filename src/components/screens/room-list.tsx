@@ -239,7 +239,7 @@ export function UnlockSheet({
     <Sheet open={!!card} onOpenChange={(v) => (v ? null : close())}>
       <SheetContent
         side={isDesktop ? "right" : "bottom"}
-        className="rounded-t-[18px] border-hairline bg-paper px-5 pb-8 pt-5 md:max-w-[440px] md:rounded-t-none md:rounded-l-[18px]"
+        className="overflow-y-auto overscroll-contain scroll-quiet rounded-t-[18px] border-hairline bg-paper px-5 pb-8 pt-5 md:max-w-[440px] md:rounded-t-none md:rounded-l-[18px]"
       >
         {!isDesktop && <SheetGrabber />}
         <SheetHeader className="p-0 text-left">

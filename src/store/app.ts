@@ -18,6 +18,7 @@ import {
   signCanonical,
   verifyCanonical,
   canonicalFor,
+  burnCanonical,
   encryptJson,
   decryptJson,
   makeVerifier,
@@ -99,6 +100,7 @@ interface AppState {
   ) => Promise<void>;
   emitTyping: (roomId: string) => void;
   spendViewOnce: (roomId: string, messageId: string) => void;
+  burnMessage: (roomId: string, messageId: string) => Promise<void>;
   burnRoom: (roomId: string) => Promise<void>;
   finishRoomBurn: (roomId: string) => void;
   leaveRoom: (roomId: string) => Promise<void>;
@@ -555,6 +557,38 @@ export const useApp = create<AppState>()((set, get) => ({
     getRelay().emit("message:spent", { roomId, messageId });
   },
 
+  /* --------------------------------------------- burn-one ---- */
+
+  /** Retire one of your own letters ahead of its clock. The announce
+   *  is signed, so only the author can do this — nobody else can
+   *  burn a message they did not write. */
+  burnMessage: async (roomId, messageId) => {
+    const { activeRoomId, device } = get();
+    if (!device) return;
+    const target = roomId ?? activeRoomId;
+    const session = getSession(target);
+    const msg = (get().messages[target] ?? []).find((m) => m.id === messageId);
+    if (!session || !msg || !msg.self || msg.kind === "system") return;
+
+    const sig = await signCanonical(
+      device.privJwk,
+      burnCanonical(target, session.memberId, messageId),
+    );
+    getRelay().emit("message:burn", {
+      roomId: target,
+      messageId,
+      senderId: session.memberId,
+      sig,
+    });
+
+    const t = burnTimers.get(messageId);
+    if (t) {
+      clearTimeout(t);
+      burnTimers.delete(messageId);
+    }
+    onMessageBurn(target, messageId);
+  },
+
   /* ------------------------------------------------- burn ---- */
 
   burnRoom: async (roomId) => {
@@ -822,6 +856,49 @@ function wireRelay(
   relay.on("message:spent", ({ roomId, messageId }: { roomId: string; messageId: string }) => {
     patchView(roomId, messageId, { spent: true });
   });
+
+  relay.on(
+    "message:burn",
+    async ({
+      roomId,
+      messageId,
+      senderId,
+      sig,
+    }: {
+      roomId: string;
+      messageId: string;
+      senderId?: string;
+      sig?: string;
+    }) => {
+      const session = getSession(roomId);
+      if (!session || !senderId) return;
+      const target = (useApp.getState().messages[roomId] ?? []).find(
+        (m) => m.id === messageId,
+      );
+      if (!target || target.kind === "system") return;
+
+      const registry = useApp.getState().members[roomId] ?? [];
+      const author = registry.find((m) => m.memberId === senderId);
+      const ok =
+        !!author?.pubkey &&
+        !!sig &&
+        target.senderId === senderId &&
+        (await verifyCanonical(author.pubkey, burnCanonical(roomId, senderId, messageId), sig));
+      if (!ok) {
+        addSystemLine(
+          roomId,
+          `A burn request claiming to be from ${author?.alias ?? "an unknown member"} was rejected — signature invalid.`,
+        );
+        return;
+      }
+      const t = burnTimers.get(messageId);
+      if (t) {
+        clearTimeout(t);
+        burnTimers.delete(messageId);
+      }
+      onMessageBurn(roomId, messageId);
+    },
+  );
 
   relay.on("room:burned", ({ roomId }: { roomId: string }) => {
     const session = getSession(roomId);

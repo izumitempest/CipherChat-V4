@@ -15,11 +15,17 @@ import { RoomListColumn } from "@/components/screens/room-list";
 import { ChatScreen } from "@/components/screens/chat";
 import { parseRoomCode } from "@/lib/identity";
 import { useApp } from "@/store/app";
+import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { cn } from "@/lib/utils";
 
 export default function CipherChatApp() {
   const init = useApp((s) => s.init);
   const ready = useApp((s) => s.ready);
+
+  // Publish the keyboard's covered height as --kb-inset for the
+  // shell and every bottom sheet (iOS Safari overlays the page
+  // instead of resizing it).
+  useKeyboardInset();
 
   useEffect(() => {
     void init();
@@ -68,10 +74,12 @@ function Screens() {
   }
 
   // The desk and the room share a layout: sidebar on desktop,
-  // single column on mobile.
+  // single column on mobile. Padding-bottom = the keyboard's covered
+  // height (iOS): the composer and message column rise above it and
+  // the scroll area shrinks to the visible viewport.
   const inRoom = screen === "chat" && activeRoomId;
   return (
-    <div className="flex h-dvh overflow-hidden bg-paper">
+    <div className="flex h-dvh overflow-hidden bg-paper pb-[var(--kb-inset,0px)] transition-[padding-bottom] duration-[250ms]">
       <div
         className={cn(
           "h-full w-full shrink-0 md:w-[320px] md:border-r md:border-hairline",

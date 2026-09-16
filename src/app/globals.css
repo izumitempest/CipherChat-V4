@@ -94,6 +94,12 @@
 
   --grain-opacity: 0.028;
   --grain-blend: multiply;
+
+  /* The on-screen keyboard's covered height, published by
+     use-keyboard-inset while an editable field is focused. 0px on
+     desktop, on Android (native resizes-content) and whenever no
+     field is focused. Consumed by the app shell and bottom sheets. */
+  --kb-inset: 0px;
 }
 
 .dark {
@@ -471,4 +477,21 @@
 .toaster {
   font-family: var(--font-inter), sans-serif;
   --border-radius: 12px;
+}
+
+/* ---------- The keyboard, on paper ----------
+   iOS Safari zooms the page when an input smaller than 16px is
+   focused, which magnifies the "keyboard covers the sheet" problem
+   and knocks fixed surfaces sideways. Fields are set at 15–15.5px,
+   so on touch WebKit we hold them at 16px while typing — the half
+   pixel is invisible, the zoom jump is not. Unlayered on purpose:
+   this outranks the Tailwind utility layer. */
+@supports (-webkit-touch-callout: none) {
+  @media (pointer: coarse) {
+    input,
+    textarea,
+    select {
+      font-size: 16px;
+    }
+  }
 }

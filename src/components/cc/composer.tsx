@@ -11,6 +11,7 @@ import { ArrowUp, Eye, Hourglass, Paperclip, X } from "lucide-react";
 import { toast } from "sonner";
 import { FILE_LIMIT, useApp } from "@/store/app";
 import { getSession } from "@/lib/session";
+import { ttlHintSeen } from "@/lib/local";
 import { TTL_STEPS, type TtlChoice } from "@/lib/types";
 import { fmtBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -24,7 +25,7 @@ export interface Attachment {
 
 export const MESSAGE_CHAR_LIMIT = 4000;
 
-export function Composer() {
+export function Composer({ onTtlArmed }: { onTtlArmed?: () => void }) {
   const roomId = useApp((s) => s.activeRoomId);
   const sendMessage = useApp((s) => s.sendMessage);
   const emitTyping = useApp((s) => s.emitTyping);
@@ -59,7 +60,10 @@ export function Composer() {
     const next = TTL_STEPS[(idx + 1) % TTL_STEPS.length];
     setTtl(next.value);
     if (next.value !== 0) {
-      toast(`Messages now expire in ${next.label.toLowerCase()}`);
+      // The first time the timer is armed, the quiet strip above the
+      // composer explains what expiry means — instead of a toast.
+      if (!ttlHintSeen() && onTtlArmed) onTtlArmed();
+      else toast(`Messages now expire in ${next.label.toLowerCase()}`);
     }
   }
 
