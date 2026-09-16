@@ -126,3 +126,35 @@ Priority recommendations for next phase:
 - PWA installability: minimal no-cache service worker (manifest + icons already exist).
 - Optional: keyboard shortcut hints (Escape closes sheets — already native via Radix); "delivered" state on self messages beyond relay ack if a peer-ack protocol is desired (design decision needed: brief says quiet).
 - Remember: manual relay restart required after any edit to mini-services/relay-service/index.ts.
+
+---
+Task ID: 13, 14, 15
+Agent: lead (Z.ai Code) — webDevReview round 2 (cron)
+
+Task: Status assessment + QA sweep + feature round (scroll-to-bottom affordance, message copy menu, PWA service worker, invite sheet layout fix)
+
+Current project status / assessment:
+- Both services healthy on start: Next.js :3000 (single), relay :3003 (single bun --hot process). dev.log clean (200/201s only).
+- Golden-path E2E re-verified with two live sessions through gateway :81: landing → create room → invite link → second session joins (S8 empty state correct) → bidirectional E2E messaging with signature verification → typing whisper works with real keystrokes (NOTE: synthetic `input` events via eval do NOT trigger React onChange — always test typing with agent-browser `type` command).
+- VLM design review round on the current state found: invite sheet password wraps to 2 lines on 390px with misaligned action buttons (real, fixed this round); mobile sheet cutoff claim (false positive — full-page screenshot artifact; measured dialog 435px, note bottom 812 < 844); header density (acceptable, 44px targets already).
+
+Work Log (done / verified):
+1. Invite sheet restructure (invite-sheet.tsx): actions moved to the label row (Copy on link; Show/Hide + Copy on password) with -my-2 compensation; value boxes full-width break-all mono — long passwords now fit one line on 390px (verified: pwLines=1), boxes pixel-aligned (labels/boxes x=861, widths 399/399), link fully visible (trust). Revealed password gets select-all for manual copy.
+2. Scroll-to-bottom affordance (chat.tsx): messages area wrapped in relative container; quiet pill (bg-side, hairline, shadow-float, h-11, rounded-full, bottom-3 centered to the MESSAGE AREA not viewport) appears when >220px from bottom AND content overflows; shows "Latest" w/ ChevronDown (forest) or "N new messages" w/ forest dot when peers' messages arrive below the fold (system/self messages excluded from count — they auto-scroll); click → smooth scroll (prefers-reduced-motion → auto), resets count; settle entrance. Centering verified via bounding boxes (Tailwind v4 translate property composes with settle keyframe transform — no conflict).
+3. Message copy context menu (bubble.tsx): CopyMenu wraps every bubble (text + file cards); right-click on desktop, press-and-hold on mobile (Radix ContextMenu); single quiet item "Copy text" / "Copy file name" + toast; styled as paper: rounded-[12px], border-hairline, bg-paper (nightfall adapts), single soft shadow via arbitrary value shadow-[0_1px_2px_rgba(28,24,20,0.08)] — IMPORTANT: custom class shadow-float LOSES to the base component's shadow-md because tailwind utilities layer beats components layer; use arbitrary values to win tailwind-merge conflicts.
+4. PWA service worker (public/sw.js + src/components/cc/sw-register.tsx registered in layout): network-first navigations (cache only when offline), stale-while-revalidate for /_next/static, /icons, /fonts; NEVER caches /api/ or socket.io — ephemerality preserved; versioned caches (cipherchat-v1-*) cleaned on activate; registers after 1.2s delay, failures silent. Verified: registration active, both caches created, sw.js served 200.
+- Verified in both themes: pill, menu (radius 12px + exact spec shadow + nightfall bg confirmed via computed styles), invite sheet.
+- lint clean; tsc src/ errors 0 (remaining tsc errors are pre-existing in examples/ and skills/ only); no console/page errors; dev.log clean.
+
+VLM false positives this round (do not "fix"): jump pill/menu overlapping message content behind them (overlay-by-design); a stale light-mode screenshot misread as dark-mode failure; suggestion to tighten bubble line-height contradicts the brief (Lora 15.5/1.5 is the signature choice — messages are letters).
+
+Unresolved issues / risks:
+- None open. Known accepted: offline members miss relayed messages (by design); typing whisper needs both online; relay restart drops presence briefly.
+- The relay was NOT edited this round — no manual restart needed. If mini-services/relay-service/index.ts is ever edited: kill old PIDs first, verify single listener on :3003 (bun --hot does not reliably reload socket handlers).
+
+Priority recommendations for next phase:
+- Room list: quiet keyboard shortcut (g then r or simply Escape from chat → rooms) — low value, optional.
+- Consider a "quiet hours" hint: when a room's default TTL is 5m, show a one-time hint chip near the composer explaining messages vanish (educates without nagging).
+- File viewer: add keyboard Escape close + focus trap audit if not present.
+- Optional deep polish: skeleton shimmer for the room list first paint on very slow devices (currently instant from localStorage).
+- Remember: test typing indicators with real keystrokes; use arbitrary shadow values to beat shadcn base shadow-md.

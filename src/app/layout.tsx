@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Lora, Inter, IBM_Plex_Mono } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
+import { SwRegister } from "@/components/cc/sw-register";
 import "./globals.css";
 
 const lora = Lora({
@@ -67,6 +68,7 @@ export default function RootLayout({
           {/* Paper grain — the whole world is paper, even at night */}
           <div className="grain" aria-hidden="true" />
           <Toaster position="top-center" />
+          <SwRegister />
         </ThemeProvider>
       </body>
     </html>

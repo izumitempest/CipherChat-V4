@@ -4,8 +4,8 @@
 
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Copy, Lock } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronDown, Copy, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { ChatHeader } from "@/components/cc/chat-header";
 import { Composer } from "@/components/cc/composer";
@@ -63,12 +63,52 @@ function ActiveRoom({ roomId }: { roomId: string }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const groups = useMessageGroups(messages);
 
+  /* The jump affordance — present only when the newest line is out
+   * of sight. Counts what arrived below the fold while reading. */
+  const [showJump, setShowJump] = useState(false);
+  const [newBelow, setNewBelow] = useState(0);
+  const nearBottomRef = useRef(true);
+  const prevCountRef = useRef(messages.length);
+
+  const readScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 220;
+    nearBottomRef.current = near;
+    setShowJump(!near && el.scrollHeight > el.clientHeight + 80);
+    if (near) setNewBelow(0);
+  }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.addEventListener("scroll", readScroll, { passive: true });
+    return () => el.removeEventListener("scroll", readScroll);
+  }, [readScroll]);
+
+  const jumpToLatest = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollTo({ top: el.scrollHeight, behavior: reduced ? "auto" : "smooth" });
+    setNewBelow(0);
+  }, []);
+
   // Fresh scroll to the newest line as messages arrive.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
+    const grew = messages.length - prevCountRef.current;
+    prevCountRef.current = messages.length;
+    const last = messages[messages.length - 1];
+    // Something arrived below the fold while reading — count it,
+    // stay put, and let the pill carry the news.
+    if (grew > 0 && !nearBottomRef.current && last && !last.self && last.kind !== "system") {
+      setNewBelow((n) => n + grew);
+      return;
+    }
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 220;
-    if (nearBottom || messages[messages.length - 1]?.self) {
+    if (nearBottom || last?.self) {
       el.scrollTop = el.scrollHeight;
     }
   }, [messages]);
@@ -105,52 +145,79 @@ function ActiveRoom({ roomId }: { roomId: string }) {
         onSettings={() => setSettingsOpen(true)}
       />
 
-      <div
-        ref={scrollRef}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain scroll-quiet"
-        role="log"
-        aria-live="polite"
-        aria-label="Messages"
-      >
-        <div className="mx-auto w-full max-w-[720px] px-4 pb-5 pt-4">
-          {empty ? (
-            solo && isCreator ? (
-              /* The creator's empty room: the verb is the invite. */
-              <div className="settle flex flex-col items-center px-6 pb-16 pt-[16vh] text-center">
-                <SealMark size={40} className="opacity-70" />
-                <p className="t-body mt-6 max-w-[300px]">
-                  Invite someone to begin.
-                </p>
-                <p className="mt-1.5 max-w-[320px] font-sans text-[13px] leading-[19px] text-mute">
-                  Share the link — and send the password through a different
-                  channel.
-                </p>
-                <PrimaryAction className="mt-7" onClick={copyInviteLink}>
-                  <Copy className="size-4" aria-hidden />
-                  Copy invite link
-                </PrimaryAction>
-                <QuietAction className="mt-2" onClick={() => setInviteOpen(true)}>
-                  Show the password
-                </QuietAction>
-              </div>
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={scrollRef}
+          className="h-full overflow-y-auto overscroll-contain scroll-quiet"
+          role="log"
+          aria-live="polite"
+          aria-label="Messages"
+        >
+          <div className="mx-auto w-full max-w-[720px] px-4 pb-5 pt-4">
+            {empty ? (
+              solo && isCreator ? (
+                /* The creator's empty room: the verb is the invite. */
+                <div className="settle flex flex-col items-center px-6 pb-16 pt-[16vh] text-center">
+                  <SealMark size={40} className="opacity-70" />
+                  <p className="t-body mt-6 max-w-[300px]">
+                    Invite someone to begin.
+                  </p>
+                  <p className="mt-1.5 max-w-[320px] font-sans text-[13px] leading-[19px] text-mute">
+                    Share the link — and send the password through a different
+                    channel.
+                  </p>
+                  <PrimaryAction className="mt-7" onClick={copyInviteLink}>
+                    <Copy className="size-4" aria-hidden />
+                    Copy invite link
+                  </PrimaryAction>
+                  <QuietAction className="mt-2" onClick={() => setInviteOpen(true)}>
+                    Show the password
+                  </QuietAction>
+                </div>
+              ) : (
+                /* S8 — the joiner's empty room: the product statement. */
+                <div className="settle flex flex-col items-center px-6 pb-16 pt-[16vh] text-center">
+                  <SealMark size={40} className="opacity-70" />
+                  <p className="t-body mt-6 max-w-[340px]">
+                    You won&rsquo;t see messages from before you joined.
+                    That&rsquo;s how this works.
+                  </p>
+                  <p className="mt-1.5 max-w-[320px] font-sans text-[13px] leading-[19px] text-mute">
+                    Everything from this moment on is encrypted and, if set to
+                    expire, will destroy itself.
+                  </p>
+                </div>
+              )
             ) : (
-              /* S8 — the joiner's empty room: the product statement. */
-              <div className="settle flex flex-col items-center px-6 pb-16 pt-[16vh] text-center">
-                <SealMark size={40} className="opacity-70" />
-                <p className="t-body mt-6 max-w-[340px]">
-                  You won&rsquo;t see messages from before you joined.
-                  That&rsquo;s how this works.
-                </p>
-                <p className="mt-1.5 max-w-[320px] font-sans text-[13px] leading-[19px] text-mute">
-                  Everything from this moment on is encrypted and, if set to
-                  expire, will destroy itself.
-                </p>
-              </div>
-            )
-          ) : (
-            <TimeAwareMessages groups={groups} onOpenFile={(m) => setViewing(m)} />
-          )}
+              <TimeAwareMessages groups={groups} onOpenFile={(m) => setViewing(m)} />
+            )}
+          </div>
         </div>
+
+        {showJump ? (
+          <button
+            type="button"
+            onClick={jumpToLatest}
+            aria-label={
+              newBelow > 0
+                ? `Scroll to ${newBelow} new ${newBelow === 1 ? "message" : "messages"}`
+                : "Scroll to the latest messages"
+            }
+            className="settle absolute bottom-3 left-1/2 flex h-11 -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline bg-side px-4 font-sans text-[12.5px] font-medium text-charcoal shadow-float transition duration-150 hover:border-forest/30 hover:bg-wash active:scale-[0.97]"
+          >
+            {newBelow > 0 ? (
+              <>
+                <span className="size-1.5 rounded-full bg-forest" aria-hidden />
+                {newBelow} new {newBelow === 1 ? "message" : "messages"}
+              </>
+            ) : (
+              <>
+                <ChevronDown className="size-4 text-forest" aria-hidden />
+                Latest
+              </>
+            )}
+          </button>
+        ) : null}
       </div>
 
       {/* Reserved strip — someone is writing, quietly. The space is

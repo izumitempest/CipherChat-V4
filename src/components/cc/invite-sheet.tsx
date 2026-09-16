@@ -17,6 +17,7 @@ import { useIsDesktop } from "@/hooks/use-is-desktop";
 import { SheetGrabber } from "@/components/cc/sheet-grabber";
 import { getSession } from "@/lib/session";
 import { useApp } from "@/store/app";
+import { cn } from "@/lib/utils";
 
 export function InviteSheet({
   roomId,
@@ -57,34 +58,35 @@ export function InviteSheet({
         </SheetHeader>
 
         <div className="mt-5 space-y-5">
+          {/* Label row carries the actions; the value box below wraps
+              freely — a long password never bends the layout. */}
           <div className="space-y-1.5">
-            <p className="font-sans text-[13px] font-medium tracking-[0.01em] text-charcoal">
-              Room link
-            </p>
-            <div className="flex items-center justify-between gap-3 rounded-[8px] border border-hairline bg-paper px-3.5 py-2">
-              <span className="t-fingerprint overflow-hidden text-ellipsis whitespace-nowrap text-[12.5px] text-charcoal">
-                {link}
-              </span>
+            <div className="flex items-center justify-between gap-3">
+              <p className="font-sans text-[13px] font-medium tracking-[0.01em] text-charcoal">
+                Room link
+              </p>
               <button
                 type="button"
                 onClick={() => copy(link, "Invite link")}
-                className="flex h-11 shrink-0 items-center gap-1.5 rounded-[8px] px-2 font-sans text-[12.5px] font-medium text-mute transition-colors duration-150 hover:bg-wash hover:text-charcoal"
+                className="-my-2 flex h-11 items-center gap-1.5 rounded-[8px] px-2 font-sans text-[12.5px] font-medium text-mute transition-colors duration-150 hover:bg-wash hover:text-charcoal"
               >
                 <Copy className="size-3.5" aria-hidden />
                 Copy
               </button>
             </div>
+            <div className="rounded-[8px] border border-hairline bg-paper px-3.5 py-2.5">
+              <span className="t-fingerprint break-all text-[12.5px] leading-[19px] text-charcoal">
+                {link}
+              </span>
+            </div>
           </div>
 
           <div className="space-y-1.5">
-            <p className="font-sans text-[13px] font-medium tracking-[0.01em] text-charcoal">
-              Room password
-            </p>
-            <div className="flex items-center justify-between gap-3 rounded-[8px] border border-hairline bg-paper px-3.5 py-2">
-              <span className="t-fingerprint text-[13px] text-charcoal">
-                {shown ? session?.password : "•".repeat(Math.min(24, session?.password.length ?? 8))}
-              </span>
-              <span className="flex shrink-0 items-center">
+            <div className="flex items-center justify-between gap-3">
+              <p className="font-sans text-[13px] font-medium tracking-[0.01em] text-charcoal">
+                Room password
+              </p>
+              <span className="-my-2 flex items-center">
                 <button
                   type="button"
                   onClick={() => setShown((v) => !v)}
@@ -100,6 +102,19 @@ export function InviteSheet({
                   <Copy className="size-3.5" aria-hidden />
                   Copy
                 </button>
+              </span>
+            </div>
+            <div className="rounded-[8px] border border-hairline bg-paper px-3.5 py-2.5">
+              <span
+                className={cn(
+                  "t-fingerprint break-all text-[13px] leading-[20px] text-charcoal transition-colors duration-150",
+                  shown && "select-all",
+                )}
+                aria-label={shown ? "Room password, revealed" : "Room password, hidden"}
+              >
+                {shown
+                  ? session?.password
+                  : "•".repeat(Math.min(24, session?.password.length ?? 8))}
               </span>
             </div>
             <p className="t-meta">

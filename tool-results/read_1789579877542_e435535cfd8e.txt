@@ -1,0 +1,940 @@
+     1→// The application store. One place owns: the desk (room cards),
+     2→// per-room message memory, member registries, the relay wiring, and
+     3→// the choreography of enter / unlock / send / burn.
+     4→
+     5→import { create } from "zustand";
+     6→import type {
+     7→  MessageView,
+     8→  RoomCard,
+     9→  Screen,
+    10→  TtlChoice,
+    11→  WireEnvelope,
+    12→  Payload,
+    13→  MemberPublic,
+    14→  FilePayload,
+    15→} from "@/lib/types";
+    16→import {
+    17→  loadDeviceIdentity,
+    18→  signCanonical,
+    19→  verifyCanonical,
+    20→  canonicalFor,
+    21→  encryptJson,
+    22→  decryptJson,
+    23→  makeVerifier,
+    24→  checkVerifier,
+    25→  sha256HexOfBytes,
+    26→  fromB64,
+    27→  type DeviceIdentity,
+    28→} from "@/lib/crypto";
+    29→import { aliasFromFingerprint, inkFromFingerprint } from "@/lib/identity";
+    30→import {
+    31→  getSession,
+    32→  setSession,
+    33→  dropSession,
+    34→  sessionRoomIds,
+    35→  getEpochKey,
+    36→  type RoomSession,
+    37→} from "@/lib/session";
+    38→import {
+    39→  loadRoomCards,
+    40→  upsertRoomCard,
+    41→  patchRoomCard,
+    42→  removeRoomCard,
+    43→  clearUnread,
+    44→  loadRoomSettings,
+    45→  saveRoomSettings,
+    46→  loadVerified,
+    47→  saveVerified,
+    48→  saveCreatorToken,
+    49→  loadCreatorToken,
+    50→  sweepBurnedRooms,
+    51→} from "@/lib/local";
+    52→import { getRelay } from "@/lib/relay";
+    53→
+    54→export const FILE_LIMIT = 2 * 1024 * 1024; // 2 MB — nothing is stored anywhere
+    55→
+    56→export interface SealingState {
+    57→  roomId: string;
+    58→  label: string;
+    59→}
+    60→
+    61→export interface JoinResult {
+    62→  ok: boolean;
+    63→  reason?: "wrong-password" | "not-found" | "burned" | "room-full" | "error";
+    64→}
+    65→
+    66→/** Someone is writing — transient, expires by its own clock. */
+    67→export interface TypingSignal {
+    68→  memberId: string;
+    69→  alias: string;
+    70→  at: number;
+    71→}
+    72→
+    73→interface AppState {
+    74→  ready: boolean;
+    75→  device: DeviceIdentity | null;
+    76→  screen: Screen;
+    77→  activeRoomId: string | null;
+    78→  inviteCode: string | null;
+    79→
+    80→  roomCards: RoomCard[];
+    81→  messages: Record<string, MessageView[]>;
+    82→  members: Record<string, MemberPublic[]>;
+    83→  typing: Record<string, TypingSignal[]>;
+    84→  relayOnline: boolean;
+    85→  resealing: Record<string, boolean>;
+    86→  sealing: SealingState | null;
+    87→  burn: { roomId: string } | null;
+    88→
+    89→  init: () => Promise<void>;
+    90→  navigate: (screen: Screen, roomId?: string | null) => void;
+    91→  syncHash: () => void;
+    92→  createRoom: (localName: string, password: string) => Promise<JoinResult>;
+    93→  joinRoom: (code: string, password: string, localName?: string) => Promise<JoinResult>;
+    94→  enterRoom: (session: RoomSession, localName: string, rejoined: boolean) => Promise<void>;
+    95→  sendMessage: (
+    96→    text: string,
+    97→    file?: Omit<FilePayload, "sha"> & { viewOnce?: boolean },
+    98→    ttlOverride?: TtlChoice,
+    99→  ) => Promise<void>;
+   100→  emitTyping: (roomId: string) => void;
+   101→  spendViewOnce: (roomId: string, messageId: string) => void;
+   102→  burnRoom: (roomId: string) => Promise<void>;
+   103→  finishRoomBurn: (roomId: string) => void;
+   104→  leaveRoom: (roomId: string) => Promise<void>;
+   105→  renameRoom: (roomId: string, name: string) => void;
+   106→  setDefaultTtl: (roomId: string, ttl: TtlChoice) => void;
+   107→  markVerified: (roomId: string, memberId: string, verified: boolean) => void;
+   108→  isVerified: (roomId: string, memberId: string) => boolean;
+   109→  refreshMembers: (roomId: string) => Promise<void>;
+   110→}
+   111→
+   112→/* ------------ TTL burn scheduling (module memory) ------------ */
+   113→const burnTimers = new Map<string, ReturnType<typeof setTimeout>>();
+   114→
+   115→/* ------------ typing whispers (transient by design) ------------ */
+   116→const TYPING_TTL_MS = 3500;
+   117→const TYPING_EMIT_THROTTLE_MS = 2500;
+   118→const typingLastEmit = new Map<string, number>();
+   119→const typingPruneTimers = new Map<string, ReturnType<typeof setTimeout>>();
+   120→
+   121→function pruneTypingLater(roomId: string) {
+   122→  const existing = typingPruneTimers.get(roomId);
+   123→  if (existing) clearTimeout(existing);
+   124→  const t = setTimeout(() => {
+   125→    typingPruneTimers.delete(roomId);
+   126→    useApp.setState((s) => {
+   127→      const fresh = (s.typing[roomId] ?? []).filter(
+   128→        (x) => Date.now() - x.at < TYPING_TTL_MS,
+   129→      );
+   130→      return { typing: { ...s.typing, [roomId]: fresh } };
+   131→    });
+   132→  }, TYPING_TTL_MS + 100);
+   133→  typingPruneTimers.set(roomId, t);
+   134→}
+   135→
+   136→function clearTyping(roomId: string, memberId: string) {
+   137→  useApp.setState((s) => {
+   138→    const list = s.typing[roomId] ?? [];
+   139→    if (!list.some((t) => t.memberId === memberId)) return {};
+   140→    return {
+   141→      typing: {
+   142→        ...s.typing,
+   143→        [roomId]: list.filter((t) => t.memberId !== memberId),
+   144→      },
+   145→    };
+   146→  });
+   147→}
+   148→
+   149→function scheduleBurn(
+   150→  roomId: string,
+   151→  messageId: string,
+   152→  expiresAt: number,
+   153→  onBurn: (roomId: string, messageId: string) => void,
+   154→) {
+   155→  if (burnTimers.has(messageId)) return;
+   156→  const delay = Math.max(0, expiresAt - Date.now());
+   157→  const t = setTimeout(() => {
+   158→    burnTimers.delete(messageId);
+   159→    onBurn(roomId, messageId);
+   160→  }, delay);
+   161→  burnTimers.set(messageId, t);
+   162→}
+   163→
+   164→function cancelBurns(roomId: string, messages: MessageView[]) {
+   165→  for (const m of messages) {
+   166→    if (m.id) {
+   167→      const t = burnTimers.get(m.id);
+   168→      if (t) {
+   169→        clearTimeout(t);
+   170→        burnTimers.delete(m.id);
+   171→      }
+   172→    }
+   173→  }
+   174→  void roomId;
+   175→}
+   176→
+   177→const MIN_SEAL_MS = 1700; // the vault moment takes at least this long, on purpose
+   178→
+   179→export const useApp = create<AppState>()((set, get) => ({
+   180→  ready: false,
+   181→  device: null,
+   182→  screen: "landing",
+   183→  activeRoomId: null,
+   184→  inviteCode: null,
+   185→
+   186→  roomCards: [],
+   187→  messages: {},
+   188→  members: {},
+   189→  typing: {},
+   190→  relayOnline: false,
+   191→  resealing: {},
+   192→  sealing: null,
+   193→  burn: null,
+   194→
+   195→  /* -------------------------------------------------- init ---- */
+   196→
+   197→  init: async () => {
+   198→    if (get().ready) return;
+   199→    const device = await loadDeviceIdentity();
+   200→    // Burned rooms showed their ash last session; now they are gone.
+   201→    const cards = sweepBurnedRooms();
+   202→    set({ device, roomCards: cards, ready: true });
+   203→
+   204→    get().syncHash();
+   205→    window.addEventListener("hashchange", () => get().syncHash());
+   206→
+   207→    wireRelay(set, get);
+   208→  },
+   209→
+   210→  syncHash: () => {
+   211→    const hash = window.location.hash.replace(/^#\/?/, "");
+   212→    if (hash.startsWith("join")) {
+   213→      const code = hash.split("/")[1] ?? "";
+   214→      set({ screen: "invite", inviteCode: code || null, activeRoomId: null });
+   215→      return;
+   216→    }
+   217→    if (hash.startsWith("new")) {
+   218→      set({ screen: "landing", activeRoomId: null });
+   219→      return;
+   220→    }
+   221→    if (hash.startsWith("rooms")) {
+   222→      set({ screen: "rooms", activeRoomId: null });
+   223→      return;
+   224→    }
+   225→    if (hash.startsWith("r/")) {
+   226→      const roomId = hash.slice(2);
+   227→      const session = getSession(roomId);
+   228→      set({ screen: "chat", activeRoomId: roomId });
+   229→      if (session) {
+   230→        patchRoomCard(roomId, { unread: false });
+   231→        set({ roomCards: loadRoomCards() });
+   232→      }
+   233→      // No keys in memory — the room is locked. A first-class state,
+   234→      // never an error.
+   235→      return;
+   236→    }
+   237→    // Root: the desk if you have rooms, the landing if you don't.
+   238→    if (get().roomCards.length > 0) {
+   239→      set({ screen: "rooms", activeRoomId: null });
+   240→    } else {
+   241→      set({ screen: "landing", activeRoomId: null });
+   242→    }
+   243→  },
+   244→
+   245→  navigate: (screen, roomId = null) => {
+   246→    const hash =
+   247→      screen === "rooms"
+   248→        ? "#/rooms"
+   249→        : screen === "chat" && roomId
+   250→          ? `#/r/${roomId}`
+   251→          : screen === "invite"
+   252→            ? "#/join"
+   253→            : screen === "landing"
+   254→              ? "#/new"
+   255→              : "#/";
+   256→    if (window.location.hash !== hash) {
+   257→      window.location.hash = hash;
+   258→    } else {
+   259→      get().syncHash();
+   260→    }
+   261→  },
+   262→
+   263→  /* ----------------------------------------------- create ---- */
+   264→
+   265→  createRoom: async (localName, password) => {
+   266→    const device = get().device;
+   267→    if (!device) return { ok: false, reason: "error" };
+   268→
+   269→    const res = await fetch("/api/rooms", { method: "POST" });
+   270→    if (!res.ok) return { ok: false, reason: "error" };
+   271→    const { roomId, creatorToken } = await res.json();
+   272→    saveCreatorToken(roomId, creatorToken);
+   273→
+   274→    set({ sealing: { roomId, label: "Sealing the room" } });
+   275→    const started = Date.now();
+   276→
+   277→    const { deriveRoomKey } = await import("@/lib/crypto");
+   278→    const key = await deriveRoomKey(roomId, 1, password);
+   279→    const verifier = await makeVerifier(key);
+   280→    await Promise.all([
+   281→      fetch(`/api/rooms/${roomId}/verifier`, {
+   282→        method: "PUT",
+   283→        headers: { "content-type": "application/json" },
+   284→        body: JSON.stringify({ verifier }),
+   285→      }),
+   286→      new Promise((r) => setTimeout(r, MIN_SEAL_MS - (Date.now() - started))),
+   287→    ]);
+   288→
+   289→    const alias = aliasFromFingerprint(device.fingerprintHex);
+   290→    const colorIdx = inkFromFingerprint(device.fingerprintHex);
+   291→    const joinRes = await fetch(`/api/rooms/${roomId}/members`, {
+   292→      method: "POST",
+   293→      headers: { "content-type": "application/json" },
+   294→      body: JSON.stringify({ pubkey: device.pubJwk, alias, colorIdx }),
+   295→    });
+   296→    if (!joinRes.ok) {
+   297→      set({ sealing: null });
+   298→      return { ok: false, reason: "error" };
+   299→    }
+   300→    const { memberId } = await joinRes.json();
+   301→
+   302→    const session: RoomSession = {
+   303→      roomId,
+   304→      memberId,
+   305→      alias,
+   306→      colorIdx,
+   307→      epoch: 1,
+   308→      password,
+   309→      creatorToken,
+   310→      defaultTtl: loadRoomSettings(roomId).defaultTtl,
+   311→      keys: new Map([[1, key]]),
+   312→      pending: new Map(),
+   313→    };
+   314→    setSession(session);
+   315→    set({ sealing: null });
+   316→    await get().enterRoom(session, localName || "New room", false);
+   317→    return { ok: true };
+   318→  },
+   319→
+   320→  /* ------------------------------------------------- join ---- */
+   321→
+   322→  joinRoom: async (code, password, localName) => {
+   323→    const device = get().device;
+   324→    if (!device) return { ok: false, reason: "error" };
+   325→
+   326→    const infoRes = await fetch(`/api/rooms/${encodeURIComponent(code)}`);
+   327→    if (!infoRes.ok) {
+   328→      const info = await infoRes.json().catch(() => ({}));
+   329→      return {
+   330→        ok: false,
+   331→        reason: info?.burned ? "burned" : "not-found",
+   332→      };
+   333→    }
+   334→    const info = await infoRes.json();
+   335→    if (info.memberCount >= info.memberCap) {
+   336→      return { ok: false, reason: "room-full" };
+   337→    }
+   338→
+   339→    const { deriveRoomKey } = await import("@/lib/crypto");
+   340→    set({ sealing: { roomId: code, label: "Sealing the room" } });
+   341→    const started = Date.now();
+   342→    const key = await deriveRoomKey(code, info.epoch, password);
+   343→    const verified = info.verifier ? await checkVerifier(key, info.verifier) : true;
+   344→    await new Promise((r) =>
+   345→      setTimeout(r, Math.max(0, MIN_SEAL_MS - (Date.now() - started))),
+   346→    );
+   347→
+   348→    if (!verified) {
+   349→      set({ sealing: null });
+   350→      return { ok: false, reason: "wrong-password" };
+   351→    }
+   352→
+   353→    const alias = aliasFromFingerprint(device.fingerprintHex);
+   354→    const colorIdx = inkFromFingerprint(device.fingerprintHex);
+   355→    const joinRes = await fetch(`/api/rooms/${code}/members`, {
+   356→      method: "POST",
+   357→      headers: { "content-type": "application/json" },
+   358→      body: JSON.stringify({ pubkey: device.pubJwk, alias, colorIdx }),
+   359→    });
+   360→    if (!joinRes.ok) {
+   361→      set({ sealing: null });
+   362→      if (joinRes.status === 403) return { ok: false, reason: "room-full" };
+   363→      return { ok: false, reason: "error" };
+   364→    }
+   365→    const { memberId, epoch, rejoined } = await joinRes.json();
+   366→
+   367→    const session: RoomSession = {
+   368→      roomId: code,
+   369→      memberId,
+   370→      alias,
+   371→      colorIdx,
+   372→      epoch,
+   373→      password,
+   374→      creatorToken: loadCreatorToken(code),
+   375→      defaultTtl: loadRoomSettings(code).defaultTtl,
+   376→      keys: new Map([[epoch, key]]),
+   377→      pending: new Map(),
+   378→    };
+   379→    setSession(session);
+   380→    set({ sealing: null });
+   381→    const name =
+   382→      localName ||
+   383→      get().roomCards.find((c) => c.roomId === code)?.localName ||
+   384→      `Room ${code.slice(0, 4)}`;
+   385→    await get().enterRoom(session, name, !!rejoined);
+   386→    return { ok: true };
+   387→  },
+   388→
+   389→  /* ----------------------------------------------- enter ----- */
+   390→
+   391→  enterRoom: async (session, localName, rejoined) => {
+   392→    const now = Date.now();
+   393→    upsertRoomCard({
+   394→      roomId: session.roomId,
+   395→      localName,
+   396→      createdAt: now,
+   397→      lastActivity: now,
+   398→      lastMembers: 1,
+   399→      unread: false,
+   400→      burned: false,
+   401→      locked: false,
+   402→    });
+   403→    set({ roomCards: loadRoomCards() });
+   404→
+   405→    // Fresh message memory — there is no backlog, ever.
+   406→    set((s) => ({ messages: { ...s.messages, [session.roomId]: [] } }));
+   407→
+   408→    await get().refreshMembers(session.roomId);
+   409→
+   410→    const device = get().device;
+   411→    const relay = getRelay();
+   412→    relay.emit("room:join", {
+   413→      roomId: session.roomId,
+   414→      memberId: session.memberId,
+   415→      alias: session.alias,
+   416→      colorIdx: session.colorIdx,
+   417→      pubkey: device?.pubJwk,
+   418→      rejoined,
+   419→    });
+   420→    set({ relayOnline: relay.connected });
+   421→
+   422→    get().navigate("chat", session.roomId);
+   423→  },
+   424→
+   425→  refreshMembers: async (roomId) => {
+   426→    try {
+   427→      const res = await fetch(`/api/rooms/${roomId}/members`);
+   428→      if (!res.ok) return;
+   429→      const { members } = await res.json();
+   430→      set((s) => ({ members: { ...s.members, [roomId]: members } }));
+   431→    } catch {
+   432→      /* offline — the registry stays as-is */
+   433→    }
+   434→  },
+   435→
+   436→  /* ------------------------------------------------- send ---- */
+   437→
+   438→  sendMessage: async (text, file, ttlOverride) => {
+   439→    const viewOnce = !!file?.viewOnce;
+   440→    const { activeRoomId, device } = get();
+   441→    if (!activeRoomId || !device) return;
+   442→    const session = getSession(activeRoomId);
+   443→    if (!session) return;
+   444→    const trimmed = text.trim();
+   445→    if (!trimmed && !file) return;
+   446→
+   447→    const id = crypto.randomUUID();
+   448→    const ts = Date.now();
+   449→    const kind = file ? "file" : "text";
+   450→    let fileSha: string | undefined;
+   451→    let fullFile: FilePayload | undefined;
+   452→    if (file) {
+   453→      fileSha = await sha256HexOfBytes(fromB64(file.dataB64));
+   454→      fullFile = { ...file, sha: fileSha };
+   455→    }
+   456→
+   457→    const canonical = canonicalFor({
+   458→      roomId: session.roomId,
+   459→      epoch: session.epoch,
+   460→      senderId: session.memberId,
+   461→      ts,
+   462→      kind,
+   463→      text: trimmed,
+   464→      fileSha,
+   465→    });
+   466→    const sig = await signCanonical(device.privJwk, canonical);
+   467→    const payload: Payload = {
+   468→      text: trimmed,
+   469→      ts,
+   470→      senderId: session.memberId,
+   471→      sig,
+   472→      kind,
+   473→      file: fullFile,
+   474→    };
+   475→
+   476→    const key = await getEpochKey(session, session.epoch);
+   477→    const { iv, ct } = await encryptJson(key, payload);
+   478→
+   479→    const ttlSec = (ttlOverride !== undefined ? ttlOverride : session.defaultTtl) || undefined;
+   480→    const envelope: WireEnvelope = {
+   481→      id,
+   482→      roomId: session.roomId,
+   483→      epoch: session.epoch,
+   484→      senderId: session.memberId,
+   485→      ts,
+   486→      iv,
+   487→      ct,
+   488→      ttlSec,
+   489→      viewOnce: file && viewOnce ? true : undefined,
+   490→      kind,
+   491→    };
+   492→
+   493→    const view: MessageView = {
+   494→      id,
+   495→      kind,
+   496→      senderId: session.memberId,
+   497→      senderAlias: session.alias,
+   498→      senderColor: session.colorIdx,
+   499→      self: true,
+   500→      status: "sending",
+   501→      ts,
+   502→      text: trimmed,
+   503→      file: file
+   504→        ? { name: file.name, mime: file.mime, size: file.size, dataB64: file.dataB64 }
+   505→        : undefined,
+   506→      ttlSec,
+   507→      expiresAt: ttlSec ? ts + ttlSec * 1000 : undefined,
+   508→      viewOnce: file && viewOnce ? true : undefined,
+   509→    };
+   510→
+   511→    set((s) => ({
+   512→      messages: {
+   513→        ...s.messages,
+   514→        [session.roomId]: [...(s.messages[session.roomId] ?? []), view],
+   515→      },
+   516→    }));
+   517→    patchRoomCard(session.roomId, { lastActivity: ts });
+   518→    set({ roomCards: loadRoomCards() });
+   519→
+   520→    if (ttlSec) {
+   521→      scheduleBurn(session.roomId, id, ts + ttlSec * 1000, onMessageBurn);
+   522→    }
+   523→
+   524→    getRelay().emit("message:send", { roomId: session.roomId, envelope });
+   525→  },
+   526→
+   527→  /* --------------------------------------------- typing ------- */
+   528→
+   529→  emitTyping: (roomId) => {
+   530→    const session = getSession(roomId);
+   531→    if (!session) return;
+   532→    const now = Date.now();
+   533→    const last = typingLastEmit.get(roomId) ?? 0;
+   534→    if (now - last < TYPING_EMIT_THROTTLE_MS) return;
+   535→    typingLastEmit.set(roomId, now);
+   536→    getRelay().emit("member:typing", {
+   537→      roomId,
+   538→      memberId: session.memberId,
+   539→      alias: session.alias,
+   540→    });
+   541→  },
+   542→
+   543→  /* --------------------------------------------- view-once --- */
+   544→
+   545→  spendViewOnce: (roomId, messageId) => {
+   546→    set((s) => {
+   547→      const list = s.messages[roomId] ?? [];
+   548→      return {
+   549→        messages: {
+   550→          ...s.messages,
+   551→          [roomId]: list.map((m) => (m.id === messageId ? { ...m, spent: true } : m)),
+   552→        },
+   553→      };
+   554→    });
+   555→    getRelay().emit("message:spent", { roomId, messageId });
+   556→  },
+   557→
+   558→  /* ------------------------------------------------- burn ---- */
+   559→
+   560→  burnRoom: async (roomId) => {
+   561→    const session = getSession(roomId);
+   562→    if (!session?.creatorToken) return;
+   563→    try {
+   564→      await fetch(`/api/rooms/${roomId}/burn`, {
+   565→        method: "POST",
+   566→        headers: { "content-type": "application/json" },
+   567→        body: JSON.stringify({ creatorToken: session.creatorToken }),
+   568→      });
+   569→    } catch {
+   570→      /* even if this fails, members burn on the announce */
+   571→    }
+   572→    getRelay().emit("room:burn", { roomId });
+   573→    set({ burn: { roomId } });
+   574→  },
+   575→
+   576→  finishRoomBurn: (roomId) => {
+   577→    const messages = get().messages[roomId] ?? [];
+   578→    cancelBurns(roomId, messages);
+   579→    dropSession(roomId);
+   580→    patchRoomCard(roomId, { burned: true, unread: false, lastActivity: Date.now() });
+   581→    set((s) => ({
+   582→      burn: null,
+   583→      roomCards: loadRoomCards(),
+   584→      activeRoomId: null,
+   585→      messages: { ...s.messages, [roomId]: [] },
+   586→    }));
+   587→    get().navigate("rooms");
+   588→  },
+   589→
+   590→  /* ------------------------------------------------- leave --- */
+   591→
+   592→  leaveRoom: async (roomId) => {
+   593→    const session = getSession(roomId);
+   594→    if (session) {
+   595→      try {
+   596→        await fetch(`/api/rooms/${roomId}/leave`, {
+   597→          method: "POST",
+   598→          headers: { "content-type": "application/json" },
+   599→          body: JSON.stringify({ memberId: session.memberId }),
+   600→        });
+   601→      } catch {
+   602→        /* best effort — the epoch bump happens server-side anyway */
+   603→      }
+   604→      getRelay().emit("member:leave", {
+   605→        roomId,
+   606→        memberId: session.memberId,
+   607→        alias: session.alias,
+   608→      });
+   609→    }
+   610→    const messages = get().messages[roomId] ?? [];
+   611→    cancelBurns(roomId, messages);
+   612→    dropSession(roomId);
+   613→    removeRoomCard(roomId);
+   614→    set((s) => ({
+   615→      roomCards: loadRoomCards(),
+   616→      activeRoomId: null,
+   617→      messages: { ...s.messages, [roomId]: [] },
+   618→    }));
+   619→    get().navigate("rooms");
+   620→  },
+   621→
+   622→  /* ---------------------------------------------- settings --- */
+   623→
+   624→  renameRoom: (roomId, name) => {
+   625→    patchRoomCard(roomId, { localName: name });
+   626→    set({ roomCards: loadRoomCards() });
+   627→  },
+   628→
+   629→  setDefaultTtl: (roomId, ttl) => {
+   630→    const session = getSession(roomId);
+   631→    if (session) session.defaultTtl = ttl;
+   632→    saveRoomSettings(roomId, { defaultTtl: ttl });
+   633→  },
+   634→
+   635→  markVerified: (roomId, memberId, verified) => {
+   636→    const current = loadVerified(roomId);
+   637→    const next = verified
+   638→      ? Array.from(new Set([...current, memberId]))
+   639→      : current.filter((id) => id !== memberId);
+   640→    saveVerified(roomId, next);
+   641→    set((s) => ({ members: { ...s.members } })); // trigger re-render
+   642→  },
+   643→
+   644→  isVerified: (roomId, memberId) => loadVerified(roomId).includes(memberId),
+   645→}));
+   646→
+   647→/* ==================================================================
+   648→   Relay wiring — one socket, registered once, drives the whole house
+   649→   ================================================================== */
+   650→
+   651→function onMessageBurn(roomId: string, messageId: string) {
+   652→  // Phase 1: burning (CSS animation 600ms)
+   653→  useApp.setState((s) => ({
+   654→    messages: {
+   655→      ...s.messages,
+   656→      [roomId]: (s.messages[roomId] ?? []).map((m) =>
+   657→        m.id === messageId ? { ...m, status: "burning" } : m,
+   658→      ),
+   659→    },
+   660→  }));
+   661→  // Phase 2: gone.
+   662→  setTimeout(() => {
+   663→    useApp.setState((s) => ({
+   664→      messages: {
+   665→        ...s.messages,
+   666→        [roomId]: (s.messages[roomId] ?? []).filter((m) => m.id !== messageId),
+   667→      },
+   668→    }));
+   669→  }, 620);
+   670→}
+   671→
+   672→function addSystemLine(roomId: string, text: string) {
+   673→  const line: MessageView = {
+   674→    id: crypto.randomUUID(),
+   675→    kind: "system",
+   676→    status: "sent",
+   677→    ts: Date.now(),
+   678→    text,
+   679→  };
+   680→  useApp.setState((s) => ({
+   681→    messages: {
+   682→      ...s.messages,
+   683→      [roomId]: [...(s.messages[roomId] ?? []), line],
+   684→    },
+   685→  }));
+   686→}
+   687→
+   688→function patchView(roomId: string, messageId: string, patch: Partial<MessageView>) {
+   689→  useApp.setState((s) => ({
+   690→    messages: {
+   691→      ...s.messages,
+   692→      [roomId]: (s.messages[roomId] ?? []).map((m) =>
+   693→        m.id === messageId ? { ...m, ...patch } : m,
+   694→      ),
+   695→    },
+   696→  }));
+   697→}
+   698→
+   699→function touchCard(roomId: string, unread: boolean) {
+   700→  patchRoomCard(roomId, { lastActivity: Date.now(), unread });
+   701→  useApp.setState({ roomCards: loadRoomCards() });
+   702→}
+   703→
+   704→function wireRelay(
+   705→  set: (
+   706→    partial:
+   707→      | Partial<AppState>
+   708→      | ((state: AppState) => Partial<AppState>),
+   709→  ) => void,
+   710→  get: () => AppState,
+   711→) {
+   712→  const relay = getRelay();
+   713→
+   714→  relay.on("connect", () => {
+   715→    set({ relayOnline: true });
+   716→    const device = useApp.getState().device;
+   717→    for (const roomId of sessionRoomIds()) {
+   718→      const session = getSession(roomId);
+   719→      if (session) {
+   720→        relay.emit("room:join", {
+   721→          roomId,
+   722→          memberId: session.memberId,
+   723→          alias: session.alias,
+   724→          colorIdx: session.colorIdx,
+   725→          pubkey: device?.pubJwk,
+   726→          rejoined: true,
+   727→        });
+   728→      }
+   729→    }
+   730→  });
+   731→
+   732→  relay.on("disconnect", () => set({ relayOnline: false }));
+   733→
+   734→  relay.on("room:state", ({ roomId, members }: { roomId: string; members: MemberPublic[] }) => {
+   735→    // merge live presence into the registry
+   736→    const registry = useApp.getState().members[roomId] ?? [];
+   737→    const byId = new Map(registry.map((m) => [m.memberId, { ...m }]));
+   738→    for (const live of members) {
+   739→      const existing = byId.get(live.memberId);
+   740→      byId.set(live.memberId, {
+   741→        ...live,
+   742→        ...(existing?.pubkey ? { pubkey: existing.pubkey } : {}),
+   743→      });
+   744→    }
+   745→    set((s) => ({ members: { ...s.members, [roomId]: Array.from(byId.values()) } }));
+   746→  });
+   747→
+   748→  relay.on(
+   749→    "member:joined",
+   750→    ({ roomId, member, rejoined }: { roomId: string; member: MemberPublic; rejoined?: boolean }) => {
+   751→      const session = getSession(roomId);
+   752→      if (!session) return;
+   753→      set((s) => {
+   754→        const registry = s.members[roomId] ?? [];
+   755→        if (registry.some((m) => m.memberId === member.memberId)) {
+   756→          return {
+   757→            members: {
+   758→              ...s.members,
+   759→              [roomId]: registry.map((m) =>
+   760→                m.memberId === member.memberId ? { ...m, connected: true } : m,
+   761→              ),
+   762→            },
+   763→          };
+   764→        }
+   765→        return {
+   766→          members: { ...s.members, [roomId]: [...registry, { ...member, connected: true }] },
+   767→        };
+   768→      });
+   769→      if (member.memberId !== session.memberId) {
+   770→        addSystemLine(roomId, rejoined ? `${member.alias} returned.` : `${member.alias} joined.`);
+   771→        touchCard(roomId, get().activeRoomId !== roomId);
+   772→      }
+   773→    },
+   774→  );
+   775→
+   776→  relay.on(
+   777→    "member:presence",
+   778→    ({ roomId, memberId, connected }: { roomId: string; memberId: string; connected: boolean }) => {
+   779→      set((s) => ({
+   780→        members: {
+   781→          ...s.members,
+   782→          [roomId]: (s.members[roomId] ?? []).map((m) =>
+   783→            m.memberId === memberId ? { ...m, connected } : m,
+   784→          ),
+   785→        },
+   786→      }));
+   787→    },
+   788→  );
+   789→
+   790→  relay.on(
+   791→    "member:left",
+   792→    async ({ roomId, alias }: { roomId: string; memberId: string; alias: string }) => {
+   793→      const session = getSession(roomId);
+   794→      if (!session) return;
+   795→      addSystemLine(roomId, `${alias} left. The room key was rotated.`);
+   796→      // Rotate: fetch the new epoch and re-derive quietly.
+   797→      set((s) => ({ resealing: { ...s.resealing, [roomId]: true } }));
+   798→      try {
+   799→        const res = await fetch(`/api/rooms/${roomId}`);
+   800→        if (res.ok) {
+   801→          const info = await res.json();
+   802→          session.epoch = info.epoch;
+   803→          await getEpochKey(session, info.epoch);
+   804→        }
+   805→      } finally {
+   806→        set((s) => {
+   807→          const next = { ...s.resealing };
+   808→          delete next[roomId];
+   809→          return { resealing: next };
+   810→        });
+   811→      }
+   812→      get().refreshMembers(roomId);
+   813→    },
+   814→  );
+   815→
+   816→  relay.on("message:ack", ({ id, roomId }: { id: string; roomId?: string }) => {
+   817→    const target = roomId ?? get().activeRoomId;
+   818→    if (!target) return;
+   819→    patchView(target, id, { status: "sent" });
+   820→  });
+   821→
+   822→  relay.on("message:spent", ({ roomId, messageId }: { roomId: string; messageId: string }) => {
+   823→    patchView(roomId, messageId, { spent: true });
+   824→  });
+   825→
+   826→  relay.on("room:burned", ({ roomId }: { roomId: string }) => {
+   827→    const session = getSession(roomId);
+   828→    if (!session) return;
+   829→    set({ burn: { roomId } });
+   830→  });
+   831→
+   832→  relay.on(
+   833→    "message:new",
+   834→    async ({ roomId, envelope }: { roomId: string; envelope: WireEnvelope }) => {
+   835→      const session = getSession(roomId);
+   836→      if (!session || !envelope) return;
+   837→
+   838→      // Might need a key for a newer epoch (quiet re-seal)
+   839→      set((s) => ({ resealing: { ...s.resealing, [roomId]: true } }));
+   840→      let payload: Payload | null = null;
+   841→      try {
+   842→        const key = await getEpochKey(session, envelope.epoch);
+   843→        payload = await decryptJson<Payload>(key, envelope.iv, envelope.ct);
+   844→      } catch {
+   845→        payload = null;
+   846→      } finally {
+   847→        set((s) => {
+   848→          const next = { ...s.resealing };
+   849→          delete next[roomId];
+   850→          return { resealing: next };
+   851→        });
+   852→      }
+   853→
+   854→      const registry = get().members[roomId] ?? [];
+   855→      const sender = registry.find((m) => m.memberId === envelope.senderId);
+   856→
+   857→      if (!payload || !sender) {
+   858→        // Tampered, undecryptable, or from an unknown member: rejected.
+   859→        addSystemLine(
+   860→          roomId,
+   861→          `A message claiming to be from ${sender?.alias ?? "an unknown member"} was rejected — signature invalid.`,
+   862→        );
+   863→        touchCard(roomId, get().activeRoomId !== roomId);
+   864→        return;
+   865→      }
+   866→
+   867→      const canonical = canonicalFor({
+   868→        roomId,
+   869→        epoch: envelope.epoch,
+   870→        senderId: envelope.senderId,
+   871→        ts: payload.ts,
+   872→        kind: envelope.kind,
+   873→        text: payload.text,
+   874→        fileSha: payload.file?.sha,
+   875→      });
+   876→      const ok = await verifyCanonical(sender.pubkey, canonical, payload.sig);
+   877→      if (!ok) {
+   878→        addSystemLine(
+   879→          roomId,
+   880→          `A message claiming to be from ${sender.alias} was rejected — signature invalid.`,
+   881→        );
+   882→        touchCard(roomId, get().activeRoomId !== roomId);
+   883→        return;
+   884→      }
+   885→
+   886→      if (envelope.epoch > session.epoch) session.epoch = envelope.epoch;
+   887→
+   888→      const view: MessageView = {
+   889→        id: envelope.id,
+   890→        kind: envelope.kind,
+   891→        senderId: sender.memberId,
+   892→        senderAlias: sender.alias,
+   893→        senderColor: sender.colorIdx,
+   894→        self: sender.memberId === session.memberId,
+   895→        status: "sent",
+   896→        ts: payload.ts,
+   897→        text: payload.text,
+   898→        file: payload.file
+   899→          ? {
+   900→              name: payload.file.name,
+   901→              mime: payload.file.mime,
+   902→              size: payload.file.size,
+   903→              dataB64: payload.file.dataB64,
+   904→            }
+   905→          : undefined,
+   906→        ttlSec: envelope.ttlSec,
+   907→        expiresAt: envelope.ttlSec ? payload.ts + envelope.ttlSec * 1000 : undefined,
+   908→        viewOnce: envelope.viewOnce,
+   909→      };
+   910→      useApp.setState((s) => ({
+   911→        messages: {
+   912→          ...s.messages,
+   913→          [roomId]: [...(s.messages[roomId] ?? []), view],
+   914→        },
+   915→      }));
+   916→      // The message arrived — the whisper is over.
+   917→      clearTyping(roomId, sender.memberId);
+   918→      touchCard(roomId, get().activeRoomId !== roomId);
+   919→      if (view.expiresAt) {
+   920→        scheduleBurn(roomId, view.id, view.expiresAt, onMessageBurn);
+   921→      }
+   922→    },
+   923→  );
+   924→
+   925→  relay.on(
+   926→    "member:typing",
+   927→    ({ roomId, memberId, alias }: { roomId: string; memberId: string; alias: string }) => {
+   928→      const session = getSession(roomId);
+   929→      if (!session || memberId === session.memberId) return;
+   930→      useApp.setState((s) => {
+   931→        const list = (s.typing[roomId] ?? []).filter((t) => t.memberId !== memberId);
+   932→        return {
+   933→          typing: { ...s.typing, [roomId]: [...list, { memberId, alias, at: Date.now() }] },
+   934→        };
+   935→      });
+   936→      pruneTypingLater(roomId);
+   937→    },
+   938→  );
+   939→}
+   940→

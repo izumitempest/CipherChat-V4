@@ -7,6 +7,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  Copy,
   Download,
   FileText,
   Hourglass,
@@ -15,9 +16,44 @@ import {
   MailOpen,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { fmtBytes, fmtTime, fmtTtlRemaining } from "@/lib/format";
 import type { MessageView } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+/* Right-click (desktop) or press-and-hold (touch) — the one quiet
+ * affordance a letter needs: taking the words with you. */
+function CopyMenu({ message, children }: { message: MessageView; children: React.ReactNode }) {
+  const isFile = message.kind === "file" && message.file;
+  const value = isFile ? message.file!.name : message.text ?? "";
+  async function copyText() {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast(isFile ? "File name copied" : "Message copied");
+    } catch {
+      toast("Copying wasn't permitted by the browser");
+    }
+  }
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      <ContextMenuContent className="min-w-[10rem] rounded-[12px] border-hairline bg-paper p-1 shadow-[0_1px_2px_rgba(28,24,20,0.08)]">
+        <ContextMenuItem
+          onSelect={copyText}
+          className="gap-2 rounded-[8px] px-2.5 py-2 font-sans text-[13px] text-charcoal focus:bg-wash focus:text-charcoal data-highlighted:bg-wash"
+        >
+          <Copy className="size-3.5 text-mute" aria-hidden />
+          {isFile ? "Copy file name" : "Copy text"}
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
 
 export function SystemLine({ text }: { text: string }) {
   return (
@@ -87,22 +123,24 @@ export function MessageBubble({
           </p>
         ) : null}
 
-        <div
-          className={cn(
-            "rise px-3.5 py-2",
-            self
-              ? cn("bubble-self", position.first && "rounded-tr-[6px]", position.last && "rounded-br-[6px]", !position.first && !position.last && "rounded-tr-[18px] rounded-br-[18px]")
-              : cn("bubble-other", position.first && "rounded-tl-[6px]", position.last && "rounded-bl-[6px]"),
-            message.status === "sending" && "opacity-60",
-            burning && "msg-burning",
-          )}
-        >
-          {message.kind === "file" && message.file ? (
-            <FileContent message={message} onOpenFile={onOpenFile} />
-          ) : (
-            <p className="t-body whitespace-pre-wrap break-words">{message.text}</p>
-          )}
-        </div>
+        <CopyMenu message={message}>
+          <div
+            className={cn(
+              "rise px-3.5 py-2",
+              self
+                ? cn("bubble-self", position.first && "rounded-tr-[6px]", position.last && "rounded-br-[6px]", !position.first && !position.last && "rounded-tr-[18px] rounded-br-[18px]")
+                : cn("bubble-other", position.first && "rounded-tl-[6px]", position.last && "rounded-bl-[6px]"),
+              message.status === "sending" && "opacity-60",
+              burning && "msg-burning",
+            )}
+          >
+            {message.kind === "file" && message.file ? (
+              <FileContent message={message} onOpenFile={onOpenFile} />
+            ) : (
+              <p className="t-body whitespace-pre-wrap break-words">{message.text}</p>
+            )}
+          </div>
+        </CopyMenu>
 
         {/* meta — the machine's voice, under the last of a group */}
         {position.last || message.ttlSec ? (
