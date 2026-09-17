@@ -69,6 +69,19 @@ export function InviteSheet({
       <SheetContent
         side={isDesktop ? "right" : "bottom"}
         className="overflow-y-auto overscroll-contain scroll-quiet rounded-t-[18px] border-hairline bg-paper px-5 pb-8 pt-5 md:max-w-[440px] md:rounded-t-none md:rounded-l-[18px]"
+        /* The invite leaves the pen where the writer needs it: on a
+           desk the cursor returns to the composer instead of the
+           button that opened the sheet. */
+        onCloseAutoFocus={(e) => {
+          if (!isDesktop) return;
+          const composer = document.querySelector<HTMLTextAreaElement>(
+            'textarea[aria-label="Message"]',
+          );
+          if (composer) {
+            e.preventDefault();
+            composer.focus();
+          }
+        }}
       >
         {!isDesktop && <SheetGrabber />}
         <SheetHeader className="p-0 text-left">

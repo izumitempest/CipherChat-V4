@@ -305,3 +305,66 @@ Priority recommendations for next phase:
 - Relay join member token (server-issued auth on room:join, removing the REST confirmation round-trip).
 - Optional polish: room-list skeleton shimmer (cosmetic, low value — list is instant from localStorage), draft persistence per room across room switches within a session.
 - Operational reminders: two-member QA needs two ORIGINS; relay restart after mini-service edits; QA gotcha now closed (SW no longer registers in dev).
+
+---
+Task ID: 21-3
+Agent: frontend-styling-expert (context deadline hit after completing edits; verified and kept by lead — tsc/lint/tests green)
+Task: Round 21 mandatory styling details pass on the new round-21 surfaces
+
+Work Log:
+- globals.css — 4 new keyframes with one-line comments: strip-in / strip-out (the line-down note unrolls in and rolls away, height-collapsing), still-trying (the terracotta dot breathes — "still attempting" rather than dead), chip-pop (unread pill entrance), draft-restored (a soft forest focus-ring pulse when a saved draft swaps in). All capped by the existing prefers-reduced-motion guard (150ms/1-iteration).
+- chat.tsx — the relay-offline strip became a render-time state machine (gone/down/lifting) released by onAnimationEnd (never a timer): strip-in on drop, strip-out + lift when the courier returns; padding moved to the inner row so the animated outer strip collapses all the way.
+- room-list.tsx — the unread count chip: chip-pop entrance, chip-beat on count change (keyed by card.unreadCount), group-hover deepens to bg-forest-deep with a 105% scale nudge; count cap "99+"; the plain dot remains for non-letter activity with aria-label "New activity".
+- composer.tsx — draftCue state (armed at mount and on render-time room swap, cleared onAnimationEnd) drives the draft-restored ring on the textarea.
+- Locked-room view and UnlockSheet were reviewed and deliberately left alone (already consistent; no clear win).
+
+Stage Summary:
+- Every new round-21 surface now has entrance/exit motion in the paper/forest voice; reduced-motion respected; no a11y semantics touched.
+
+---
+Task ID: 21 (21-0 … 21-4)
+Agent: lead (Z.ai Code) + frontend-styling-expert subagent (21-3)
+Task: webDevReview round 21 — QA + bug fixes + features + mandatory styling, per standing brief. Top priority from round 20's recommendations: presence-driven rotation grace (the documented "silent leaver retains keys" gap).
+
+Current project status / assessment (at round start):
+- Protocol v2 stable (58/58 tests), both services healthy, dev.log clean. This round: the silent-leaver gap CLOSED, four UX features, a styling pass, and one critical wiring bug caught by E2E before it could ship.
+
+Work Log:
+- 21-0 QA: 58/58 tests, lint clean, both services listening, browser smoke (create → invite sheet → message send). UX nit found: the composer lost focus after the invite sheet closed (became feature 21-2b).
+- 21-1 FEATURE silent-departure grace (16 tests: task-21.1-silent-grace.test.ts, written RED first):
+  - lib/silent-grace.ts (pure): SILENT_GRACE_MS=120s (client clock), EVICT_MIN_OFFLINE_MS=60s (server floor), authorizeEviction (9 refusal reasons incl. fail-closed "presence-unavailable"), stillSilentAtExpiry (the client's gate).
+  - Relay (mini-services/relay-service/index.ts, manually restarted per rule): wentOfflineAt stamp on every silent last-socket drop (cleared on join/clean-leave/room-burn); member:expired forward (rate-limited, broadcasts like member:left); INTERNAL PRESENCE SNAPSHOT on port 3004 — GET /presence/:roomId guarded by the shared RELAY_INTERNAL_TOKEN header (added to .env; relay now runs `bun --hot --env-file=../../.env index.ts` via its dev script; /tmp/relay-supervisor.sh updated to `bun run dev`). Curl matrix verified: no token 403, wrong token 403, wrong path 404, right token 200 with live data.
+  - REST POST /api/rooms/:id/evict: gathers facts (DB registry + relay snapshot via 3s-timeout server-to-server fetch), obeys authorizeEviction, deactivates the target + bumps the epoch (rotation ledger), 30/min/IP. Server-side matrix verified with curl: self→409 "self", fake caller→409 "caller-unknown", real eviction→200 + epoch bump, re-evict→409 "target-unknown" (idempotent). Unknown rooms answer ok:true (existence not confirmed to strangers).
+  - Store: silentGrace timer map armed by member:presence(false) AND the room:state honest-diff (registry members absent from the relay's live list are marked offline — also fixes the pre-existing stale away-dot after refresh); fireSilentEviction (only the still-connected coordinator acts) → POST /evict → member:expired announce → confirmDeparture() locally. member:left and member:expired now share confirmDeparture() (REST-confirmed eviction, "X left." vs "X drifted away.", coordinator rotation, "The room re-sealed for those who remain."). Grace clocks cancel on any return; clear on leave/burn/relay-disconnect.
+  - E2E (two origins): B closes the tab silently → 120s grace → A's room shows "Ashen Wren drifted away." + "The room re-sealed for those who remain." → DB: B inactive, epoch 2 → B returns with the password → key delivered (kv2) → bidirectional messaging under the rotated key. The pre-eviction curl tests + unit tests cover too-soon/target-online; the invariant test asserts client grace > server floor.
+- 21-2 FEATURES:
+  a) Per-room composer drafts (lib/drafts.ts, memory-only like the keys): the draft swaps with the room (render-time adjustment — lint's set-state-in-effect rule forced the sanctioned pattern), cleared on send/leave/burn. E2E: draft typed in Alpha → switch to Beta (fresh) → back to Alpha → draft restored + composer focused.
+  b) Composer auto-focus on room entry (desktop only — touch keyboards stay closed) + after the invite sheet closes (Radix onCloseAutoFocus preventDefault → composer.focus(); the naive effect lost the focus race to Radix's trigger restoration).
+  c) Relay-offline strip in the chat: "The line is down — letters pause until it returns." (role=status, terracotta) — E2E: relay fully stopped → strip + composer lock after the ping-timeout window → relay restarted → strip lifts, composer re-enables, both members auto-rejoined, post-recovery message delivered.
+  d) Unread counts: RoomCard.unreadCount (persisted number — metadata only), touchCard(roomId, unread, letters) counts real letters (text/file/legacy renders; joins and rejections stay dot-only), capped 99, reset on room entry. E2E: A at the desk, B sends 2 → sidebar chip "2" (aria "2 unread messages"), dot correctly absent.
+- 21-3 STYLING (frontend-styling-expert; see its section above — verified and kept after its context deadline).
+- 21-4 E2E + fixes found BY the E2E (the round's real wins):
+  - **CRITICAL wiring bug caught**: fireSilentEviction passed memberConnected as the RESULT of comparing (true when offline) instead of the member's connected STATE (false when offline) — inverted semantics meant stillSilentAtExpiry would NEVER pass: the grace could never fire in production. The pure function's 16 tests were correct; only live E2E caught the adapter. Fixed + commented; the fast-probe technique (temp 10s grace + 5s floor, console probes, clean reloads) found it in minutes.
+  - **Latent double-registration bug**: init()'s ready-guard has an await gap — two concurrent init() calls (remount racing mount) register every relay handler twice (observed as duplicate member:presence processing). Fixed with a synchronous initStarted flag before the first await.
+  - QA-process rule learned the hard way (three times): **never edit code mid-E2E** — Fast Refresh re-evaluates the store module and leaves open tabs with stale sockets/duplicate handlers/stuck relayOnline. Any edit ⇒ reload every tab before continuing. Also: background tabs drop focus (press Enter fails) — send via the Send button or eval+input event; two-member QA needs two ORIGINS (localhost:81 vs 127.0.0.1:81).
+  - VLM review of 3 screenshots (light chat, desk, dark chat): CLEAN ×3.
+  - Docs: README (grace row in the property table + test counts 74 + the NOT-protect list now says "closed by the grace"), DESIGN.md §6 threat model (silent leavers bounded; nuisance-evicter residual documented), COMPONENTS.md (round-21 internals, lib table, backend surface incl. :3004 snapshot).
+
+Stage Summary:
+- 74/74 vitest green (58 + 16 silent-grace), tsc src clean, lint clean, dev.log clean, relay :3003 + snapshot :3004 supervised and token-armed.
+- The silent-leaver gap is closed end-to-end: relay stamps the disconnect clock, clients watch a 120s grace, the server verifies against live presence before writing anyone out, the epoch ledger makes the re-seal durable, and the departed member simply re-enters with the password.
+- Features: drafts, auto-focus, relay-offline strip, unread counts. Styling: strip choreography, chip pop/beat, draft-restored ring (subagent pass verified green).
+- Two real bugs the E2E caught before they could ship: the inverted memberConnected wiring (grace-dead) and the init double-registration.
+
+Unresolved issues / risks:
+- The evict route trusts the relay's in-memory clock; a relay restart mid-grace loses offlineSince and falls back to the DB's lastSeenAt (join time) — honest but coarser (documented in the route).
+- A nuisance-evicter who knows only the roomId can force a rotation while a member is away (same accepted-risk class as insider nuisance-rotations; the member re-enters with the password) — documented in DESIGN.md.
+- The relay strip appears only after the client's ping-timeout detection (~60-85s worst case through the gateway); sub-second relay bounces are often invisible (correct, quiet behavior).
+- member:presence/member:expired remain unauthenticated at the relay (rate-limited) — safe because every consumer REST-confirms; unchanged from 19-10 posture.
+- QA gotcha for future rounds (now triple-confirmed): reload ALL tabs after ANY code edit mid-QA; service worker dev-guard from round 20 held throughout (swCount 0).
+
+Priority recommendations for next phase:
+- Relay join member token (server-issued auth on room:join — removes the REST confirmation round-trip and the last unauthenticated relay ingress).
+- Optional polish candidates: burn-room countdown affordance in the header, member list sheet (who's who + fingerprints in one place), room-list skeleton shimmer (still low value).
+- If another hardening round: TLS-like handshake transcript binding for key offers; presence-driven rotation could gain a per-room grace override in settings.
+- Operational reminders: manual relay restart after mini-service edits (supervisor + `bun run dev` now carries --env-file; double-fork `setsid` pattern required to survive the tool session); two-member QA needs two ORIGINS.

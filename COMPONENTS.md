@@ -609,6 +609,20 @@ line (signature) or silence (everything else). The store is a thin adapter:
 every security decision lives in `lib/room-protocol.ts` where the Task 19
 test suite can reach it.
 
+**Round 21 internals** — the silent-departure grace: a module-level
+`silentGrace` timer map (one clock per offline member per room, 120s) is
+armed by `member:presence(false)` and by the `room:state` honest-diff
+(registry members absent from the relay's live list are marked offline —
+this also fixes the stale away-dot after a refresh). When a clock expires,
+only the still-connected coordinator acts (`fireSilentEviction` →
+`stillSilentAtExpiry` gate → `POST /api/rooms/:id/evict` → announce
+`member:expired`); both `member:left` and `member:expired` funnel through
+`confirmDeparture()` — REST-confirmed eviction, system line (`left.` vs
+`drifted away.`), coordinator rotation. `init()` is guarded by a
+synchronous `initStarted` flag (the `ready` check alone has an await gap
+that once let handlers register twice). Composer drafts live in
+`lib/drafts.ts` (memory-only, per-room).
+
 ### `lib/` modules
 
 | Module | Role |
@@ -620,6 +634,8 @@ test suite can reach it.
 | `crypto.ts` | Legacy v1 primitives (PBKDF2 room keys, verifier blobs, canonical-JSON sign/verify, base64) — still the sign/verify backbone |
 | `legacy.ts` | PBKDF2 epoch-key cache for pre-v2 rooms (the legacy receive path is gated to them) |
 | `rate-limit.ts` | Token bucket (20 frames/s per socket), IP limiter (5 rooms/min), frame-size cap — shared by relay and API |
+| `silent-grace.ts` | **Round 21**: the silent-departure decision logic — `SILENT_GRACE_MS` (120s client clock), `EVICT_MIN_OFFLINE_MS` (60s server floor), `authorizeEviction` (pure; the /evict route obeys), `stillSilentAtExpiry` (pure; the client's gate at timer expiry) |
+| `drafts.ts` | Per-room composer drafts — memory-only, like the keys |
 | `identity.ts` | Deterministic aliases ("Quiet Heron") and ink indexes from fingerprints; 8-hex fingerprints + `3F2A · 91BC` grouping; passphrase generator; room-code parser |
 | `session.ts` | **Memory-only** room sessions (member ids, kv, passwords, default TTL, legacy flag) — refresh = locked rooms, by design |
 | `local.ts` | localStorage: room cards, creator tokens, verify marks, replay watermarks, TTL-hint flag, per-room settings |
@@ -627,21 +643,28 @@ test suite can reach it.
 | `types.ts` | `MessageView`, `RoomCard`, `MemberPublic` (incl. `ecdhPub`), legacy `WireEnvelope`, TTL steps, `Screen` |
 | `format.ts` | `fmtTime`, `fmtAgo`, `fmtTtlRemaining`, `fmtBytes` |
 | `db.ts` | Prisma client (server-side only) |
-| `__tests__/` | **The Task 19 property suite** — 47 tests named after the security properties they protect (replay, rotation, padding, KDF, identity, hardening) |
+| `__tests__/` | **The property suite** — tests named after the security properties they protect: task-19 (47: replay, rotation, padding, KDF, identity, hardening), task-20 (11: file captions, ink reactions), task-21.1 (16: silent-grace decisions) |
 
 ### Backend surface (for reference)
 
 REST: `POST /api/rooms` (rate-limited 5/min/IP) · `GET /api/rooms/:id` ·
 `PUT verifier` (set-once) · `POST/GET members` (cap 12; carries `ecdhPub`;
 **the only identity authority** — keyed by pubkey) · `POST leave` (epoch
-ledger bump) · `POST burn` (creatorToken). Relay (socket.io, port 3003,
-in-memory, hardened): `room:join`, `message:send`/`message:ack`
-(uniform v2 frames), `member:joined`/`member:left`/`member:presence`,
-`key:request`, `room:burn` — plus legacy `message:spent`/`member:typing`/
-`message:burn` forwarding for pre-v2 clients. Per-socket token bucket
+ledger bump) · `POST evict` (round 21 — silent-leaver write-out: consults
+the relay presence snapshot server-to-server, fails closed; 30/min/IP) ·
+`POST burn` (creatorToken). Relay (socket.io, port 3003, in-memory,
+hardened): `room:join`, `message:send`/`message:ack`
+(uniform v2 frames), `member:joined`/`member:left`/`member:presence`/
+`member:expired`, `key:request`, `room:burn` — plus legacy
+`message:spent`/`member:typing`/`message:burn` forwarding for pre-v2
+clients. Per-socket token bucket
 (20 frames/s sustained, burst 64), hard frame-size cap with disconnect,
-16-room cap. The relay never touches the database — new joiners see no
-history because none exists.
+16-room cap. **Internal presence snapshot** (round 21): port 3004,
+`GET /presence/:roomId`, guarded by the shared `RELAY_INTERNAL_TOKEN`
+header — the connection authority `/evict` consults; not routed through
+the gateway. The relay stamps `wentOfflineAt` on every silent last-socket
+drop (the grace clock) and clears it on any return. The relay never
+touches the database — new joiners see no history because none exists.
 
 ---
 

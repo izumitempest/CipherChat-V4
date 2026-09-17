@@ -414,6 +414,96 @@
   animation: mark-in 220ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
+/* The line-down note unrolls between header and letters — its height
+   eases in so the log is nudged, never shoved. */
+@keyframes strip-in {
+  from {
+    opacity: 0;
+    max-height: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    max-height: 72px;
+    transform: translateY(0);
+  }
+}
+.strip-in {
+  animation: strip-in 320ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+/* …and rolls away, just as quietly, when the courier returns. */
+@keyframes strip-out {
+  from {
+    opacity: 1;
+    max-height: 72px;
+  }
+  to {
+    opacity: 0;
+    max-height: 0;
+  }
+}
+.strip-out {
+  animation: strip-out 280ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+/* The line-down dot keeps trying: three quiet pulses, a rest, again. */
+@keyframes still-trying {
+  0%,
+  22.2%,
+  44.4%,
+  66.7%,
+  100% {
+    opacity: 0.55;
+  }
+  11.1%,
+  33.3%,
+  55.6% {
+    opacity: 1;
+  }
+}
+.still-trying {
+  animation: still-trying 7.2s ease-in-out infinite;
+}
+
+/* The unread count takes its seat with one soft beat of ink. */
+@keyframes chip-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.chip-pop {
+  animation: chip-pop 260ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+/* An unread count rising gets the same soft beat as an ink mark. */
+.chip-beat {
+  display: inline-block;
+  animation: mark-count 300ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* A restored letter-in-progress: one soft forest ring, there and gone. */
+@keyframes draft-restored {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px transparent;
+  }
+  30% {
+    box-shadow: 0 0 0 2px color-mix(in oklab, var(--forest) 30%, transparent);
+  }
+}
+.draft-restored {
+  animation: draft-restored 380ms cubic-bezier(0.2, 0, 0, 1);
+}
+
 /* Reduced motion: burns and dissolves become 150ms opacity fades.
    Mandatory, not optional. The seal holds still. */
 @media (prefers-reduced-motion: reduce) {

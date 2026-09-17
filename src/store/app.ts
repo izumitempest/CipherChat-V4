@@ -65,6 +65,8 @@ import {
   roomWatermarkStore,
 } from "@/lib/local";
 import { getRelay } from "@/lib/relay";
+import { SILENT_GRACE_MS, stillSilentAtExpiry } from "@/lib/silent-grace";
+import { dropDraft } from "@/lib/drafts";
 
 export const FILE_LIMIT = 2 * 1024 * 1024; // 2 MB — nothing is stored anywhere
 
@@ -226,6 +228,9 @@ function cancelBurns(roomId: string, messages: MessageView[]) {
 
 const MIN_SEAL_MS = 1700; // the vault moment takes at least this long, on purpose
 
+// Set synchronously at the top of init() — see the comment there.
+let initStarted = false;
+
 export const useApp = create<AppState>()((set, get) => ({
   ready: false,
   seed: null,
@@ -245,7 +250,12 @@ export const useApp = create<AppState>()((set, get) => ({
   /* -------------------------------------------------- init ---- */
 
   init: async () => {
-    if (get().ready) return;
+    // The synchronous flag matters: `ready` is only set after an
+    // await, so two concurrent init() calls (a remount racing the
+    // first mount) would BOTH pass the ready check and register every
+    // relay handler twice. The flag has no await before it.
+    if (initStarted || get().ready) return;
+    initStarted = true;
     // One random seed per device; every room derives its own signing
     // key from it, so registries can never be correlated across rooms.
     const seed = await loadDeviceSeed();
@@ -279,7 +289,7 @@ export const useApp = create<AppState>()((set, get) => ({
       const session = getSession(roomId);
       set({ screen: "chat", activeRoomId: roomId });
       if (session) {
-        patchRoomCard(roomId, { unread: false });
+        patchRoomCard(roomId, { unread: false, unreadCount: 0 });
         set({ roomCards: loadRoomCards() });
       }
       // No keys in memory — the room is locked. A first-class state,
@@ -548,6 +558,7 @@ export const useApp = create<AppState>()((set, get) => ({
       lastActivity: now,
       lastMembers: 1,
       unread: false,
+      unreadCount: 0,
       burned: false,
       locked: false,
     });
@@ -790,6 +801,8 @@ export const useApp = create<AppState>()((set, get) => ({
     cancelBurns(roomId, messages);
     dropSession(roomId);
     dropCipher(roomId);
+    clearRoomGrace(roomId);
+    dropDraft(roomId);
     patchRoomCard(roomId, { burned: true, unread: false, lastActivity: Date.now() });
     set((s) => ({
       burn: null,
@@ -824,6 +837,8 @@ export const useApp = create<AppState>()((set, get) => ({
     cancelBurns(roomId, messages);
     dropSession(roomId);
     dropCipher(roomId);
+    clearRoomGrace(roomId);
+    dropDraft(roomId);
     removeRoomCard(roomId);
     set((s) => ({
       roomCards: loadRoomCards(),
@@ -910,8 +925,19 @@ function patchView(roomId: string, messageId: string, patch: Partial<MessageView
   }));
 }
 
-function touchCard(roomId: string, unread: boolean) {
-  patchRoomCard(roomId, { lastActivity: Date.now(), unread });
+/** Room-card touch. `letters` > 0 counts real letters for the
+ *  unread badge (dot-only for joins and rejections); unread=false
+ *  (the room is being read) always resets the count. */
+function touchCard(roomId: string, unread: boolean, letters = 0) {
+  const card = loadRoomCards().find((c) => c.roomId === roomId);
+  const nextCount = unread
+    ? Math.min(99, (card?.unreadCount ?? 0) + letters)
+    : 0;
+  patchRoomCard(roomId, {
+    lastActivity: Date.now(),
+    unread,
+    ...(unread || letters > 0 || card?.unreadCount ? { unreadCount: nextCount } : {}),
+  });
   useApp.setState({ roomCards: loadRoomCards() });
 }
 
@@ -922,6 +948,133 @@ function setResealing(roomId: string, value: boolean) {
     else delete next[roomId];
     return { resealing: next };
   });
+}
+
+/* ==================================================================
+   Silent-departure grace (Task 21.1)
+
+   A member whose connection silently drops — no clean leave, just a
+   closed laptop — keeps the room key until the room re-seals. Every
+   unlocked client quietly watches each offline member; when the
+   grace window expires, the CONNECTED COORDINATOR (smallest memberId
+   among live members) asks the server to write them out. The server
+   consults the relay's presence clock before agreeing (see
+   /api/rooms/:id/evict), so a forged or premature request gains
+   nothing. Peers then treat it exactly like a departure: REST-
+   confirmed eviction, random new key, pairwise ECDH delivery.
+   ================================================================== */
+
+const silentGrace = new Map<string, Map<string, ReturnType<typeof setTimeout>>>();
+
+function startGraceTimer(roomId: string, memberId: string) {
+  const session = getSession(roomId);
+  if (!session || session.memberId === memberId) return; // nothing to act with; never for self
+  let room = silentGrace.get(roomId);
+  if (!room) {
+    room = new Map();
+    silentGrace.set(roomId, room);
+  }
+  if (room.has(memberId)) return;
+  room.set(
+    memberId,
+    setTimeout(() => {
+      room.delete(memberId);
+      void fireSilentEviction(roomId, memberId);
+    }, SILENT_GRACE_MS),
+  );
+}
+
+function cancelGraceTimer(roomId: string, memberId: string) {
+  silentGrace.get(roomId)?.delete(memberId);
+}
+
+function clearRoomGrace(roomId: string) {
+  const room = silentGrace.get(roomId);
+  if (!room) return;
+  for (const t of room.values()) clearTimeout(t);
+  silentGrace.delete(roomId);
+}
+
+function clearAllGrace() {
+  for (const room of silentGrace.values()) for (const t of room.values()) clearTimeout(t);
+  silentGrace.clear();
+}
+
+/** The shared body of every confirmed departure — clean leave or
+ *  silent expiry alike. REST is the identity authority: the relay
+ *  event only SUGGESTS the departure; the registry confirms it
+ *  before anyone is evicted or any key rotates. */
+async function confirmDeparture(roomId: string, memberId: string, alias: string, line: string) {
+  const session = getSession(roomId);
+  if (!session) return;
+
+  await useApp.getState().refreshMembers(roomId).catch(() => undefined);
+  const stillMember = (useApp.getState().members[roomId] ?? []).some(
+    (m) => m.memberId === memberId,
+  );
+  clearTyping(roomId, memberId);
+  cancelGraceTimer(roomId, memberId);
+  if (stillMember) return; // forged or racy — the "leaver" is still registered
+
+  // Evict the leaver everywhere.
+  useApp.setState((s) => ({
+    members: {
+      ...s.members,
+      [roomId]: (s.members[roomId] ?? []).filter((m) => m.memberId !== memberId),
+    },
+  }));
+  const cipher = getCipher(roomId);
+  if (cipher) cipher.registry.delete(memberId);
+  addSystemLine(roomId, line);
+
+  // Those who stay re-seal the room: if this client is the
+  // deterministic coordinator, generate a RANDOM new key and deliver
+  // it pairwise over ECDH. The leaver never receives it — not through
+  // the password, not through the wire.
+  if (cipher && cipher.expectedCoordinator() === session.memberId) {
+    const offerFrames = await cipher.rotateAsCoordinator();
+    for (const f of offerFrames) {
+      getRelay().emit("message:send", { roomId, envelope: f });
+    }
+    addSystemLine(roomId, "The room re-sealed for those who remain.");
+  }
+}
+
+async function fireSilentEviction(roomId: string, memberId: string) {
+  const session = getSession(roomId);
+  const cipher = getCipher(roomId);
+  if (!session || !cipher || session.memberId === memberId) return;
+
+  const member = (useApp.getState().members[roomId] ?? []).find((m) => m.memberId === memberId);
+  const registryEntry = cipher.registry.get(memberId);
+  const okToAct = stillSilentAtExpiry({
+    selfConnected: getRelay().connected,
+    memberPresent: !!member && !!registryEntry,
+    // The member's own connected STATE (false = quietly gone) — not a
+    // comparison result. The UI list and the cipher registry are kept
+    // in sync by the same presence handler.
+    memberConnected: member?.connected ?? registryEntry?.connected ?? true,
+    isCoordinator: cipher.expectedCoordinator() === session.memberId,
+  });
+  if (!okToAct || !member) return;
+
+  try {
+    const res = await fetch(`/api/rooms/${roomId}/evict`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ memberId, callerId: session.memberId }),
+    });
+    if (!res.ok) return; // the server's facts disagreed — let it be
+
+    // Announce to the room. Receivers REST-confirm before acting,
+    // exactly as with member:left — the relay event carries no
+    // authority of its own.
+    getRelay().emit("member:expired", { roomId, memberId, alias: member.alias });
+    // Our own emit does not echo back — run the confirmation locally.
+    await confirmDeparture(roomId, memberId, member.alias, `${member.alias} drifted away.`);
+  } catch {
+    /* offline — the next unlock restarts the grace clock via room:state */
+  }
 }
 
 function wireRelay(
@@ -953,25 +1106,32 @@ function wireRelay(
     }
   });
 
-  relay.on("disconnect", () => set({ relayOnline: false }));
+  relay.on("disconnect", () => {
+    set({ relayOnline: false });
+    // We cannot be the connection authority while offline ourselves;
+    // the room:state after reconnect re-arms whatever still matters.
+    clearAllGrace();
+  });
 
   relay.on("room:state", ({ roomId, members }: { roomId: string; members: MemberPublic[] }) => {
     // The relay authenticates nothing: room:state only updates
     // PRESENCE. Identity (pubkeys, ECDH keys) comes exclusively from
     // the REST registry, which is keyed by pubkey and cannot be
     // poisoned by a forged join. (Adversarial review 19-10, finding 1.)
+    //
+    // The relay sees exactly who is live right now: registry members
+    // absent from its list are OFFLINE — the honest away-dot after a
+    // refresh, and the starting point of the silent-departure grace.
+    const liveIds = new Set(members.map((m) => m.memberId));
     set((s) => {
       const registry = s.members[roomId] ?? [];
-      const byId = new Map(registry.map((m) => [m.memberId, { ...m }]));
-      for (const live of members) {
-        const existing = byId.get(live.memberId);
-        if (existing) {
-          byId.set(live.memberId, { ...existing, connected: true });
-        }
-        // Unknown members wait for the REST refresh that member:joined
-        // triggers — a forged relay join never enters the registry.
-      }
-      return { members: { ...s.members, [roomId]: Array.from(byId.values()) } };
+      if (!registry.length) return {};
+      return {
+        members: {
+          ...s.members,
+          [roomId]: registry.map((m) => ({ ...m, connected: liveIds.has(m.memberId) })),
+        },
+      };
     });
 
     const cipher = getCipher(roomId);
@@ -979,6 +1139,14 @@ function wireRelay(
       for (const live of members) {
         const cur = cipher.registry.get(live.memberId);
         if (cur) cipher.registry.set(live.memberId, { ...cur, connected: true });
+      }
+      // Unknown members wait for the REST refresh that member:joined
+      // triggers — a forged relay join never enters the registry.
+      for (const [id, cur] of cipher.registry) {
+        if (!liveIds.has(id)) {
+          cipher.registry.set(id, { ...cur, connected: false });
+          startGraceTimer(roomId, id);
+        }
       }
     }
   });
@@ -1038,6 +1206,9 @@ function wireRelay(
         addSystemLine(roomId, rejoined ? `${confirmed.alias} returned.` : `${confirmed.alias} joined.`);
         touchCard(roomId, get().activeRoomId !== roomId);
       }
+      // A return within the grace window cancels any pending
+      // silent-eviction clock for them.
+      cancelGraceTimer(roomId, member.memberId);
     },
   );
 
@@ -1057,6 +1228,11 @@ function wireRelay(
         const cur = cipher.registry.get(memberId);
         if (cur) cipher.registry.set(memberId, { ...cur, connected });
       }
+      // Connected again — the grace clock for this member stops.
+      // Quietly gone — it starts (never for ourselves: our own
+      // disconnects are visible to us, not departures).
+      if (connected) cancelGraceTimer(roomId, memberId);
+      else startGraceTimer(roomId, memberId);
     },
   );
 
@@ -1065,40 +1241,23 @@ function wireRelay(
     async ({ roomId, memberId, alias }: { roomId: string; memberId: string; alias: string }) => {
       const session = getSession(roomId);
       if (!session) return;
-
-      // The relay event is unauthenticated — confirm the departure
-      // against the REST registry before evicting or rotating, so a
+      // The relay event is unauthenticated — confirmDeparture()
+      // re-checks the REST registry before evicting or rotating, so a
       // forged member:left cannot force a rotation or evict a live
       // member. (Adversarial review 19-10, finding 2.)
-      await get().refreshMembers(roomId).catch(() => undefined);
-      const stillMember = (useApp.getState().members[roomId] ?? []).some(
-        (m) => m.memberId === memberId,
-      );
-      clearTyping(roomId, memberId);
-      if (stillMember) return; // forged or racy — the "leaver" is still registered
+      await confirmDeparture(roomId, memberId, alias, `${alias} left.`);
+    },
+  );
 
-      // Evict the leaver everywhere.
-      set((s) => ({
-        members: {
-          ...s.members,
-          [roomId]: (s.members[roomId] ?? []).filter((m) => m.memberId !== memberId),
-        },
-      }));
-      const cipher = getCipher(roomId);
-      if (cipher) cipher.registry.delete(memberId);
-      addSystemLine(roomId, `${alias} left.`);
-
-      // Those who stay re-seal the room: if this client is the
-      // deterministic coordinator, generate a RANDOM new key and
-      // deliver it pairwise over ECDH. The leaver never receives it —
-      // not through the password, not through the wire.
-      if (cipher && cipher.expectedCoordinator() === session.memberId) {
-        const offerFrames = await cipher.rotateAsCoordinator();
-        for (const f of offerFrames) {
-          relay.emit("message:send", { roomId, envelope: f });
-        }
-        addSystemLine(roomId, "The room re-sealed for those who remain.");
-      }
+  // A silent leaver was written out server-side (the coordinator's
+  // grace-expired eviction). Same rule as member:left: the relay
+  // event suggests, the registry confirms.
+  relay.on(
+    "member:expired",
+    async ({ roomId, memberId, alias }: { roomId: string; memberId: string; alias: string }) => {
+      const session = getSession(roomId);
+      if (!session) return;
+      await confirmDeparture(roomId, memberId, alias, `${alias} drifted away.`);
     },
   );
 
@@ -1160,6 +1319,7 @@ function wireRelay(
   relay.on("room:burned", ({ roomId }: { roomId: string }) => {
     const session = getSession(roomId);
     if (!session) return;
+    clearRoomGrace(roomId);
     set({ burn: { roomId } });
   });
 
@@ -1276,7 +1436,7 @@ async function handleOpenResult(roomId: string, frame: WireFrame, result: OpenRe
         },
       }));
       clearTyping(roomId, sender.memberId);
-      touchCard(roomId, !inRoom);
+      touchCard(roomId, !inRoom, 1);
       if (view.expiresAt) {
         scheduleBurn(roomId, view.id, view.expiresAt, onMessageBurn);
       }
@@ -1372,7 +1532,7 @@ async function handleOpenResult(roomId: string, frame: WireFrame, result: OpenRe
         },
       }));
       clearTyping(roomId, sender.memberId);
-      touchCard(roomId, !inRoom);
+      touchCard(roomId, !inRoom, 1);
       if (view.expiresAt) {
         scheduleBurn(roomId, view.id, view.expiresAt, onMessageBurn);
       }
@@ -1509,7 +1669,7 @@ async function receiveLegacyEnvelope(roomId: string, envelope: WireEnvelope) {
     },
   }));
   clearTyping(roomId, sender.memberId);
-  touchCard(roomId, useApp.getState().activeRoomId !== roomId);
+  touchCard(roomId, useApp.getState().activeRoomId !== roomId, 1);
   if (view.expiresAt) {
     scheduleBurn(roomId, view.id, view.expiresAt, onMessageBurn);
   }

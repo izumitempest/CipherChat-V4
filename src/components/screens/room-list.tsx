@@ -173,10 +173,25 @@ function RoomCardRow({
               {card.localName}
             </p>
             {card.unread && !locked ? (
-              <span
-                className="dot-pulse size-2 shrink-0 translate-y-px rounded-full bg-forest"
-                aria-label="New messages"
-              />
+              card.unreadCount && card.unreadCount > 0 ? (
+                /* Letters that landed while the room was away — counted,
+                   never stored beyond the number itself. The pill pops
+                   in once when it appears and beats softly as the count
+                   rises; under its row's hover it firms up, quietly. */
+                <span
+                  className="chip-pop flex h-[18px] min-w-[18px] shrink-0 translate-y-px items-center justify-center rounded-full bg-forest px-1 font-sans text-[11px] font-medium leading-none tabular-nums text-paper transition-[background-color,scale] duration-150 group-hover:bg-forest-deep group-hover:scale-105"
+                  aria-label={`${card.unreadCount} unread ${card.unreadCount === 1 ? "message" : "messages"}`}
+                >
+                  <span key={card.unreadCount} className="chip-beat">
+                    {card.unreadCount > 99 ? "99+" : card.unreadCount}
+                  </span>
+                </span>
+              ) : (
+                <span
+                  className="dot-pulse size-2 shrink-0 translate-y-px rounded-full bg-forest"
+                  aria-label="New activity"
+                />
+              )
             ) : null}
           </div>
           <p

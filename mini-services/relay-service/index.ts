@@ -20,6 +20,17 @@ import {
  *   - any socket message over the frame-size cap is a protocol
  *     violation and disconnects the socket (memory-DoS guard)
  *   - a socket may join at most 16 rooms
+ *
+ * Silent-departure grace (Task 21.1):
+ *   - when a member's LAST socket drops we stamp wentOfflineAt, so
+ *     the presence snapshot can tell the REST layer not just WHO is
+ *     offline but for how long (the eviction grace floor)
+ *   - GET /presence/:roomId on the INTERNAL port (3004, token-guarded,
+ *     never routed through the gateway) is the connection authority
+ *     the /evict route consults before writing anyone out
+ *   - member:expired is the coordinator's REST-confirmed announcement
+ *     that a silent leaver was sealed out — receivers verify against
+ *     the registry before acting, exactly as with member:left
  */
 
 const MAX_ROOMS_PER_SOCKET = 16;
@@ -44,6 +55,15 @@ interface MemberInfo {
 
 // roomId -> (memberId -> { info, sockets:Set<socketId> })
 const rooms = new Map<string, Map<string, { info: MemberInfo; sockets: Set<string> }>>();
+
+// "roomId:memberId" -> epoch ms when their last socket dropped. Set on
+// silent departure, cleared on any return (join / clean leave). This is
+// the clock behind the eviction grace floor — REST asks, we vouch.
+const wentOfflineAt = new Map<string, number>();
+
+function presenceKey(roomId: string, memberId: string) {
+  return `${roomId}:${memberId}`;
+}
 
 function roomMembers(roomId: string) {
   const room = rooms.get(roomId);
@@ -129,6 +149,7 @@ io.on("connection", (socket) => {
       entry.sockets.add(socket.id);
       joined.add(`${roomId}:${memberId}`);
       socket.join(`room:${roomId}`);
+      wentOfflineAt.delete(presenceKey(roomId, memberId)); // they came back
 
       socket.emit("room:state", { roomId, members: roomMembers(roomId) });
       if (isNewMember) {
@@ -223,7 +244,24 @@ io.on("connection", (socket) => {
     }
     socket.leave(`room:${data.roomId}`);
     removeFromRoom(data.roomId, data.memberId, socket.id);
+    // A clean leave is not a silent one — no grace clock starts.
+    wentOfflineAt.delete(presenceKey(data.roomId, data.memberId));
   });
+
+  // The coordinator's announcement that a silent leaver was evicted
+  // server-side (REST-confirmed before it ever got here). Receivers
+  // re-confirm against the registry before evicting/rotating — the
+  // relay stays a postbox, not an authority.
+  socket.on(
+    "member:expired",
+    (data: { roomId: string; memberId: string; alias: string }) => {
+      if (!data?.roomId || !data?.memberId) return;
+      if (!frameAllowed()) return;
+      for (const s of memberSockets(data.roomId, socket.id)) {
+        s.emit("member:expired", { roomId: data.roomId, memberId: data.memberId, alias: data.alias });
+      }
+    },
+  );
 
   socket.on("room:burn", (data: { roomId: string }) => {
     if (!data?.roomId) return;
@@ -232,6 +270,9 @@ io.on("connection", (socket) => {
       s.emit("room:burned", { roomId: data.roomId });
     }
     rooms.delete(data.roomId);
+    for (const key of [...wentOfflineAt.keys()]) {
+      if (key.startsWith(`${data.roomId}:`)) wentOfflineAt.delete(key);
+    }
     console.log(`[relay] room ${data.roomId} burned`);
   });
 
@@ -240,6 +281,9 @@ io.on("connection", (socket) => {
       const [roomId, memberId] = key.split(":");
       const stillConnected = removeFromRoom(roomId, memberId, socket.id);
       if (!stillConnected) {
+        // Silent departure — start the grace clock the /evict route
+        // will later consult.
+        wentOfflineAt.set(presenceKey(roomId, memberId), Date.now());
         for (const s of memberSockets(roomId)) {
           s.emit("member:presence", { roomId, memberId, connected: false });
         }
@@ -266,4 +310,42 @@ function removeFromRoom(roomId: string, memberId: string, socketId: string): boo
 const PORT = 3003;
 httpServer.listen(PORT, () => {
   console.log(`[relay] CipherChat blind relay listening on :${PORT}`);
+});
+
+/* ------------------------------------------------------------------ *
+ * INTERNAL PRESENCE SNAPSHOT (port 3004) — the connection authority
+ * consulted by the REST /evict route. Not routed through the gateway;
+ * guarded by a shared token so only the API tier can ask. Failures
+ * on this port never affect message relay.
+ * ------------------------------------------------------------------ */
+
+const INTERNAL_PORT = 3004;
+const INTERNAL_TOKEN = process.env.RELAY_INTERNAL_TOKEN ?? "";
+
+createServer((req, res) => {
+  const url = req.url ?? "";
+  if (!url.startsWith("/presence/")) {
+    res.writeHead(404, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: "not-found" }));
+    return;
+  }
+  if (req.method !== "GET" || req.headers["x-internal-token"] !== INTERNAL_TOKEN) {
+    res.writeHead(403, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: "forbidden" }));
+    return;
+  }
+  const roomId = url.slice("/presence/".length).split("?")[0];
+  const room = rooms.get(roomId);
+  const connected = room ? Array.from(room.keys()) : [];
+  const offlineSince: Record<string, number> = {};
+  for (const [key, ts] of wentOfflineAt) {
+    const sep = key.indexOf(":");
+    if (key.slice(0, sep) === roomId) offlineSince[key.slice(sep + 1)] = ts;
+  }
+  res.writeHead(200, { "content-type": "application/json" });
+  res.end(JSON.stringify({ roomId, connected, offlineSince }));
+}).listen(INTERNAL_PORT, () => {
+  console.log(
+    `[relay] presence snapshot on :${INTERNAL_PORT} ${INTERNAL_TOKEN ? "(token armed)" : "(NO TOKEN — /evict will fail closed)"}`,
+  );
 });

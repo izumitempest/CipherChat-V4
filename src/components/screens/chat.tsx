@@ -19,9 +19,11 @@ import { PrimaryAction, QuietAction } from "@/components/cc/actions";
 import { SealMark } from "@/components/cc/mark";
 import { getSession } from "@/lib/session";
 import { markTtlHintSeen, ttlHintSeen } from "@/lib/local";
+import { useIsDesktop } from "@/hooks/use-is-desktop";
 import { useApp, type TypingSignal } from "@/store/app";
 import { fmtTime } from "@/lib/format";
 import type { MessageView, MemberPublic } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 const EMPTY_MESSAGES: MessageView[] = [];
 const EMPTY_MEMBERS: MemberPublic[] = [];
@@ -50,8 +52,20 @@ function ActiveRoom({ roomId }: { roomId: string }) {
   const navigate = useApp((s) => s.navigate);
   const spendViewOnce = useApp((s) => s.spendViewOnce);
   const burnMessage = useApp((s) => s.burnMessage);
+  const relayOnline = useApp((s) => s.relayOnline);
+  const isDesktop = useIsDesktop();
   const session = getSession(roomId);
   const isCreator = !!session?.creatorToken;
+
+  /* The line-down note is held through its exit by render-time state
+   * (the sanctioned no-effect pattern) and released on animation end —
+   * never by a timer. It unrolls in, rolls away, and never shoves the
+   * letters beneath it. */
+  const [lineNote, setLineNote] = useState<"gone" | "down" | "lifting">(
+    relayOnline ? "gone" : "down",
+  );
+  if (!relayOnline && lineNote !== "down") setLineNote("down");
+  if (relayOnline && lineNote === "down") setLineNote("lifting");
 
   const [inviteOpen, setInviteOpen] = useState(() => {
     // After creating a room, the natural next verb is the invite.
@@ -197,6 +211,35 @@ function ActiveRoom({ roomId }: { roomId: string }) {
         onVerify={() => setVerifyOpen(true)}
         onSettings={() => setSettingsOpen(true)}
       />
+
+      {/* The line is down — letters pause. Quiet and factual, like
+          the system lines it sits above; it leaves when the courier
+          returns. */}
+      {lineNote !== "gone" ? (
+        <div
+          role="status"
+          onAnimationEnd={() => {
+            if (lineNote === "lifting") setLineNote("gone");
+          }}
+          className={cn(
+            /* Padding lives on the inner row: a border-box element's
+               height floors at its padding box, so the animated outer
+               strip stays padding-free to collapse all the way. */
+            "mx-auto w-full max-w-[720px] overflow-hidden",
+            lineNote === "down" ? "strip-in" : "strip-out",
+          )}
+        >
+          <div className="flex items-center gap-2 px-5 pb-1.5 pt-2">
+            <span
+              className="still-trying size-1.5 shrink-0 rounded-full bg-terracotta"
+              aria-hidden
+            />
+            <p className="t-meta min-w-0 flex-1 text-terracotta/85">
+              The line is down — letters pause until it returns.
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       <div className="relative min-h-0 flex-1">
         <div
@@ -479,7 +522,10 @@ function LockedRoomView({ roomId }: { roomId: string }) {
             This room is locked. Keys live only in memory — re-enter the
             password to return.
           </p>
-          <div className="mt-5 space-y-4">
+          {/* The card settles as one; the way back in follows a beat
+              later — the locked moment gets the same choreography as
+              every other entrance in the app. */}
+          <div className="settle mt-5 space-y-4" style={{ animationDelay: "120ms" }}>
             <Field label="Room password" htmlFor="cc-locked-pass" error={error}>
               <PasswordField
                 id="cc-locked-pass"

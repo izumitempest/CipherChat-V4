@@ -100,6 +100,9 @@ export interface RoomCard {
   lastActivity: number;
   lastMembers: number;
   unread: boolean;
+  /** letters that landed while the room was away (this device's
+   *  memory of them is a number — content is never stored) */
+  unreadCount?: number;
   locked: boolean; // true after refresh — derived, not stored
   burned: boolean;
 }

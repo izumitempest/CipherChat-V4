@@ -12,6 +12,8 @@ import { toast } from "sonner";
 import { FILE_LIMIT, useApp } from "@/store/app";
 import { getSession } from "@/lib/session";
 import { ttlHintSeen } from "@/lib/local";
+import { getDraft, setDraft } from "@/lib/drafts";
+import { useIsDesktop } from "@/hooks/use-is-desktop";
 import { TTL_STEPS, type TtlChoice } from "@/lib/types";
 import { fmtBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -31,8 +33,18 @@ export function Composer({ onTtlArmed }: { onTtlArmed?: () => void }) {
   const emitTyping = useApp((s) => s.emitTyping);
   const relayOnline = useApp((s) => s.relayOnline);
   const resealing = useApp((s) => (roomId ? s.resealing[roomId] : false));
+  const isDesktop = useIsDesktop();
 
-  const [text, setText] = useState("");
+  // The draft belongs to the ROOM, not the composer: switching rooms
+  // swaps in each room's letter-in-progress (memory-only, like the
+  // keys — a refresh wipes it with everything else).
+  const [text, setText] = useState(() => (roomId ? getDraft(roomId) : ""));
+  // A restored letter-in-progress announces itself once with a soft
+  // forest ring — set at mount (a room switch remounts the composer)
+  // and on any later render-time swap, cleared when the pulse ends.
+  const [draftCue, setDraftCue] = useState(() =>
+    !!(roomId ? getDraft(roomId) : "").trim(),
+  );
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [viewOnce, setViewOnce] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -42,6 +54,24 @@ export function Composer({ onTtlArmed }: { onTtlArmed?: () => void }) {
   );
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // A room switch swaps in that room's letter-in-progress and its own
+  // expiry setting — adjusted during render (the sanctioned no-effect
+  // pattern for prop-driven state), while the cursor courtesy is a
+  // DOM effect below. Touch keyboards stay closed: nothing should
+  // jump at you on a phone.
+  const [prevRoomId, setPrevRoomId] = useState(roomId);
+  if (prevRoomId !== roomId) {
+    setPrevRoomId(roomId);
+    const next = roomId ? getDraft(roomId) : "";
+    setText(next);
+    setTtl(roomId ? (getSession(roomId)?.defaultTtl ?? 0) : 0);
+    setDraftCue(!!next.trim());
+  }
+
+  useEffect(() => {
+    if (roomId && isDesktop) inputRef.current?.focus();
+  }, [roomId, isDesktop]);
 
   // Auto-grow: 1 to 3 lines.
   useEffect(() => {
@@ -103,6 +133,7 @@ export function Composer({ onTtlArmed }: { onTtlArmed?: () => void }) {
     setText("");
     setAttachment(null);
     setViewOnce(false);
+    setDraft(roomId, ""); // the letter left with its sender
     inputRef.current?.focus();
     await sendMessage(sending, file, ttlNow);
   }
@@ -208,6 +239,7 @@ export function Composer({ onTtlArmed }: { onTtlArmed?: () => void }) {
             maxLength={MESSAGE_CHAR_LIMIT}
             onChange={(e) => {
               setText(e.target.value);
+              if (roomId) setDraft(roomId, e.target.value);
               if (e.target.value.trim()) emitTyping(roomId ?? "");
             }}
             onPaste={(e) => {
@@ -223,10 +255,14 @@ export function Composer({ onTtlArmed }: { onTtlArmed?: () => void }) {
                 submit();
               }
             }}
+            onAnimationEnd={() => setDraftCue(false)}
             placeholder="Write a message…"
             aria-label="Message"
             aria-describedby={nearLimit ? "cc-char-count" : undefined}
-            className="max-h-[66px] min-h-[44px] flex-1 resize-none rounded-[12px] border border-hairline bg-paper px-3.5 py-[11px] font-serif text-[15.5px] leading-[22px] text-charcoal transition-colors duration-150 placeholder:text-mute/70 focus:border-forest/45 focus:outline-none focus:ring-2 focus:ring-forest/15 disabled:cursor-not-allowed disabled:opacity-50"
+            className={cn(
+              "max-h-[66px] min-h-[44px] flex-1 resize-none rounded-[12px] border border-hairline bg-paper px-3.5 py-[11px] font-serif text-[15.5px] leading-[22px] text-charcoal transition-colors duration-150 placeholder:text-mute/70 focus:border-forest/45 focus:outline-none focus:ring-2 focus:ring-forest/15 disabled:cursor-not-allowed disabled:opacity-50",
+              draftCue && "draft-restored",
+            )}
           />
 
           <button

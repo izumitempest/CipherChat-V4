@@ -35,6 +35,8 @@ browser — the server is a blind relay that cannot read a single frame.
 | Uniformity | All control frames (messages, typing, receipts, burns, key offers, file meta, ink marks) are the same size; every file transfer is the same fixed number of chunk frames — the relay cannot read file sizes or even tell typing from messages |
 | Replay defense | per-sender monotonic counters, ±10-minute timestamp window, frame-id dedup, refresh-surviving watermarks |
 | Rotation on leave | the remaining members seal the room under a **new random key**, delivered pairwise over ephemeral ECDH — the leaver never receives it, and it is not derived from the password |
+| Silent-departure grace | a member whose connection drops without a clean leave is written out **2 minutes** later: the relay's live presence (token-guarded, server-to-server) is the connection authority the eviction route consults, the epoch ledger makes the re-seal durable, and the departed member simply re-enters with the password when they return |
+| Silent-departure grace | a member whose connection drops without a clean leave is written out **2 minutes** later: the relay's live presence (token-guarded, server-to-server) is the connection authority the eviction route consults, the epoch ledger makes the re-seal durable, and the departed member simply re-enters with the password when they return |
 | Rejoin after rotation | the current key arrives ECDH-wrapped and sealed under the password-derived entry key, so only a joiner who proved the password can open it |
 | Forgery | messages are signed inside the encrypted payload and verified against the REST member registry; forgeries render as a quiet rejection line |
 | Verifiability | fingerprints derive from registered public keys; verification marks live on your device |
@@ -42,7 +44,8 @@ browser — the server is a blind relay that cannot read a single frame.
 The full property suite is enforced by tests named after the properties
 they protect: `src/lib/__tests__/task-19.*.test.ts` (47 tests — replay,
 rotation, padding, KDF, identity, hardening) plus `task-20.*.test.ts`
-(file captions, ink reactions). Run them with `bun run test`.
+(file captions, ink reactions) and `task-21.1-silent-grace.test.ts`
+(the silent-departure grace decision logic). Run them with `bun run test`.
 
 ## What CipherChat does NOT protect against
 
@@ -54,9 +57,12 @@ Read this part — it is the product's spine.
 - **View-once is a promise, not enforcement.** Any member can passively
   decrypt a view-once file on arrival and keep it without opening the
   viewer. Inherent to group E2EE; Signal has the same limit.
-- **Silent leavers keep the key.** Rotation fires when a member leaves.
-  Someone who just closes the tab keeps the current key until the room's
-  next rotation. For a hostile exit, burn the room.
+- **Silent leavers — closed by the grace.** A member who just closes the
+  tab keeps the current key for at most **2 minutes**: their connection
+  drop starts a grace clock on every remaining client, and the connected
+  coordinator asks the server to write them out and re-seal when it
+  expires. The residual window is the grace itself — and for a hostile
+  exit, burn the room.
 - **Insiders can sabotage.** A member can always publish the room key
   out-of-band or push nuisance rotations. Group E2EE keeps outsiders
   out; it cannot police participants.
