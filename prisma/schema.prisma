@@ -27,6 +27,7 @@ model Member {
   id         String   @id @default(cuid())
   roomId     String
   pubkey     String // ECDSA P-256 public key (JWK JSON) — identity lives here
+  ecdhPub    String? // session ECDH public key (raw b64) — key delivery; changes per page load
   alias      String // deterministic alias derived from the key fingerprint
   colorIdx   Int // deterministic ink index 0-7
   joinedAt   DateTime @default(now())

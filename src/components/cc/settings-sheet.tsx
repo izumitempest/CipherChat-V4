@@ -188,7 +188,7 @@ export function SettingsSheet({
             <p className="t-meta mt-2 text-center">
               {isCreator
                 ? "Burning destroys the room for everyone, unrecoverably."
-                : "Leaving rotates the room key for those who stay."}
+                : "When you leave, those who stay re-seal the room under a new key you will never receive."}
             </p>
           </div>
         </SheetContent>

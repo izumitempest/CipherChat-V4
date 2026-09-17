@@ -358,13 +358,14 @@ circular SVG: hairline track + forest arc that fills over **1700ms** with
 `cubic-bezier(0.2,0,0,1)` (`seal-arc`), a `seal-press` scale-weight on the
 whole dial, the SealMark centered inside. Copy: "Sealing the room" /
 "Deriving your encryption keys. This takes a moment on purpose." — the
-deliberate slowness is honest: PBKDF2-SHA256 with 750k iterations genuinely
-takes ~1–2s, and the store enforces `MIN_SEAL_MS = 1700` so the theater never
-finishes before the crypto does. `role="status"` + `aria-live="polite"`.
+deliberate slowness is honest: argon2id with 64 MB of memory hardness
+genuinely takes a moment, and the store enforces `MIN_SEAL_MS = 1700` so
+the theater never finishes before the crypto does. `role="status"` +
+`aria-live="polite"`.
 
 The inner `Sealing` component is reusable with custom label/sub; the store's
-`sealing: SealingState | null` drives the wired version (also used for
-epoch re-derivation: "Re-sealing the room…").
+`sealing: SealingState | null` drives the wired version (also used while a
+rejoined member awaits key delivery: the composer's "Re-sealing" chip).
 
 ### `BurnOverlay` — `cc/burn-overlay.tsx` · **S6 (room)**
 
@@ -557,48 +558,65 @@ One Zustand store holds all client state:
 
 | State | Shape |
 |---|---|
-| `ready`, `device` | Boot: device ECDSA identity loaded |
+| `ready`, `seed` | Boot: the device seed (one random 32B; every room derives its own signing key from it) |
 | `screen`, `activeRoomId`, `inviteCode` | Hash-router position |
 | `roomCards` | The desk (persisted via `lib/local`) |
 | `messages` | `Record<roomId, MessageView[]>` — memory only |
-| `members`, `typing` | Live registries per room |
-| `relayOnline`, `resealing` | Connection truths |
+| `members`, `typing` | Live registries per room (identity authoritative only via REST) |
+| `relayOnline`, `resealing` | Connection truths ("Re-sealing" = awaiting key delivery) |
 | `sealing`, `burn` | Ceremony overlay triggers |
 
 Actions (all UI mutations funnel through these): `init`, `navigate`,
-`createRoom`, `joinRoom`/`enterRoom`, `sendMessage` (sign → encrypt → relay,
-optimistic), `emitTyping` (throttled 2.5s), `spendViewOnce`, `burnMessage`
-(600ms choreography), `burnRoom`/`finishRoomBurn`, `leaveRoom` (epoch bump →
-key rotation for those who stay), `renameRoom`, `setDefaultTtl`, `markVerified`,
-`refreshMembers`.
+`createRoom`, `joinRoom`/`enterRoom` (incl. the stale-rejoin bootstrap past
+the server's rotation ledger), `sendMessage` (sign → pad → encrypt → relay,
+optimistic; files become 1 meta + 44 uniform chunk frames), `emitTyping`
+(throttled 2.5s, rides the same encrypted frames), `spendViewOnce`,
+`burnMessage` (600ms choreography), `burnRoom`/`finishRoomBurn`, `leaveRoom`
+(remaining members re-seal under a new random key), `renameRoom`,
+`setDefaultTtl`, `markVerified`, `refreshMembers`.
 
 Internals worth knowing: TTL burn timers and typing-prune timers live in
-module memory (not state); sealing enforces `MIN_SEAL_MS`; the receive
-pipeline decrypts → looks up the sender registry → **verifies the ECDSA
-signature** → forged messages become the quiet system rejection line, never a
-dialog.
+module memory (not state); sealing enforces `MIN_SEAL_MS`; the v2 receive
+pipeline (`receiveFrame` → `RoomCipher.open`) enforces shape → registry
+(eviction) → key version → **ECDSA signature** → **replay guard**, and only
+then renders — forged or replayed traffic becomes either a quiet rejection
+line (signature) or silence (everything else). The store is a thin adapter:
+every security decision lives in `lib/room-protocol.ts` where the Task 19
+test suite can reach it.
 
 ### `lib/` modules
 
 | Module | Role |
 |---|---|
-| `crypto.ts` | PBKDF2-SHA256 750k → AES-GCM room keys (epoch-salted); device ECDSA P-256 keypairs; verifier blobs (wrong-password detection without server knowledge); canonical-JSON sign/verify; base64 helpers |
+| `protocol.ts` | **Wire protocol v2**: frame types, uniform padding (control 20480+16B, file chunks 65536+16B, fixed-count file transfers), canonical v2 signing string, seal/open, replay guard (counters + session tags + ±10min window + id dedup + persistable watermarks), send clock, session ECDH helpers |
+| `room-protocol.ts` | **`RoomCipher`** — the per-room security engine: versioned key ring with grace, registry eviction gate, rotation ceremony (`rotateTo`/`rotateAsCoordinator`), join-key delivery (double-wrapped offers), pending buffer, file-chunk assembly with sha verification, key-version cap |
+| `kdf.ts` | argon2id (64 MB, t=3, p=1) versioned key bundles; legacy PBKDF2 room unlock |
+| `room-identity.ts` | Per-room ECDSA keys derived from the device seed via HKDF(seed, roomId) — cross-room unlinkability |
+| `crypto.ts` | Legacy v1 primitives (PBKDF2 room keys, verifier blobs, canonical-JSON sign/verify, base64) — still the sign/verify backbone |
+| `legacy.ts` | PBKDF2 epoch-key cache for pre-v2 rooms (the legacy receive path is gated to them) |
+| `rate-limit.ts` | Token bucket (20 frames/s per socket), IP limiter (5 rooms/min), frame-size cap — shared by relay and API |
 | `identity.ts` | Deterministic aliases ("Quiet Heron") and ink indexes from fingerprints; 8-hex fingerprints + `3F2A · 91BC` grouping; passphrase generator; room-code parser |
-| `session.ts` | **Memory-only** room sessions (keys, passwords, member ids, default TTL) — refresh = locked rooms, by design |
-| `local.ts` | localStorage: room cards, creator tokens, verify marks, TTL-hint flag, per-room settings |
+| `session.ts` | **Memory-only** room sessions (member ids, kv, passwords, default TTL, legacy flag) — refresh = locked rooms, by design |
+| `local.ts` | localStorage: room cards, creator tokens, verify marks, replay watermarks, TTL-hint flag, per-room settings |
 | `relay.ts` | The single socket.io client (`io("/?XTransformPort=3003")`) |
-| `types.ts` | `MessageView`, `RoomCard`, `MemberPublic`, `WireEnvelope`, TTL steps, `Screen` |
+| `types.ts` | `MessageView`, `RoomCard`, `MemberPublic` (incl. `ecdhPub`), legacy `WireEnvelope`, TTL steps, `Screen` |
 | `format.ts` | `fmtTime`, `fmtAgo`, `fmtTtlRemaining`, `fmtBytes` |
 | `db.ts` | Prisma client (server-side only) |
+| `__tests__/` | **The Task 19 property suite** — 47 tests named after the security properties they protect (replay, rotation, padding, KDF, identity, hardening) |
 
 ### Backend surface (for reference)
 
-REST: `POST /api/rooms` · `GET /api/rooms/:id` · `PUT verifier` (set-once) ·
-`POST/GET members` (cap 12) · `POST leave` (epoch bump) · `POST burn`
-(creatorToken). Relay (socket.io, port 3003, in-memory): `room:join`,
-`message:send`/`message:ack`/`message:spent`, `member:typing`,
-`member:joined`/`member:left`, `room:burn`. The relay never touches the
-database — new joiners see no history because none exists.
+REST: `POST /api/rooms` (rate-limited 5/min/IP) · `GET /api/rooms/:id` ·
+`PUT verifier` (set-once) · `POST/GET members` (cap 12; carries `ecdhPub`;
+**the only identity authority** — keyed by pubkey) · `POST leave` (epoch
+ledger bump) · `POST burn` (creatorToken). Relay (socket.io, port 3003,
+in-memory, hardened): `room:join`, `message:send`/`message:ack`
+(uniform v2 frames), `member:joined`/`member:left`/`member:presence`,
+`key:request`, `room:burn` — plus legacy `message:spent`/`member:typing`/
+`message:burn` forwarding for pre-v2 clients. Per-socket token bucket
+(20 frames/s sustained, burst 64), hard frame-size cap with disconnect,
+16-room cap. The relay never touches the database — new joiners see no
+history because none exists.
 
 ---
 

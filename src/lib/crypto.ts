@@ -132,7 +132,11 @@ export async function checkVerifier(
       fromB64(ct),
     );
     const parsed = JSON.parse(decoder.decode(plaintext));
-    return parsed?.check === "cipherchat-verify-v1";
+    // v1 and v2 bundles both carry a known-plaintext check; either is
+    // accepted here so cross-checks keep working across the upgrade.
+    return (
+      parsed?.check === "cipherchat-verify-v1" || parsed?.check === "cipherchat-verify-v2"
+    );
   } catch {
     return false;
   }

@@ -14,6 +14,8 @@ function isJwk(value: unknown): value is Record<string, unknown> {
 
 // POST /api/rooms/:roomId/members — join (or re-join after a refresh).
 // Identity is the public key: same key = same alias, same color.
+// Keys are PER-ROOM (derived from the device seed), so the registry
+// cannot be correlated across rooms.
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ roomId: string }> },
@@ -21,11 +23,21 @@ export async function POST(
   const { roomId } = await params;
   const body = (await request.json().catch(() => null)) as {
     pubkey?: unknown;
+    ecdhPub?: unknown;
     alias?: unknown;
     colorIdx?: unknown;
   } | null;
 
-  if (!isJwk(body?.pubkey) || typeof body?.alias !== "string" || typeof body?.colorIdx !== "number") {
+  const ecdhPubOk =
+    body?.ecdhPub === undefined ||
+    (typeof body.ecdhPub === "string" && body.ecdhPub.length > 0 && body.ecdhPub.length <= 200);
+
+  if (
+    !isJwk(body?.pubkey) ||
+    typeof body?.alias !== "string" ||
+    typeof body?.colorIdx !== "number" ||
+    !ecdhPubOk
+  ) {
     return NextResponse.json({ error: "invalid-member" }, { status: 400 });
   }
 
@@ -42,7 +54,13 @@ export async function POST(
   if (existing) {
     const member = await db.member.update({
       where: { id: existing.id },
-      data: { active: true, lastSeenAt: new Date(), alias: body.alias, colorIdx: body.colorIdx },
+      data: {
+        active: true,
+        lastSeenAt: new Date(),
+        alias: body.alias,
+        colorIdx: body.colorIdx,
+        ...(typeof body.ecdhPub === "string" ? { ecdhPub: body.ecdhPub } : {}),
+      },
     });
     return NextResponse.json({
       memberId: member.id,
@@ -60,6 +78,7 @@ export async function POST(
     data: {
       roomId,
       pubkey,
+      ...(typeof body.ecdhPub === "string" ? { ecdhPub: body.ecdhPub } : {}),
       alias: body.alias,
       colorIdx: Math.max(0, Math.min(7, body.colorIdx)),
       active: true,
@@ -89,6 +108,7 @@ export async function GET(
       alias: m.alias,
       colorIdx: m.colorIdx,
       pubkey: JSON.parse(m.pubkey),
+      ecdhPub: m.ecdhPub ?? undefined,
       joinedAt: m.joinedAt,
     })),
   });

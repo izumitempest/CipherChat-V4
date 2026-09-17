@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { IpRateLimiter, ROOM_CREATE_PER_MIN } from "@/lib/rate-limit";
 
 // Crockford base32, no I/L/O/U — codes that survive being read aloud
 const ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -20,9 +21,21 @@ function makeToken(): string {
 
 export const ROOM_MEMBER_CAP = 12;
 
+// Room creation is rate-limited per IP (SQLite bloat / spam guard).
+const createLimiter = new IpRateLimiter({ limit: ROOM_CREATE_PER_MIN, windowMs: 60_000 });
+
+function clientIp(request: Request): string {
+  const fwd = request.headers.get("x-forwarded-for");
+  if (fwd) return fwd.split(",")[0].trim();
+  return request.headers.get("x-real-ip") ?? "local";
+}
+
 // POST /api/rooms — create a room. The server never learns the password:
 // the client derives the key locally and later stores only a verifier blob.
-export async function POST() {
+export async function POST(request: Request) {
+  if (!createLimiter.allow(clientIp(request))) {
+    return NextResponse.json({ error: "slow-down" }, { status: 429 });
+  }
   for (let attempt = 0; attempt < 5; attempt++) {
     const id = makeRoomId();
     const existing = await db.room.findUnique({ where: { id } });

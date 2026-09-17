@@ -131,8 +131,28 @@ Standard easing: `cubic-bezier(0.2, 0, 0, 1)`. Durations: 150 state / 250 entran
 
 ---
 
-## 5. Architecture (for the record)
+## 5. Architecture (for the record — protocol v2, Task 19)
 
-- **Client** (`/`, hash-routed `#/`, `#/new`, `#/join/:id`, `#/rooms`, `#/r/:id`): WebCrypto — PBKDF2-SHA256 (750k, salt `cipherchat:v1:<room>:<epoch>`) → AES-256-GCM; per-device ECDSA P-256 signing keys; canonical-string signatures; deterministic alias/ink/fingerprint from key material.
-- **Server** (Next.js API routes + Prisma/SQLite): room lifecycle, member registry (pubkeys for verification), creator-token-authorized burn, epoch bump on leave (key rotation). **Never sees plaintext or passwords; stores no messages.**
-- **Relay** (socket.io mini-service, :3003, in-memory): blind envelope forwarding, presence, view-once spend announcements, burn announcements. No DB, no history — new joiners see nothing from before they joined, by construction.
+- **Client** (`/`, hash-routed `#/`, `#/new`, `#/join/:id`, `#/rooms`, `#/r/:id`): all crypto in WebCrypto + hash-wasm + @noble/curves.
+  - **Entry key (kv 1)**: argon2id (m=64 MB, t=3, p=1) from the room password and a random 16-byte salt carried in a **versioned key bundle** (`{v:2, alg:"argon2id", ...}`) stored on the room. Rooms created before the upgrade (versionless PBKDF2-SHA256/750k bundles) still unlock through the legacy path.
+  - **Wire protocol v2** (`src/lib/protocol.ts`): every frame is `body JSON → sign (ECDSA P-256, canonical v2) → pad to a fixed size → AES-256-GCM`. Control frames (text, typing, receipts, burns, key offers, file metadata) are uniformly **20480+16 bytes**; file transfers are **exactly 45 uniform frames** (1 meta + 44 chunks of 65536+16, payload padded to a fixed 2,800,000 base64 characters) regardless of true file size — the relay cannot distinguish typing from messages or read file sizes.
+  - **Replay defense**: per-sender monotonic counters inside a per-page-load session tag, a ±10-minute timestamp window, frame-id dedup, and watermarks persisted per room per device (survive refresh).
+  - **Identity**: one random device seed; each room derives its own ECDSA P-256 signing key via HKDF(seed, roomId) — same device, two rooms → different pubkeys and aliases, so registries cannot be correlated. Session ECDH P-256 pairs regenerate every page load (memory only).
+  - **Key rotation** (`src/lib/room-protocol.ts`): when a member leaves, the deterministic coordinator (lowest memberId among connected members) generates a **random** key — never derived from the password — and delivers it pairwise over authenticated ECDH, signed, sealed under the entry key so every member can read the offer but only the recipient can unwrap it. Departed members are evicted from local registries; their frames are refused. The server's room epoch is a persistent rotation ledger: rejoiners past it re-seal past any key a departed member may still hold, and unanswered key requests self-heal through version-randomized fallback rotations that converge monotonically.
+  - **Join delivery**: a member re-joining after a rotation receives the current key as an ECDH-wrapped offer additionally sealed under the entry key — only a joiner who proved the password can open it.
+- **Server** (Next.js API routes + Prisma/SQLite): room lifecycle, member registry (**the only identity authority** — keyed by pubkey, so a forged relay join cannot overwrite a real member), creator-token-authorized burn, epoch ledger bump on leave. **Never sees plaintext or passwords; stores no messages.** Room creation is rate-limited to 5/minute/IP.
+- **Relay** (socket.io mini-service, :3003, in-memory): blind uniform-frame forwarding, presence, key requests. Token-bucket rate limit (20 frames/sec sustained, burst 64) per socket; oversized frames are a protocol violation and hard-disconnect; at most 16 rooms per socket. No DB, no history — new joiners see nothing from before they joined, by construction.
+
+## 6. Threat model — what this does NOT protect against
+
+Honest claims only; this list is the product's spine.
+
+- **Metadata.** The relay sees who talks to whom, when, room ids, frame counts, and presence. Frames are size-uniform, so content *type* (message vs typing) and file *sizes* are hidden — but the fact and volume of communication is not.
+- **View-once is a UI promise, not enforcement.** Any member can passively decrypt a view-once file on receipt and keep it, without ever opening the viewer. This is inherent to group E2EE (Signal has the same limit).
+- **Silent leavers keep the key.** Rotation fires when a member *announces* departure. A member who simply disappears (closes the tab, never leaves) retains the current key until the room's next rotation or until everyone refreshes (the epoch ledger then forces a re-seal past their key). For a hostile exit, burn the room.
+- **Insiders can always sabotage.** Any current member can push a nuisance rotation, leave garbage, or publish the room key out-of-band. Group E2EE cannot defend against a malicious participant — it only keeps outsiders out.
+- **The room password is immutable** for the room's lifetime (the verifier is set once at creation). Password knowledge can never be revoked; rotations exist precisely so the key stops depending on it.
+- **Endpoint compromise.** A compromised device (XSS, malware, physical access) reads everything and impersonates the user. Nothing in the browser can prevent this.
+- **The relay and REST API are unauthenticated at the transport layer** (by design — no accounts). Forged relay joins cannot poison identity (REST registry is authoritative, keyed by pubkey) and forged leaves cannot force rotations (confirmed against REST first) — but they can appear as transient presence noise.
+- **Replay residuals.** Replayed frames are refused within a device's memory and across refreshes (persisted watermarks) — but a frame captured within the ±10-minute window can be delivered *once* to a device that has never seen the room before (e.g., a fresh joiner on a new device). No history is stored anywhere; this is the residual cost of not trusting the relay with sequence numbers.
+- **Not a nation-state adversary.** If your opponent is one, use Signal or SimpleX.

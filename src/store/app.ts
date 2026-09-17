@@ -1,6 +1,14 @@
 // The application store. One place owns: the desk (room cards),
 // per-room message memory, member registries, the relay wiring, and
 // the choreography of enter / unlock / send / burn.
+//
+// SECURITY MODEL (protocol v2 — see lib/protocol.ts + lib/room-protocol.ts):
+//   Every frame the relay carries is padded to a uniform size and
+//   encrypted; typing, receipts, burns, key offers and file chunks all
+//   ride the same indistinguishable frames. Replay protection, the
+//   member-registry eviction gate, signature checks and the ECDH key
+//   rotation ceremony all live in RoomCipher — this store is a thin
+//   adapter that turns OpenResults into UI.
 
 import { create } from "zustand";
 import type {
@@ -14,26 +22,29 @@ import type {
   FilePayload,
 } from "@/lib/types";
 import {
-  loadDeviceIdentity,
-  signCanonical,
   verifyCanonical,
   canonicalFor,
-  burnCanonical,
-  encryptJson,
   decryptJson,
-  makeVerifier,
-  checkVerifier,
   sha256HexOfBytes,
   fromB64,
-  type DeviceIdentity,
 } from "@/lib/crypto";
 import { aliasFromFingerprint, inkFromFingerprint } from "@/lib/identity";
+import { createKeyBundleV2, unlockWithBundle } from "@/lib/kdf";
+import { loadDeviceSeed, deriveRoomSigningKey } from "@/lib/room-identity";
+import {
+  RoomCipher,
+  generateSessionEcdh,
+  getCipher,
+  setCipher,
+  dropCipher,
+  type OpenResult,
+} from "@/lib/room-protocol";
+import type { WireFrame } from "@/lib/protocol";
 import {
   getSession,
   setSession,
   dropSession,
   sessionRoomIds,
-  getEpochKey,
   type RoomSession,
 } from "@/lib/session";
 import {
@@ -49,6 +60,7 @@ import {
   saveCreatorToken,
   loadCreatorToken,
   sweepBurnedRooms,
+  roomWatermarkStore,
 } from "@/lib/local";
 import { getRelay } from "@/lib/relay";
 
@@ -73,7 +85,7 @@ export interface TypingSignal {
 
 interface AppState {
   ready: boolean;
-  device: DeviceIdentity | null;
+  seed: Uint8Array | null;
   screen: Screen;
   activeRoomId: string | null;
   inviteCode: string | null;
@@ -119,6 +131,10 @@ const TYPING_TTL_MS = 3500;
 const TYPING_EMIT_THROTTLE_MS = 2500;
 const typingLastEmit = new Map<string, number>();
 const typingPruneTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/* ------------ join-key requests (self-healing delivery) ------------ */
+const KEYREQ_THROTTLE_MS = 5000;
+const keyReqLastEmit = new Map<string, number>();
 
 function pruneTypingLater(roomId: string) {
   const existing = typingPruneTimers.get(roomId);
@@ -180,7 +196,7 @@ const MIN_SEAL_MS = 1700; // the vault moment takes at least this long, on purpo
 
 export const useApp = create<AppState>()((set, get) => ({
   ready: false,
-  device: null,
+  seed: null,
   screen: "landing",
   activeRoomId: null,
   inviteCode: null,
@@ -198,10 +214,12 @@ export const useApp = create<AppState>()((set, get) => ({
 
   init: async () => {
     if (get().ready) return;
-    const device = await loadDeviceIdentity();
+    // One random seed per device; every room derives its own signing
+    // key from it, so registries can never be correlated across rooms.
+    const seed = await loadDeviceSeed();
     // Burned rooms showed their ash last session; now they are gone.
     const cards = sweepBurnedRooms();
-    set({ device, roomCards: cards, ready: true });
+    set({ seed, roomCards: cards, ready: true });
 
     get().syncHash();
     window.addEventListener("hashchange", () => get().syncHash());
@@ -265,8 +283,8 @@ export const useApp = create<AppState>()((set, get) => ({
   /* ----------------------------------------------- create ---- */
 
   createRoom: async (localName, password) => {
-    const device = get().device;
-    if (!device) return { ok: false, reason: "error" };
+    const seed = get().seed;
+    if (!seed) return { ok: false, reason: "error" };
 
     const res = await fetch("/api/rooms", { method: "POST" });
     if (!res.ok) return { ok: false, reason: "error" };
@@ -276,24 +294,34 @@ export const useApp = create<AppState>()((set, get) => ({
     set({ sealing: { roomId, label: "Sealing the room" } });
     const started = Date.now();
 
-    const { deriveRoomKey } = await import("@/lib/crypto");
-    const key = await deriveRoomKey(roomId, 1, password);
-    const verifier = await makeVerifier(key);
+    // This room's own signing identity + session ECDH pair, and the
+    // argon2id key bundle (random salt, versioned, memory-hard).
+    const [identity, ecdh, bundle] = await Promise.all([
+      deriveRoomSigningKey(seed, roomId),
+      generateSessionEcdh(),
+      createKeyBundleV2(password),
+    ]);
+
     await Promise.all([
       fetch(`/api/rooms/${roomId}/verifier`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ verifier }),
+        body: JSON.stringify({ verifier: JSON.stringify(bundle.bundle) }),
       }),
       new Promise((r) => setTimeout(r, MIN_SEAL_MS - (Date.now() - started))),
     ]);
 
-    const alias = aliasFromFingerprint(device.fingerprintHex);
-    const colorIdx = inkFromFingerprint(device.fingerprintHex);
+    const alias = aliasFromFingerprint(identity.fingerprintHex);
+    const colorIdx = inkFromFingerprint(identity.fingerprintHex);
     const joinRes = await fetch(`/api/rooms/${roomId}/members`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ pubkey: device.pubJwk, alias, colorIdx }),
+      body: JSON.stringify({
+        pubkey: identity.pubJwk,
+        ecdhPub: ecdh.pubRawB64,
+        alias,
+        colorIdx,
+      }),
     });
     if (!joinRes.ok) {
       set({ sealing: null });
@@ -301,17 +329,26 @@ export const useApp = create<AppState>()((set, get) => ({
     }
     const { memberId } = await joinRes.json();
 
+    const cipher = new RoomCipher({
+      roomId,
+      selfId: memberId,
+      sig: { privJwk: identity.privJwk, pubJwk: identity.pubJwk },
+      ecdh,
+      entryKey: bundle.key,
+      watermarks: roomWatermarkStore(roomId),
+    });
+    setCipher(roomId, cipher);
+
     const session: RoomSession = {
       roomId,
       memberId,
       alias,
       colorIdx,
-      epoch: 1,
+      kv: 1,
       password,
       creatorToken,
       defaultTtl: loadRoomSettings(roomId).defaultTtl,
-      keys: new Map([[1, key]]),
-      pending: new Map(),
+      legacy: false,
     };
     setSession(session);
     set({ sealing: null });
@@ -322,8 +359,8 @@ export const useApp = create<AppState>()((set, get) => ({
   /* ------------------------------------------------- join ---- */
 
   joinRoom: async (code, password, localName) => {
-    const device = get().device;
-    if (!device) return { ok: false, reason: "error" };
+    const seed = get().seed;
+    if (!seed) return { ok: false, reason: "error" };
 
     const infoRes = await fetch(`/api/rooms/${encodeURIComponent(code)}`);
     if (!infoRes.ok) {
@@ -338,45 +375,72 @@ export const useApp = create<AppState>()((set, get) => ({
       return { ok: false, reason: "room-full" };
     }
 
-    const { deriveRoomKey } = await import("@/lib/crypto");
     set({ sealing: { roomId: code, label: "Sealing the room" } });
     const started = Date.now();
-    const key = await deriveRoomKey(code, info.epoch, password);
-    const verified = info.verifier ? await checkVerifier(key, info.verifier) : true;
+    // The entry key (version 1) — argon2id for new rooms, PBKDF2 for
+    // rooms created before the upgrade. The bundle decides.
+    const entryKey = await unlockWithBundle(password, info.verifier, code, info.epoch);
     await new Promise((r) =>
       setTimeout(r, Math.max(0, MIN_SEAL_MS - (Date.now() - started))),
     );
 
-    if (!verified) {
+    if (!entryKey) {
       set({ sealing: null });
       return { ok: false, reason: "wrong-password" };
     }
 
-    const alias = aliasFromFingerprint(device.fingerprintHex);
-    const colorIdx = inkFromFingerprint(device.fingerprintHex);
+    const [identity, ecdh] = await Promise.all([
+      deriveRoomSigningKey(seed, code),
+      generateSessionEcdh(),
+    ]);
+    const alias = aliasFromFingerprint(identity.fingerprintHex);
+    const colorIdx = inkFromFingerprint(identity.fingerprintHex);
     const joinRes = await fetch(`/api/rooms/${code}/members`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ pubkey: device.pubJwk, alias, colorIdx }),
+      body: JSON.stringify({
+        pubkey: identity.pubJwk,
+        ecdhPub: ecdh.pubRawB64,
+        alias,
+        colorIdx,
+      }),
     });
     if (!joinRes.ok) {
       set({ sealing: null });
       if (joinRes.status === 403) return { ok: false, reason: "room-full" };
       return { ok: false, reason: "error" };
     }
-    const { memberId, epoch, rejoined } = await joinRes.json();
+    const { memberId, rejoined } = await joinRes.json();
+
+    const cipher = new RoomCipher({
+      roomId: code,
+      selfId: memberId,
+      sig: { privJwk: identity.privJwk, pubJwk: identity.pubJwk },
+      ecdh,
+      entryKey,
+      watermarks: roomWatermarkStore(code),
+    });
+    setCipher(code, cipher);
+
+    // v1 rooms (versionless key bundles) keep the legacy receive path;
+    // v2 rooms refuse v1 envelopes outright.
+    let legacyRoom = true;
+    try {
+      legacyRoom = !info.verifier || JSON.parse(info.verifier)?.v !== 2;
+    } catch {
+      legacyRoom = true;
+    }
 
     const session: RoomSession = {
       roomId: code,
       memberId,
       alias,
       colorIdx,
-      epoch,
+      kv: 1, // the current key arrives via ECDH offers if the room has rotated
       password,
       creatorToken: loadCreatorToken(code),
       defaultTtl: loadRoomSettings(code).defaultTtl,
-      keys: new Map([[epoch, key]]),
-      pending: new Map(),
+      legacy: legacyRoom,
     };
     setSession(session);
     set({ sealing: null });
@@ -385,6 +449,59 @@ export const useApp = create<AppState>()((set, get) => ({
       get().roomCards.find((c) => c.roomId === code)?.localName ||
       `Room ${code.slice(0, 4)}`;
     await get().enterRoom(session, name, !!rejoined);
+
+    // The server's epoch is the rotation LEDGER (it persists; keys do
+    // not). If the room has rotated before and we are back at the
+    // password-derived key — a rejoin after refresh, or a fresh join —
+    // the current key must arrive via ECDH offers. Give live members a
+    // moment to deliver; if nobody does (everyone refreshed), the
+    // coordinator re-seals past the ledger so keys any departed member
+    // may still hold are dead again.
+    if (info.epoch > 1) {
+      const attemptRotation = (minKv: number) => {
+        const c = getCipher(code);
+        const s = getSession(code);
+        if (!c || !s || c.kv > 1) return;
+        void c.rotateTo(minKv).then((offers) => {
+          const relay2 = getRelay();
+          for (const f of offers) {
+            relay2.emit("message:send", { roomId: code, envelope: f });
+          }
+          addSystemLine(code, "The room re-sealed for those who remain.");
+        });
+      };
+      setTimeout(() => {
+        const cipher2 = getCipher(code);
+        const session2 = getSession(code);
+        if (!cipher2 || !session2 || cipher2.kv > 1) return;
+        if (cipher2.expectedCoordinator() === session2.memberId) {
+          attemptRotation(info.epoch);
+        } else {
+          // Ask the room for the current key; a live key-holder answers
+          // with an ECDH offer.
+          getRelay().emit("key:request", { roomId: code, from: session.memberId });
+          setResealing(code, true);
+          // Fallback: if nobody answers (every member refreshed, or the
+          // holder is offline), re-seal on our own after a randomized
+          // delay. The version jump is randomized too, so simultaneous
+          // fallbacks converge: a lower-version holder always accepts
+          // a higher-version offer.
+          setTimeout(() => {
+            const c = getCipher(code);
+            const s = getSession(code);
+            if (!c || !s || c.kv > 1) return;
+            void c.rotateTo(info.epoch + 1 + Math.floor(Math.random() * 8), false).then((offers) => {
+              const relay2 = getRelay();
+              for (const f of offers) {
+                relay2.emit("message:send", { roomId: code, envelope: f });
+              }
+              addSystemLine(code, "The room re-sealed for those who remain.");
+              setResealing(code, false);
+            });
+          }, 5000 + Math.floor(Math.random() * 3000));
+        }
+      }, 3000);
+    }
     return { ok: true };
   },
 
@@ -409,14 +526,15 @@ export const useApp = create<AppState>()((set, get) => ({
 
     await get().refreshMembers(session.roomId);
 
-    const device = get().device;
+    const cipher = getCipher(session.roomId);
     const relay = getRelay();
     relay.emit("room:join", {
       roomId: session.roomId,
       memberId: session.memberId,
       alias: session.alias,
       colorIdx: session.colorIdx,
-      pubkey: device?.pubJwk,
+      pubkey: cipher?.sigPubJwk,
+      ecdhPub: cipher?.ecdh.pubRawB64,
       rejoined,
     });
     set({ relayOnline: relay.connected });
@@ -428,8 +546,29 @@ export const useApp = create<AppState>()((set, get) => ({
     try {
       const res = await fetch(`/api/rooms/${roomId}/members`);
       if (!res.ok) return;
-      const { members } = await res.json();
+      const { members } = (await res.json()) as { members: MemberPublic[] };
       set((s) => ({ members: { ...s.members, [roomId]: members } }));
+
+      // Keep the cipher's registry in sync — it is the eviction gate.
+      const cipher = getCipher(roomId);
+      if (cipher) {
+        const seen = new Set<string>();
+        for (const m of members) {
+          seen.add(m.memberId);
+          const cur = cipher.registry.get(m.memberId);
+          cipher.registry.set(m.memberId, {
+            pubkey: m.pubkey,
+            ecdhPubB64: m.ecdhPub ?? cur?.ecdhPubB64,
+            connected: cur?.connected ?? true,
+            joinedAt: m.joinedAt ?? cur?.joinedAt,
+            alias: m.alias,
+            colorIdx: m.colorIdx,
+          });
+        }
+        for (const id of [...cipher.registry.keys()]) {
+          if (!seen.has(id)) cipher.registry.delete(id);
+        }
+      }
     } catch {
       /* offline — the registry stays as-is */
     }
@@ -439,59 +578,37 @@ export const useApp = create<AppState>()((set, get) => ({
 
   sendMessage: async (text, file, ttlOverride) => {
     const viewOnce = !!file?.viewOnce;
-    const { activeRoomId, device } = get();
-    if (!activeRoomId || !device) return;
+    const { activeRoomId } = get();
+    if (!activeRoomId) return;
     const session = getSession(activeRoomId);
-    if (!session) return;
+    const cipher = getCipher(activeRoomId);
+    if (!session || !cipher) return;
     const trimmed = text.trim();
     if (!trimmed && !file) return;
 
-    const id = crypto.randomUUID();
-    const ts = Date.now();
-    const kind = file ? "file" : "text";
-    let fileSha: string | undefined;
-    let fullFile: FilePayload | undefined;
-    if (file) {
-      fileSha = await sha256HexOfBytes(fromB64(file.dataB64));
-      fullFile = { ...file, sha: fileSha };
-    }
-
-    const canonical = canonicalFor({
-      roomId: session.roomId,
-      epoch: session.epoch,
-      senderId: session.memberId,
-      ts,
-      kind,
-      text: trimmed,
-      fileSha,
-    });
-    const sig = await signCanonical(device.privJwk, canonical);
-    const payload: Payload = {
-      text: trimmed,
-      ts,
-      senderId: session.memberId,
-      sig,
-      kind,
-      file: fullFile,
-    };
-
-    const key = await getEpochKey(session, session.epoch);
-    const { iv, ct } = await encryptJson(key, payload);
-
     const ttlSec = (ttlOverride !== undefined ? ttlOverride : session.defaultTtl) || undefined;
-    const envelope: WireEnvelope = {
-      id,
-      roomId: session.roomId,
-      epoch: session.epoch,
-      senderId: session.memberId,
-      ts,
-      iv,
-      ct,
-      ttlSec,
-      viewOnce: file && viewOnce ? true : undefined,
-      kind,
-    };
+    const ts = Date.now();
 
+    let frames: WireFrame[];
+    if (file) {
+      const sha = await sha256HexOfBytes(fromB64(file.dataB64));
+      frames = await cipher.sealFile({
+        name: file.name,
+        mime: file.mime,
+        size: file.size,
+        dataB64: file.dataB64,
+        sha,
+        ttlSec,
+        viewOnce: viewOnce || undefined,
+      });
+    } else {
+      frames = await cipher.sealText({ text: trimmed, ttlSec });
+    }
+    // The first frame's id IS the message id (text frame, or the file
+    // meta frame) — the relay acks it and the view flips to "sent".
+    const id = frames[0].id;
+
+    const kind = file ? "file" : "text";
     const view: MessageView = {
       id,
       kind,
@@ -523,22 +640,27 @@ export const useApp = create<AppState>()((set, get) => ({
       scheduleBurn(session.roomId, id, ts + ttlSec * 1000, onMessageBurn);
     }
 
-    getRelay().emit("message:send", { roomId: session.roomId, envelope });
+    const relay = getRelay();
+    for (const f of frames) {
+      relay.emit("message:send", { roomId: session.roomId, envelope: f });
+    }
   },
 
   /* --------------------------------------------- typing ------- */
 
   emitTyping: (roomId) => {
     const session = getSession(roomId);
-    if (!session) return;
+    const cipher = getCipher(roomId);
+    if (!session || !cipher) return;
     const now = Date.now();
     const last = typingLastEmit.get(roomId) ?? 0;
     if (now - last < TYPING_EMIT_THROTTLE_MS) return;
     typingLastEmit.set(roomId, now);
-    getRelay().emit("member:typing", {
-      roomId,
-      memberId: session.memberId,
-      alias: session.alias,
+    // Typing rides the same uniform encrypted frames as everything
+    // else — the relay cannot even tell WHEN someone is typing.
+    void cipher.sealTyping().then((frames) => {
+      const relay = getRelay();
+      for (const f of frames) relay.emit("message:send", { roomId, envelope: f });
     });
   },
 
@@ -554,32 +676,31 @@ export const useApp = create<AppState>()((set, get) => ({
         },
       };
     });
-    getRelay().emit("message:spent", { roomId, messageId });
+    const cipher = getCipher(roomId);
+    if (cipher) {
+      void cipher.sealSpent(messageId).then((frames) => {
+        const relay = getRelay();
+        for (const f of frames) relay.emit("message:send", { roomId, envelope: f });
+      });
+    }
   },
 
   /* --------------------------------------------- burn-one ---- */
 
   /** Retire one of your own letters ahead of its clock. The announce
-   *  is signed, so only the author can do this — nobody else can
-   *  burn a message they did not write. */
+   *  is signed inside the encrypted frame, so only the author can do
+   *  this — nobody else can burn a message they did not write. */
   burnMessage: async (roomId, messageId) => {
-    const { activeRoomId, device } = get();
-    if (!device) return;
+    const { activeRoomId } = get();
     const target = roomId ?? activeRoomId;
     const session = getSession(target);
+    const cipher = getCipher(target);
     const msg = (get().messages[target] ?? []).find((m) => m.id === messageId);
-    if (!session || !msg || !msg.self || msg.kind === "system") return;
+    if (!session || !cipher || !msg || !msg.self || msg.kind === "system") return;
 
-    const sig = await signCanonical(
-      device.privJwk,
-      burnCanonical(target, session.memberId, messageId),
-    );
-    getRelay().emit("message:burn", {
-      roomId: target,
-      messageId,
-      senderId: session.memberId,
-      sig,
-    });
+    const frames = await cipher.sealBurn(messageId);
+    const relay = getRelay();
+    for (const f of frames) relay.emit("message:send", { roomId: target, envelope: f });
 
     const t = burnTimers.get(messageId);
     if (t) {
@@ -611,6 +732,7 @@ export const useApp = create<AppState>()((set, get) => ({
     const messages = get().messages[roomId] ?? [];
     cancelBurns(roomId, messages);
     dropSession(roomId);
+    dropCipher(roomId);
     patchRoomCard(roomId, { burned: true, unread: false, lastActivity: Date.now() });
     set((s) => ({
       burn: null,
@@ -633,7 +755,7 @@ export const useApp = create<AppState>()((set, get) => ({
           body: JSON.stringify({ memberId: session.memberId }),
         });
       } catch {
-        /* best effort — the epoch bump happens server-side anyway */
+        /* best effort — receivers rotate on the announce regardless */
       }
       getRelay().emit("member:leave", {
         roomId,
@@ -644,6 +766,7 @@ export const useApp = create<AppState>()((set, get) => ({
     const messages = get().messages[roomId] ?? [];
     cancelBurns(roomId, messages);
     dropSession(roomId);
+    dropCipher(roomId);
     removeRoomCard(roomId);
     set((s) => ({
       roomCards: loadRoomCards(),
@@ -735,6 +858,15 @@ function touchCard(roomId: string, unread: boolean) {
   useApp.setState({ roomCards: loadRoomCards() });
 }
 
+function setResealing(roomId: string, value: boolean) {
+  useApp.setState((s) => {
+    const next = { ...s.resealing };
+    if (value) next[roomId] = true;
+    else delete next[roomId];
+    return { resealing: next };
+  });
+}
+
 function wireRelay(
   set: (
     partial:
@@ -747,16 +879,17 @@ function wireRelay(
 
   relay.on("connect", () => {
     set({ relayOnline: true });
-    const device = useApp.getState().device;
     for (const roomId of sessionRoomIds()) {
       const session = getSession(roomId);
-      if (session) {
+      const cipher = getCipher(roomId);
+      if (session && cipher) {
         relay.emit("room:join", {
           roomId,
           memberId: session.memberId,
           alias: session.alias,
           colorIdx: session.colorIdx,
-          pubkey: device?.pubJwk,
+          pubkey: cipher.sigPubJwk,
+          ecdhPub: cipher.ecdh.pubRawB64,
           rejoined: true,
         });
       }
@@ -766,42 +899,86 @@ function wireRelay(
   relay.on("disconnect", () => set({ relayOnline: false }));
 
   relay.on("room:state", ({ roomId, members }: { roomId: string; members: MemberPublic[] }) => {
-    // merge live presence into the registry
-    const registry = useApp.getState().members[roomId] ?? [];
-    const byId = new Map(registry.map((m) => [m.memberId, { ...m }]));
-    for (const live of members) {
-      const existing = byId.get(live.memberId);
-      byId.set(live.memberId, {
-        ...live,
-        ...(existing?.pubkey ? { pubkey: existing.pubkey } : {}),
-      });
+    // The relay authenticates nothing: room:state only updates
+    // PRESENCE. Identity (pubkeys, ECDH keys) comes exclusively from
+    // the REST registry, which is keyed by pubkey and cannot be
+    // poisoned by a forged join. (Adversarial review 19-10, finding 1.)
+    set((s) => {
+      const registry = s.members[roomId] ?? [];
+      const byId = new Map(registry.map((m) => [m.memberId, { ...m }]));
+      for (const live of members) {
+        const existing = byId.get(live.memberId);
+        if (existing) {
+          byId.set(live.memberId, { ...existing, connected: true });
+        }
+        // Unknown members wait for the REST refresh that member:joined
+        // triggers — a forged relay join never enters the registry.
+      }
+      return { members: { ...s.members, [roomId]: Array.from(byId.values()) } };
+    });
+
+    const cipher = getCipher(roomId);
+    if (cipher) {
+      for (const live of members) {
+        const cur = cipher.registry.get(live.memberId);
+        if (cur) cipher.registry.set(live.memberId, { ...cur, connected: true });
+      }
     }
-    set((s) => ({ members: { ...s.members, [roomId]: Array.from(byId.values()) } }));
   });
 
   relay.on(
     "member:joined",
-    ({ roomId, member, rejoined }: { roomId: string; member: MemberPublic; rejoined?: boolean }) => {
+    async ({ roomId, member, rejoined }: { roomId: string; member: MemberPublic; rejoined?: boolean }) => {
       const session = getSession(roomId);
       if (!session) return;
-      set((s) => {
-        const registry = s.members[roomId] ?? [];
-        if (registry.some((m) => m.memberId === member.memberId)) {
-          return {
-            members: {
-              ...s.members,
-              [roomId]: registry.map((m) =>
-                m.memberId === member.memberId ? { ...m, connected: true } : m,
-              ),
-            },
-          };
+
+      // The relay join broadcast carries NO authentication — key
+      // material from it is never trusted. The REST registry (keyed by
+      // pubkey, so a forged memberId cannot overwrite a real member)
+      // is the only identity authority: refresh from it, then act on
+      // what it confirms. (Adversarial review 19-10, finding 1.)
+      await get().refreshMembers(roomId).catch(() => undefined);
+      const confirmed = (useApp.getState().members[roomId] ?? []).find(
+        (m) => m.memberId === member.memberId,
+      );
+      if (!confirmed) {
+        return; // forged or unconfirmed join — no registry entry, no key
+      }
+
+      set((s) => ({
+        members: {
+          ...s.members,
+          [roomId]: (s.members[roomId] ?? []).map((m) =>
+            m.memberId === confirmed.memberId ? { ...m, connected: true } : m,
+          ),
+        },
+      }));
+
+      const cipher = getCipher(roomId);
+      if (cipher && confirmed.ecdhPub) {
+        const cur = cipher.registry.get(confirmed.memberId);
+        cipher.registry.set(confirmed.memberId, {
+          pubkey: confirmed.pubkey,
+          ecdhPubB64: confirmed.ecdhPub ?? cur?.ecdhPubB64,
+          connected: true,
+          joinedAt: confirmed.joinedAt ?? cur?.joinedAt,
+          alias: confirmed.alias,
+          colorIdx: confirmed.colorIdx,
+        });
+        // If the room has rotated past the password-derived key, hand
+        // the newcomer the CURRENT key — ECDH-wrapped and sealed under
+        // the entry key, so only a joiner who proved the password can
+        // open it. Every member sends; the joiner keeps the highest.
+        if (cipher.kv > 1 && confirmed.memberId !== session.memberId) {
+          void cipher.deliverKeyTo(confirmed.memberId).then((frames) => {
+            for (const f of frames) {
+              relay.emit("message:send", { roomId, envelope: f });
+            }
+          });
         }
-        return {
-          members: { ...s.members, [roomId]: [...registry, { ...member, connected: true }] },
-        };
-      });
-      if (member.memberId !== session.memberId) {
-        addSystemLine(roomId, rejoined ? `${member.alias} returned.` : `${member.alias} joined.`);
+      }
+      if (confirmed.memberId !== session.memberId) {
+        addSystemLine(roomId, rejoined ? `${confirmed.alias} returned.` : `${confirmed.alias} joined.`);
         touchCard(roomId, get().activeRoomId !== roomId);
       }
     },
@@ -818,32 +995,53 @@ function wireRelay(
           ),
         },
       }));
+      const cipher = getCipher(roomId);
+      if (cipher) {
+        const cur = cipher.registry.get(memberId);
+        if (cur) cipher.registry.set(memberId, { ...cur, connected });
+      }
     },
   );
 
   relay.on(
     "member:left",
-    async ({ roomId, alias }: { roomId: string; memberId: string; alias: string }) => {
+    async ({ roomId, memberId, alias }: { roomId: string; memberId: string; alias: string }) => {
       const session = getSession(roomId);
       if (!session) return;
-      addSystemLine(roomId, `${alias} left. The room key was rotated.`);
-      // Rotate: fetch the new epoch and re-derive quietly.
-      set((s) => ({ resealing: { ...s.resealing, [roomId]: true } }));
-      try {
-        const res = await fetch(`/api/rooms/${roomId}`);
-        if (res.ok) {
-          const info = await res.json();
-          session.epoch = info.epoch;
-          await getEpochKey(session, info.epoch);
+
+      // The relay event is unauthenticated — confirm the departure
+      // against the REST registry before evicting or rotating, so a
+      // forged member:left cannot force a rotation or evict a live
+      // member. (Adversarial review 19-10, finding 2.)
+      await get().refreshMembers(roomId).catch(() => undefined);
+      const stillMember = (useApp.getState().members[roomId] ?? []).some(
+        (m) => m.memberId === memberId,
+      );
+      clearTyping(roomId, memberId);
+      if (stillMember) return; // forged or racy — the "leaver" is still registered
+
+      // Evict the leaver everywhere.
+      set((s) => ({
+        members: {
+          ...s.members,
+          [roomId]: (s.members[roomId] ?? []).filter((m) => m.memberId !== memberId),
+        },
+      }));
+      const cipher = getCipher(roomId);
+      if (cipher) cipher.registry.delete(memberId);
+      addSystemLine(roomId, `${alias} left.`);
+
+      // Those who stay re-seal the room: if this client is the
+      // deterministic coordinator, generate a RANDOM new key and
+      // deliver it pairwise over ECDH. The leaver never receives it —
+      // not through the password, not through the wire.
+      if (cipher && cipher.expectedCoordinator() === session.memberId) {
+        const offerFrames = await cipher.rotateAsCoordinator();
+        for (const f of offerFrames) {
+          relay.emit("message:send", { roomId, envelope: f });
         }
-      } finally {
-        set((s) => {
-          const next = { ...s.resealing };
-          delete next[roomId];
-          return { resealing: next };
-        });
+        addSystemLine(roomId, "The room re-sealed for those who remain.");
       }
-      get().refreshMembers(roomId);
     },
   );
 
@@ -853,10 +1051,12 @@ function wireRelay(
     patchView(target, id, { status: "sent" });
   });
 
-  relay.on("message:spent", ({ roomId, messageId }: { roomId: string; messageId: string }) => {
-    patchView(roomId, messageId, { spent: true });
-  });
+  // NOTE: the legacy `message:spent` relay event is deliberately NOT
+  // handled anymore — it carried no authentication, so anyone who knew
+  // the room id could spoil view-once files for everyone. v2 clients
+  // spend via cipher-verified encrypted frames. (Review 19-10, finding 3.)
 
+  // Legacy early-burn announces from pre-upgrade clients.
   relay.on(
     "message:burn",
     async ({
@@ -883,7 +1083,7 @@ function wireRelay(
         !!author?.pubkey &&
         !!sig &&
         target.senderId === senderId &&
-        (await verifyCanonical(author.pubkey, burnCanonical(roomId, senderId, messageId), sig));
+        (await verifyCanonical(author.pubkey, ["v1", "burn", roomId, senderId, messageId].join("|"), sig));
       if (!ok) {
         addSystemLine(
           roomId,
@@ -908,102 +1108,33 @@ function wireRelay(
 
   relay.on(
     "message:new",
-    async ({ roomId, envelope }: { roomId: string; envelope: WireEnvelope }) => {
+    async ({ roomId, envelope }: { roomId: string; envelope: WireFrame | WireEnvelope }) => {
       const session = getSession(roomId);
       if (!session || !envelope) return;
 
-      // Might need a key for a newer epoch (quiet re-seal)
-      set((s) => ({ resealing: { ...s.resealing, [roomId]: true } }));
-      let payload: Payload | null = null;
-      try {
-        const key = await getEpochKey(session, envelope.epoch);
-        payload = await decryptJson<Payload>(key, envelope.iv, envelope.ct);
-      } catch {
-        payload = null;
-      } finally {
-        set((s) => {
-          const next = { ...s.resealing };
-          delete next[roomId];
-          return { resealing: next };
-        });
-      }
-
-      const registry = get().members[roomId] ?? [];
-      const sender = registry.find((m) => m.memberId === envelope.senderId);
-
-      if (!payload || !sender) {
-        // Tampered, undecryptable, or from an unknown member: rejected.
-        addSystemLine(
-          roomId,
-          `A message claiming to be from ${sender?.alias ?? "an unknown member"} was rejected — signature invalid.`,
-        );
-        touchCard(roomId, get().activeRoomId !== roomId);
+      if ((envelope as WireFrame).v === 2) {
+        await receiveFrame(roomId, envelope as WireFrame);
         return;
       }
-
-      const canonical = canonicalFor({
-        roomId,
-        epoch: envelope.epoch,
-        senderId: envelope.senderId,
-        ts: payload.ts,
-        kind: envelope.kind,
-        text: payload.text,
-        fileSha: payload.file?.sha,
-      });
-      const ok = await verifyCanonical(sender.pubkey, canonical, payload.sig);
-      if (!ok) {
-        addSystemLine(
-          roomId,
-          `A message claiming to be from ${sender.alias} was rejected — signature invalid.`,
-        );
-        touchCard(roomId, get().activeRoomId !== roomId);
-        return;
-      }
-
-      if (envelope.epoch > session.epoch) session.epoch = envelope.epoch;
-
-      const view: MessageView = {
-        id: envelope.id,
-        kind: envelope.kind,
-        senderId: sender.memberId,
-        senderAlias: sender.alias,
-        senderColor: sender.colorIdx,
-        self: sender.memberId === session.memberId,
-        status: "sent",
-        ts: payload.ts,
-        text: payload.text,
-        file: payload.file
-          ? {
-              name: payload.file.name,
-              mime: payload.file.mime,
-              size: payload.file.size,
-              dataB64: payload.file.dataB64,
-            }
-          : undefined,
-        ttlSec: envelope.ttlSec,
-        expiresAt: envelope.ttlSec ? payload.ts + envelope.ttlSec * 1000 : undefined,
-        viewOnce: envelope.viewOnce,
-      };
-      useApp.setState((s) => ({
-        messages: {
-          ...s.messages,
-          [roomId]: [...(s.messages[roomId] ?? []), view],
-        },
-      }));
-      // The message arrived — the whisper is over.
-      clearTyping(roomId, sender.memberId);
-      touchCard(roomId, get().activeRoomId !== roomId);
-      if (view.expiresAt) {
-        scheduleBurn(roomId, view.id, view.expiresAt, onMessageBurn);
-      }
+      // v1 envelopes only decode in v1 rooms — a v2 room accepting
+      // them would let any password-holder bypass replay defense,
+      // uniform padding and the registry gate. (Review 19-10, finding 4.)
+      if (!session.legacy) return;
+      await receiveLegacyEnvelope(roomId, envelope as WireEnvelope);
     },
   );
 
+  // Legacy typing whispers from pre-upgrade clients — display only,
+  // and only for senders the REST registry actually knows.
   relay.on(
     "member:typing",
     ({ roomId, memberId, alias }: { roomId: string; memberId: string; alias: string }) => {
       const session = getSession(roomId);
       if (!session || memberId === session.memberId) return;
+      const known = (useApp.getState().members[roomId] ?? []).some(
+        (m) => m.memberId === memberId,
+      );
+      if (!known) return;
       useApp.setState((s) => {
         const list = (s.typing[roomId] ?? []).filter((t) => t.memberId !== memberId);
         return {
@@ -1013,4 +1144,296 @@ function wireRelay(
       pruneTypingLater(roomId);
     },
   );
+
+  // A member who is stuck on an old key version asks for delivery.
+  // Answer with the current key — wrapped so only password-holders
+  // can open it. (Relay rate-limits these.)
+  relay.on("key:request", ({ roomId, from }: { roomId: string; from: string }) => {
+    const session = getSession(roomId);
+    const cipher = getCipher(roomId);
+    if (!session || !cipher || cipher.kv <= 1) return;
+    if (from === session.memberId) return;
+    if (!cipher.registry.has(from)) return;
+    void cipher.deliverKeyTo(from).then((frames) => {
+      for (const f of frames) {
+        relay.emit("message:send", { roomId, envelope: f });
+      }
+    });
+  });
+}
+
+/* ------------------------------------------------------------------
+   v2 receive path — every security decision lives in the cipher
+   ------------------------------------------------------------------ */
+
+async function receiveFrame(roomId: string, frame: WireFrame) {
+  const session = getSession(roomId);
+  const cipher = getCipher(roomId);
+  if (!session || !cipher) return;
+
+  const result = await cipher.open(frame);
+  await handleOpenResult(roomId, frame, result);
+
+  // A frame we could not yet decrypt may mean we are a joiner (or a
+  // reconnecter) waiting for key delivery — ask for it, quietly.
+  if (result.type === "pending" && cipher.kv === 1) {
+    const now = Date.now();
+    const last = keyReqLastEmit.get(roomId) ?? 0;
+    if (now - last > KEYREQ_THROTTLE_MS) {
+      keyReqLastEmit.set(roomId, now);
+      getRelay().emit("key:request", { roomId, from: session.memberId });
+      setResealing(roomId, true);
+    }
+  }
+}
+
+async function handleOpenResult(roomId: string, frame: WireFrame, result: OpenResult) {
+  const session = getSession(roomId);
+  const cipher = getCipher(roomId);
+  if (!session || !cipher) return;
+  const registry = useApp.getState().members[roomId] ?? [];
+  const inRoom = useApp.getState().activeRoomId === roomId;
+
+  switch (result.type) {
+    case "text": {
+      const sender = registry.find((m) => m.memberId === result.body.senderId);
+      if (!sender) return;
+      const ttlSec = result.body.ttlSec;
+      const view: MessageView = {
+        id: frame.id,
+        kind: "text",
+        senderId: sender.memberId,
+        senderAlias: sender.alias,
+        senderColor: sender.colorIdx,
+        self: sender.memberId === session.memberId,
+        status: "sent",
+        ts: result.body.ts,
+        text: result.body.text ?? "",
+        ttlSec,
+        expiresAt: ttlSec ? result.body.ts + ttlSec * 1000 : undefined,
+      };
+      useApp.setState((s) => ({
+        messages: {
+          ...s.messages,
+          [roomId]: [...(s.messages[roomId] ?? []), view],
+        },
+      }));
+      clearTyping(roomId, sender.memberId);
+      touchCard(roomId, !inRoom);
+      if (view.expiresAt) {
+        scheduleBurn(roomId, view.id, view.expiresAt, onMessageBurn);
+      }
+      return;
+    }
+
+    case "typing": {
+      if (result.senderId === session.memberId) return;
+      const sender = registry.find((m) => m.memberId === result.senderId);
+      useApp.setState((s) => {
+        const list = (s.typing[roomId] ?? []).filter((t) => t.memberId !== result.senderId);
+        return {
+          typing: {
+            ...s.typing,
+            [roomId]: [
+              ...list,
+              { memberId: result.senderId, alias: sender?.alias ?? "Someone", at: Date.now() },
+            ],
+          },
+        };
+      });
+      pruneTypingLater(roomId);
+      return;
+    }
+
+    case "spent": {
+      patchView(roomId, result.messageId, { spent: true });
+      return;
+    }
+
+    case "burn": {
+      const target = (useApp.getState().messages[roomId] ?? []).find(
+        (m) => m.id === result.messageId,
+      );
+      // The cipher already verified the author's signature; make sure
+      // the target is actually the author's own letter.
+      if (!target || target.kind === "system" || target.senderId !== result.senderId) return;
+      const t = burnTimers.get(result.messageId);
+      if (t) {
+        clearTimeout(t);
+        burnTimers.delete(result.messageId);
+      }
+      onMessageBurn(roomId, result.messageId);
+      return;
+    }
+
+    case "file": {
+      const sender = registry.find((m) => m.memberId === result.senderId);
+      if (!sender) return;
+      const view: MessageView = {
+        id: result.file.messageId,
+        kind: "file",
+        senderId: sender.memberId,
+        senderAlias: sender.alias,
+        senderColor: sender.colorIdx,
+        self: sender.memberId === session.memberId,
+        status: "sent",
+        ts: result.ts,
+        file: {
+          name: result.file.name,
+          mime: result.file.mime,
+          size: result.file.size,
+          dataB64: result.file.dataB64,
+        },
+        ttlSec: result.file.ttlSec,
+        expiresAt: result.file.ttlSec ? result.ts + result.file.ttlSec * 1000 : undefined,
+        viewOnce: result.file.viewOnce,
+      };
+      useApp.setState((s) => ({
+        messages: {
+          ...s.messages,
+          [roomId]: [...(s.messages[roomId] ?? []), view],
+        },
+      }));
+      clearTyping(roomId, sender.memberId);
+      touchCard(roomId, !inRoom);
+      if (view.expiresAt) {
+        scheduleBurn(roomId, view.id, view.expiresAt, onMessageBurn);
+      }
+      return;
+    }
+
+    case "file-meta":
+    case "file-chunk":
+      return; // assembly happens inside the cipher; render on completion
+
+    case "offer-installed": {
+      session.kv = cipher.kv;
+      setResealing(roomId, false);
+      if (result.rotation) {
+        addSystemLine(roomId, "The room re-sealed for those who remain.");
+      }
+      // Frames that were parked waiting for this key.
+      const drained = await cipher.drainPending();
+      for (const { frame: parked, result: r } of drained) {
+        await handleOpenResult(roomId, parked, r).catch(() => undefined);
+      }
+      return;
+    }
+
+    case "pending":
+      return;
+
+    case "reject": {
+      if (result.reason === "signature") {
+        const sender = registry.find((m) => m.memberId === frame.from);
+        addSystemLine(
+          roomId,
+          `A message claiming to be from ${sender?.alias ?? "an unknown member"} was rejected — signature invalid.`,
+        );
+        touchCard(roomId, !inRoom);
+      }
+      // Other rejections (replay, registry, kv, shape) are silent —
+      // they are the protocol defending itself, not user-actionable.
+      return;
+    }
+  }
+}
+
+/* ------------ legacy envelope id dedup (v1 rooms only) ------------ */
+const legacySeen = new Set<string>();
+const legacySeenOrder: string[] = [];
+
+function legacySeenOnce(id: string): boolean {
+  if (legacySeen.has(id)) return false;
+  legacySeen.add(id);
+  legacySeenOrder.push(id);
+  if (legacySeenOrder.length > 1024) {
+    const drop = legacySeenOrder.splice(0, legacySeenOrder.length - 1024);
+    for (const d of drop) legacySeen.delete(d);
+  }
+  return true;
+}
+
+/* ------------------------------------------------------------------
+   Legacy receive path — rooms created before protocol v2
+   ------------------------------------------------------------------ */
+
+async function receiveLegacyEnvelope(roomId: string, envelope: WireEnvelope) {
+  const session = getSession(roomId);
+  if (!session || !session.legacy || !envelope) return;
+  if (envelope.id && !legacySeenOnce(envelope.id)) return; // duplicate
+
+  let payload: Payload | null = null;
+  try {
+    const { getEpochKeyLegacy } = await import("@/lib/legacy");
+    const key = await getEpochKeyLegacy(roomId, envelope.epoch, session.password);
+    payload = await decryptJson<Payload>(key, envelope.iv, envelope.ct);
+  } catch {
+    payload = null;
+  }
+
+  const registry = useApp.getState().members[roomId] ?? [];
+  const sender = registry.find((m) => m.memberId === envelope.senderId);
+
+  if (!payload || !sender) {
+    addSystemLine(
+      roomId,
+      `A message claiming to be from ${sender?.alias ?? "an unknown member"} was rejected — signature invalid.`,
+    );
+    touchCard(roomId, useApp.getState().activeRoomId !== roomId);
+    return;
+  }
+
+  const canonical = canonicalFor({
+    roomId,
+    epoch: envelope.epoch,
+    senderId: envelope.senderId,
+    ts: payload.ts,
+    kind: envelope.kind,
+    text: payload.text,
+    fileSha: payload.file?.sha,
+  });
+  const ok = await verifyCanonical(sender.pubkey, canonical, payload.sig);
+  if (!ok) {
+    addSystemLine(
+      roomId,
+      `A message claiming to be from ${sender.alias} was rejected — signature invalid.`,
+    );
+    touchCard(roomId, useApp.getState().activeRoomId !== roomId);
+    return;
+  }
+
+  const view: MessageView = {
+    id: envelope.id,
+    kind: envelope.kind,
+    senderId: sender.memberId,
+    senderAlias: sender.alias,
+    senderColor: sender.colorIdx,
+    self: sender.memberId === session.memberId,
+    status: "sent",
+    ts: payload.ts,
+    text: payload.text,
+    file: payload.file
+      ? {
+          name: payload.file.name,
+          mime: payload.file.mime,
+          size: payload.file.size,
+          dataB64: payload.file.dataB64,
+        }
+      : undefined,
+    ttlSec: envelope.ttlSec,
+    expiresAt: envelope.ttlSec ? payload.ts + envelope.ttlSec * 1000 : undefined,
+    viewOnce: envelope.viewOnce,
+  };
+  useApp.setState((s) => ({
+    messages: {
+      ...s.messages,
+      [roomId]: [...(s.messages[roomId] ?? []), view],
+    },
+  }));
+  clearTyping(roomId, sender.memberId);
+  touchCard(roomId, useApp.getState().activeRoomId !== roomId);
+  if (view.expiresAt) {
+    scheduleBurn(roomId, view.id, view.expiresAt, onMessageBurn);
+  }
 }

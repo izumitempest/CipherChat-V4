@@ -4,6 +4,7 @@
 // is shown for the remainder of the session, then vanishes.
 
 import type { RoomCard, TtlChoice } from "./types";
+import type { WatermarkStore } from "./room-protocol";
 
 const ROOMS_KEY = "cc.rooms";
 
@@ -107,6 +108,31 @@ export function markTtlHintSeen(): void {
   } catch {
     /* private mode — it will show again next session */
   }
+}
+
+/* ---------------- replay watermarks (per room, per device) ---------------- */
+
+/** Persists per-(sender, session) counter watermarks so a page refresh
+ *  does not reset the replay defense. Bounded by the cipher (512
+ *  entries); survives as long as the room card does. */
+export function roomWatermarkStore(roomId: string): WatermarkStore {
+  const key = `cc.wm.${roomId}`;
+  return {
+    load() {
+      try {
+        return JSON.parse(localStorage.getItem(key) ?? "{}") as Record<string, number>;
+      } catch {
+        return {};
+      }
+    },
+    save(data) {
+      try {
+        localStorage.setItem(key, JSON.stringify(data));
+      } catch {
+        /* storage unavailable — defense degrades to per-page-load */
+      }
+    },
+  };
 }
 
 /* ---------------- per-room local settings ---------------- */

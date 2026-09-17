@@ -36,7 +36,10 @@ export interface MemberPublic {
   alias: string;
   colorIdx: number;
   pubkey: JsonWebKey;
+  /** session ECDH public key (raw b64) — used for pairwise key delivery */
+  ecdhPub?: string;
   connected?: boolean;
+  joinedAt?: number;
 }
 
 export type MessageStatus = "sending" | "sent" | "burning";
