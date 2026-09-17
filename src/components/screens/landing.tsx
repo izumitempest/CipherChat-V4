@@ -31,7 +31,7 @@ export function LandingScreen() {
   const [createOpen, setCreateOpen] = useState(false);
 
   return (
-    <div className="flex min-h-dvh flex-col">
+    <div className="screen-in flex min-h-dvh flex-col">
       <header className="flex items-center justify-between px-4 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6">
         <span className="font-serif text-[18px] font-semibold tracking-[-0.01em]">
           CipherChat
@@ -40,13 +40,19 @@ export function LandingScreen() {
       </header>
 
       <main className="mx-auto flex w-full max-w-[440px] flex-1 flex-col items-center justify-center px-6 py-16 [@media(max-height:720px)]:py-9">
-        {/* Entrance: the ink lands first — a drop pressed into the
-            with a hair of over-rotation, one overshoot, a settle —
-            then it breathes. The headline and actions follow, each a
-            step behind. Delays are inline because unlayered keyframe
-            classes outrank utilities-layer animation-delay. */}
-        <div className="seal-stamp">
-          <InkMark size={72} breathe />
+        {/* Entrance — the ink falls. The drop releases from above
+            with a lean, strikes the paper (~220ms: squash), and its
+            flecks splash upward as the stain bleeds outward beneath
+            it; a beat later the evaporating loop takes over. Hover
+            the mark at rest: the flecks lift, the ember warms.
+            Classes and staggers live in globals.css — the choreo
+            needs multi-animation shorthands inline styles can't
+            express. */}
+        <div className="hero-mark relative">
+          <span className="ink-halo" aria-hidden />
+          <div className="drop-land">
+            <InkMark size={72} breathe className="mark-land" />
+          </div>
         </div>
         <h1
           className="t-display settle mt-7 text-center"

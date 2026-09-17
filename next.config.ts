@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
   // the preview gateway) — two origins, because tabs share localStorage.
   // The sandbox's outer preview proxy also reaches dev on *.space-z.ai.
   allowedDevOrigins: ["localhost", "127.0.0.1", "*.space-z.ai"],
+  // The dev-tools indicator overlaps the composer on small screens —
+  // and it never exists in production. Off in dev too.
+  devIndicators: false,
   typescript: {
     ignoreBuildErrors: true,
   },

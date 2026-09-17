@@ -157,17 +157,21 @@ export function SystemLine({ text }: { text: string }) {
 }
 
 /** TTL remaining life — the hourglass carries the terracotta signal,
- *  the label stays in the quiet machine voice. */
+ *  the label stays in the quiet machine voice. In its final ten
+ *  seconds the whole label breathes faster (ttl-final) — urgency in
+ *  rhythm, on top of the colour it already carries. */
 function TtlRemaining({ expiresAt }: { expiresAt: number }) {
-  const [label, setLabel] = useState(() => fmtTtlRemaining(expiresAt - Date.now()));
+  const [remaining, setRemaining] = useState(() => expiresAt - Date.now());
   useEffect(() => {
     const t = setInterval(() => {
-      setLabel(fmtTtlRemaining(expiresAt - Date.now()));
+      setRemaining(expiresAt - Date.now());
     }, 1000);
     return () => clearInterval(t);
   }, [expiresAt]);
+  const label = fmtTtlRemaining(remaining);
+  const final = remaining > 0 && remaining < 10_000;
   return (
-    <span className="inline-flex items-center gap-1">
+    <span className={cn("inline-flex items-center gap-1", final && "ttl-final")}>
       <Hourglass className="size-[11px] text-terracotta" aria-hidden />
       {label}
     </span>
@@ -310,7 +314,8 @@ export function MessageBubble({
         >
           <div
             className={cn(
-              "rise px-3.5 py-2",
+              "px-3.5 py-2",
+              self ? "msg-in-self" : "msg-in-other",
               self
                 ? cn("bubble-self", position.first && "rounded-tr-[6px]", position.last && "rounded-br-[6px]", !position.first && !position.last && "rounded-tr-[18px] rounded-br-[18px]")
                 : cn("bubble-other", position.first && "rounded-tl-[6px]", position.last && "rounded-bl-[6px]"),

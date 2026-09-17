@@ -74,7 +74,7 @@ function InviteForm({ prefilledCode }: { prefilledCode: string | null }) {
   }
 
   return (
-    <div className="flex min-h-dvh flex-col">
+    <div className="screen-in flex min-h-dvh flex-col">
       <header className="flex items-center justify-between px-4 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6">
         <QuietAction onClick={() => navigate("rooms")} aria-label="Back">
           <ChevronLeft className="size-4" aria-hidden /> Back

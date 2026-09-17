@@ -18,7 +18,7 @@ import { TTL_STEPS, isCustomTtl, type TtlChoice } from "@/lib/types";
 import { fmtBytes, fmtTtlLong, fmtTtlShort } from "@/lib/format";
 import { TtlPicker } from "@/components/cc/ttl-picker";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { SheetGrabber } from "@/components/cc/sheet-grabber";
 import { cn } from "@/lib/utils";
 
@@ -58,6 +58,10 @@ export function Composer({ onTtlArmed }: { onTtlArmed?: () => void }) {
   );
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  /* One dispatch, one flourish: two small flecks rise from the send
+   * button as the letter leaves. Cleared by the pseudo-elements'
+   * animationend, which lands on the button itself. */
+  const [bursting, setBursting] = useState(false);
 
   // A room switch swaps in that room's letter-in-progress and its own
   // expiry setting — adjusted during render (the sanctioned no-effect
@@ -158,6 +162,7 @@ export function Composer({ onTtlArmed }: { onTtlArmed?: () => void }) {
 
   async function submit() {
     if (!canSend || !roomId) return;
+    setBursting(true);
     const file = attachment
       ? { ...attachment, viewOnce }
       : undefined;
@@ -319,9 +324,13 @@ export function Composer({ onTtlArmed }: { onTtlArmed?: () => void }) {
               <Sheet open={ttlOpen} onOpenChange={setTtlOpen}>
                 <SheetContent
                   side="bottom"
+                  aria-describedby={undefined}
                   className="rounded-t-[18px] border-t border-hairline bg-paper px-5 pb-8 pt-2"
                 >
                   <SheetGrabber />
+                  {/* Screen-reader title for the sheet (visually the
+                      label below carries it). */}
+                  <SheetTitle className="sr-only">Message expiry</SheetTitle>
                   <p className="mb-2.5 font-sans text-[13px] font-medium tracking-[0.01em] text-charcoal">
                     Message expiry
                   </p>
@@ -345,7 +354,11 @@ export function Composer({ onTtlArmed }: { onTtlArmed?: () => void }) {
               onClick={submit}
               disabled={!canSend}
               aria-label="Send message"
-              className="flex size-11 shrink-0 items-center justify-center rounded-[12px] bg-forest text-paper transition duration-150 hover:bg-forest-deep active:scale-[0.96] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-forest/45 focus-visible:ring-offset-2 focus-visible:ring-offset-paper disabled:pointer-events-none disabled:opacity-50"
+              onAnimationEnd={() => setBursting(false)}
+              className={cn(
+                "relative flex size-11 shrink-0 items-center justify-center rounded-[12px] bg-forest text-paper transition duration-150 hover:bg-forest-deep active:scale-[0.96] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-forest/45 focus-visible:ring-offset-2 focus-visible:ring-offset-paper disabled:pointer-events-none disabled:opacity-50",
+                bursting && "send-burst",
+              )}
             >
               <ArrowUp className="size-[18px]" strokeWidth={2.25} />
             </button>

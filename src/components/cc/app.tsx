@@ -49,7 +49,9 @@ export default function CipherChatApp() {
   if (!ready) {
     return (
       <div className="flex min-h-dvh items-center justify-center">
-        <InkMark size={44} className="opacity-60" />
+        {/* The mark breathes while the desk is unlocked — the app
+            is alive from the first frame. */}
+        <InkMark size={44} breathe className="opacity-60" />
       </div>
     );
   }
@@ -81,7 +83,7 @@ function Screens() {
   // the scroll area shrinks to the visible viewport.
   const inRoom = screen === "chat" && activeRoomId;
   return (
-    <div className="flex h-dvh overflow-hidden bg-paper pb-[var(--kb-inset,0px)] transition-[padding-bottom] duration-[250ms]">
+    <div className="screen-in flex h-dvh overflow-hidden bg-paper pb-[var(--kb-inset,0px)] transition-[padding-bottom] duration-[250ms]">
       <div
         className={cn(
           "h-full w-full shrink-0 md:w-[320px] md:border-r md:border-hairline",
@@ -92,10 +94,13 @@ function Screens() {
       </div>
       <main className="min-w-0 flex-1">
         {inRoom ? (
-          <ChatScreen roomId={activeRoomId} />
+          /* Keyed by room: switching letters is switching pages —
+             the room takes its seat with the same entrance every
+             screen gets, and its scroll state starts fresh. */
+          <ChatScreen key={activeRoomId} roomId={activeRoomId} />
         ) : (
-          <div className="hidden h-full flex-col items-center justify-center px-8 md:flex">
-            <InkMark size={44} className="opacity-50" />
+          <div className="screen-in hidden h-full flex-col items-center justify-center px-8 md:flex">
+            <InkMark size={44} breathe className="opacity-50" />
             <p className="mt-6 max-w-[260px] text-center font-serif text-[16px] leading-[24px] text-mute">
               Open a letter, or start a new one.
             </p>

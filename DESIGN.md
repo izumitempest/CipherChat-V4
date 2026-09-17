@@ -88,28 +88,40 @@
 | **SettingsSheet (S9)** | local name (private-to-you note) / default-TTL segmented / member list / burn (creator) or leave (guest) — separated by whitespace, never adjacent |
 | **InviteSheet** | link copy / password show+copy / different-channels guidance |
 | **FileViewer** | image contained / file download; view-once spends on open |
-| **ThemeToggle** | daylight ⇄ nightfall (CSS-driven icons, no hydration guesswork) |
-| **SealMark** | static / breathing (the app's single idle loop, landing only) |
+| **ThemeToggle** | daylight ⇄ nightfall (CSS-driven icons, no hydration guesswork; the switch swings the new icon in — `theme-turn`) |
+| **InkMark** | static / breathing (landing) / **landing choreography** (fall → squash → splash → halo) / **ghost draw-on** (watermarks) / scattered (burn) / fleck (identity) |
 
 ---
 
 ## 3. Motion Spec
 
-Standard easing: `cubic-bezier(0.2, 0, 0, 1)`. Durations: 150 state / 250 entrance / 400 overlay / 600 burn. **Nothing loops infinitely except the landing seal's 6s breath.**
+Standard easing: `cubic-bezier(0.2, 0, 0, 1)`. Durations: 150 state / 250 entrance / 400 overlay / 600 burn. **Nothing loops infinitely except the landing mark's breath/evaporation, the typing whisper, the watermark drift, and final-countdown pulses — all quiet, all reduced-motion-off.**
 
 | Trigger | Duration | Easing | Reduced-motion fallback |
 |---|---|---|---|
 | Button/hover/focus state | 150ms | standard | n/a (instant) |
 | Card settle (lists, sheets content) | 250ms | standard | 150ms fade |
-| Message send (rise) | 250ms | standard + slight rise | 150ms fade |
+| **Screen/route entrance (`screen-in`)** | 280ms | standard + 10px rise | 150ms fade |
+| **Message in — self (`msg-in-self`)** | 260ms | from the right margin, one overshoot | 150ms fade |
+| **Message in — others (`msg-in-other`)** | 260ms | from the left margin | 150ms fade |
 | Sheet in/out (bottom mobile, right desktop) | 400ms | standard | 150ms fade |
 | S3 seal arc + press | 1700ms + 1740ms | standard | 150ms fade (arc completes instantly) |
+| **Hero landing — drop falls (`drop-land`)** | 580ms | gravity in, spring out; squash at impact | 150ms fade |
+| **Hero landing — flecks splash (`fleck-splash`)** | 460ms, +240ms | stacked on the evaporation loop via independent `translate`/`scale` | disabled |
+| **Hero landing — ink halo (`halo-bleed`)** | 800ms, +260ms | stain spreads under the drop | 150ms fade, no delay |
+| **Hero hover — flecks lift, ember flares** | 450ms transition | independent properties again | instant |
+| **Typing whisper (`whisper-fleck`)** | 1.15s infinite, 3 flecks staggered | rise + fade | static at 55% |
+| **TTL final 10s (`ttl-final`)** | 1s infinite pulse | ease-in-out | disabled |
+| **Send burst (`send-fleck`)** | 520ms, two pseudo-flecks | standard | 150ms fade |
+| **Ghost watermark draw-on (`ghost-draw`)** | 1300ms + fleck fades | pathLength dash | 150ms draw |
+| **Ghost watermark drift (`ghost-drift`)** | 13s infinite, 1.6s delayed | ±6px translate | disabled |
+| **Theme turn (`theme-turn`)** | 420ms | −80° swing in | 150ms fade |
 | **Message TTL burn** | 600ms | standard | **150ms opacity fade** |
 | **Room burn: char inward** | 2000ms | standard | 150ms fade to final state |
 | Room burn: Lora line in | 400ms | standard | 150ms fade |
 | Room burn: overlay out | 400ms | standard | 150ms fade |
 | "Reconnecting…" dot pulse | 1.6s × 3, then rests | ease-in-out | static |
-| Landing seal breath | 6s infinite | ease-in-out | disabled |
+| Landing mark breath + evaporation | 6s + 2.7s infinite | ease-in-out | disabled |
 
 ---
 

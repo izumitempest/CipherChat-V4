@@ -24,7 +24,11 @@
 //                      dots, sender shards, quiet accents.
 //   ghost             — the drop's outline stroked in currentColor,
 //                      flecks filled. Watermarks at whisper
-//                      opacity; never intercepts a touch.
+//                      opacity; never intercepts a touch. With
+//                      `draw`, the outline inks itself onto the
+//                      page and the flecks surface behind its tip
+//                      (pathLength-normalised, so one dash unit
+//                      is the whole drop).
 //
 // Geometry: hand-tuned beziers on a 96×96 grid. The drop is drawn
 // upright (bulb centre ~(48,55), tail fraying at y≈25) and the
@@ -89,6 +93,7 @@ export function InkMark({
   breathe = false,
   variant = "intact",
   ink = "var(--forest)",
+  draw = false,
   className,
   style,
 }: {
@@ -99,6 +104,9 @@ export function InkMark({
    *  variants ignore it and take currentColor, so member inks can
    *  drive them from outside. */
   ink?: string;
+  /** Ghost only: draw the outline on mount (ghost-draw) instead
+   *  of appearing whole. Watermark entrances. */
+  draw?: boolean;
   className?: string;
   style?: React.CSSProperties;
 }) {
@@ -129,17 +137,28 @@ export function InkMark({
       viewBox="0 0 96 96"
       fill="none"
       aria-hidden="true"
-      className={cn(breathe && "mark-breathe", className)}
+      className={cn(
+        breathe && "mark-breathe",
+        ghost && draw && "ink-ghost-draw",
+        className,
+      )}
       style={style}
     >
       <g transform={SEAT}>
         {ghost ? (
           /* the whisper: outline drop, filled flecks */
           <>
-            <path d={DROP} stroke="currentColor" strokeWidth={4.5} fill="none" />
-            <path d={FLECK_1} fill="currentColor" />
-            <path d={FLECK_2} fill="currentColor" />
-            <path d={FLECK_3} fill="currentColor" />
+            <path
+              d={DROP}
+              stroke="currentColor"
+              strokeWidth={4.5}
+              fill="none"
+              className="ghost-drop"
+              pathLength={draw ? 1 : undefined}
+            />
+            <path d={FLECK_1} fill="currentColor" className="ghost-fleck ghost-fleck-1" />
+            <path d={FLECK_2} fill="currentColor" className="ghost-fleck ghost-fleck-2" />
+            <path d={FLECK_3} fill="currentColor" className="ghost-fleck ghost-fleck-3" />
           </>
         ) : scattered ? (
           /* the drop has left — its outline rises after it */
@@ -187,22 +206,20 @@ export function InkMark({
             ))}
           </>
         ) : (
-          /* intact — the seated drop, its flecks rising */
+          /* intact — the seated drop, its flecks rising. The flecks
+             carry numbered classes so globals.css can stagger the
+             evaporating loop (and stack the hero's landing splash)
+             without inline delays — one inline animation-delay would
+             bind every animation in a multi-animation shorthand. */
           <>
             <path d={DROP} fill={ink} />
-            <path d={FLECK_1} fill={ink} className="ink-fleck" />
-            <path
-              d={FLECK_2}
-              fill={ink}
-              className="ink-fleck"
-              style={{ animationDelay: "900ms" } as React.CSSProperties}
-            />
+            <path d={FLECK_1} fill={ink} className="ink-fleck ink-fleck-1" />
+            <path d={FLECK_2} fill={ink} className="ink-fleck ink-fleck-2" />
             {/* the last trace is still warm as it goes */}
             <path
               d={FLECK_3}
               fill="var(--ember)"
-              className="ink-fleck ink-fleck-ember"
-              style={{ animationDelay: "1800ms" } as React.CSSProperties}
+              className="ink-fleck ink-fleck-3 ink-fleck-ember"
             />
           </>
         )}

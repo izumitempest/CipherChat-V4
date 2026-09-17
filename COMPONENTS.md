@@ -445,31 +445,51 @@ Paper surfaces, hairline borders, forest focus (border 45% + 15% ring).
 - `MonoValue` — selectable mono block with an inline copy affordance and
   "Copied" confirmation state.
 
-### `mark.tsx` — `SealMark` (the Split Seal)
+### `mark.tsx` — `InkMark` (The Vanishing Ink)
 
-The brand mark: a wax seal struck once, then cracked along a single −62°
-diagonal. Hand-tuned beziers on a 96×96 grid — joint radii wobble
-(33.3/35.1 against a nominal 34) so the rim reads letterpressed, not
-compass-drawn. The split inner disc and the ember diamond in the fracture
-carry the product metaphors: the seal is the encryption, the fracture is
-the ephemerality, the ember is the heat still inside. Three variants:
+The brand mark: a hand-fallen ink drop, seated on the page, its top
+fraying into three rising flecks — the last one ember-warm. Hand-tuned
+beziers on a 96×96 grid (joint radii wobble a few percent off a compass
+circle, the tail leans a hair), the whole assembly rotated 21° so the
+flecks rise up-and-right — off the line of text, the direction writing
+leaves in. The product metaphors: the drop is the writing, the flecks
+are the ephemerality, the ember is the heat of the conversation
+leaving — not the paper burning. Four variants:
 
-- `intact` (default) — seated, whole silhouette; halves keep the few
-  degrees of rotation the wax took when it broke. Brand, landing hero
-  (stamps in via `seal-stamp`, then breathes), desk centrepieces.
-- `cracked` — the halves jarred apart with ember flecks; animates once
+- `intact` (default) — the seated drop with its flecks rising. With
+  `breathe`, the flecks quietly rise and fade on a staggered loop
+  (`.ink-fleck-1/2/3` classes carry the stagger in globals.css — the
+  hero's landing choreography stacks a second animation on the same
+  flecks, and a single inline `animation-delay` would bind both).
+  Brand, landing hero, desk centrepieces.
+- `scattered` — the drop has lifted off: its outline rises away while
+  seven flecks flee outward and the ember flares once. Animates once
   on mount. Burn/destruction contexts only (terracotta is legitimate
   there — see the burn overlay).
-- `ring` — one broken rim fragment in `currentColor`, so member inks
-  (`--ink-0..7`) and watermark tones drive it from outside. This is the
-  identity system: every member is a shard of the same broken ring
-  (bubble sender lines), empty-state watermarks, and the argon2id
-  sealing screen's wax-drip dots.
+- `fleck` — one four-pointed fleck alone in `currentColor`, so member
+  inks (`--ink-0..7`) can drive it from outside. The identity system:
+  every member is a fleck of the same vanishing ink (bubble sender
+  lines, the typing whisper's three rising flecks).
+- `ghost` — the drop's outline stroked in `currentColor`, flecks
+  filled. Watermarks at whisper opacity; never intercepts a touch.
+  With `draw`, the outline inks itself onto the page (pathLength-
+  normalized `ghost-draw`) and the flecks surface behind its tip;
+  pair with the `ghost-drift` class for the slow ambient float.
 
-Props stay backwards-compatible (`size`, `breathe`, `className`) plus
-`variant` and `ink`. Pure SVG, `aria-hidden`; it never carries meaning
-alone. Assets regenerate from the same geometry via
-`scripts/gen-icons.ts` (sharp): PWA icons, apple-touch, OG image.
+The hero landing choreography lives in globals.css (`.hero-mark` +
+`.drop-land` + `.mark-land`): the drop falls with gravity easing,
+squashes at impact (~220ms), the flecks splash upward
+(`fleck-splash` on the independent `translate`/`scale` properties, so
+it composes with the infinite evaporation loop's `transform`), and a
+soft ink halo bleeds outward beneath the mark. At rest, hover lifts
+the flecks and flares the ember — again via independent properties,
+so the loop never pauses.
+
+Props stay backwards-compatible (`size`, `breathe`, `className`;
+`SealMark` is an exported alias) plus `variant`, `ink`, and `draw`.
+Pure SVG, `aria-hidden`; it never carries meaning alone. Assets
+regenerate from the same geometry via `scripts/gen-icons.ts` (sharp):
+PWA icons, apple-touch, OG image.
 
 ### `sheet-grabber.tsx`
 
@@ -479,7 +499,11 @@ that promises dragging" — mobile bottom sheets only.
 ### `theme-toggle.tsx`
 
 Daylight/Nightfall switch. CSS decides which icon shows
-(`dark:block` / `dark:hidden`) — zero hydration guesswork.
+(`dark:block` / `dark:hidden`) — zero hydration guesswork. After
+hydration (a `useSyncExternalStore` check, no effect-setState), the
+icon pair is keyed by the resolved theme, so a switch remounts the
+span and the new icon swings in from a quarter-turn back
+(`theme-turn`, 420ms).
 
 ### `sw-register.tsx`
 

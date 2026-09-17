@@ -73,7 +73,8 @@ function RoomListBody() {
       <InkMark
         variant="ghost"
         size={150}
-        className="pointer-events-none absolute inset-0 m-auto text-forest opacity-[0.06]"
+        draw
+        className="ghost-drift pointer-events-none absolute inset-0 m-auto text-forest opacity-[0.06]"
       />
       <div className="relative flex w-full flex-col items-center">
         <p className="t-body text-center">No rooms yet.</p>

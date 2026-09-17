@@ -213,7 +213,11 @@ function ActiveRoom({ roomId }: { roomId: string }) {
     return () => clearTimeout(t);
   }, [ttlHint, dismissTtlHint]);
   const solo = members.filter((m) => m.connected !== false).length <= 1;
-  const empty = messages.length === 0;
+  /* Empty means no LETTERS — system lines (the room's closing note,
+     the rotation notes) don't make a conversation. A fresh TTL room
+     always carries its entry line, and the desk's empty states must
+     still take their seat around it. */
+  const empty = !messages.some((m) => m.kind !== "system");
 
   async function copyInviteLink() {
     const link = `${window.location.origin}/?join=${roomId}`;
@@ -228,7 +232,7 @@ function ActiveRoom({ roomId }: { roomId: string }) {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-paper">
+    <div className="screen-in flex h-full min-h-0 flex-col bg-paper">
       <ChatHeader
         roomId={roomId}
         onInvite={() => setInviteOpen(true)}
@@ -275,54 +279,65 @@ function ActiveRoom({ roomId }: { roomId: string }) {
         >
           <div className="mx-auto w-full max-w-[720px] px-4 pb-5 pt-4">
             {empty ? (
-              solo && isCreator ? (
-                /* The creator's empty room: the verb is the invite.
-                   Behind the copy, the ghost of the drop —
-                   the mark the room will carry, waiting. */
-                <div className="settle relative flex flex-col items-center px-6 pb-16 pt-[16vh] text-center">
-                  <InkMark
-                    variant="ghost"
-                    size={150}
-                    className="pointer-events-none absolute inset-0 m-auto text-forest opacity-[0.06]"
-                  />
-                  <div className="relative flex w-full flex-col items-center">
-                    <p className="t-body max-w-[300px]">
-                      Invite someone to begin.
-                    </p>
-                    <p className="mt-1.5 max-w-[320px] font-sans text-[13px] leading-[19px] text-mute">
-                      Share the link — and send the password through a different
-                      channel.
-                    </p>
-                    <PrimaryAction className="mt-7" onClick={copyInviteLink}>
-                      <Copy className="size-4" aria-hidden />
-                      Copy invite link
-                    </PrimaryAction>
-                    <QuietAction className="mt-2" onClick={() => setInviteOpen(true)}>
-                      Show the password
-                    </QuietAction>
+              <>
+                {/* System lines stay in the log — the room's closing
+                    note still reads, above the quiet of no letters. */}
+                <TimeAwareMessages
+                  groups={groups.filter((g) => g.message.kind === "system")}
+                  onOpenFile={() => {}}
+                  onBurnMessage={() => {}}
+                />
+                {solo && isCreator ? (
+                  /* The creator's empty room: the verb is the invite.
+                     Behind the copy, the ghost of the drop —
+                     the mark the room will carry, waiting. */
+                  <div className="settle relative flex flex-col items-center px-6 pb-16 pt-[16vh] text-center">
+                    <InkMark
+                      variant="ghost"
+                      size={150}
+                      draw
+                      className="ghost-drift pointer-events-none absolute inset-0 m-auto text-forest opacity-[0.06]"
+                    />
+                    <div className="relative flex w-full flex-col items-center">
+                      <p className="t-body max-w-[300px]">
+                        Invite someone to begin.
+                      </p>
+                      <p className="mt-1.5 max-w-[320px] font-sans text-[13px] leading-[19px] text-mute">
+                        Share the link — and send the password through a different
+                        channel.
+                      </p>
+                      <PrimaryAction className="mt-7" onClick={copyInviteLink}>
+                        <Copy className="size-4" aria-hidden />
+                        Copy invite link
+                      </PrimaryAction>
+                      <QuietAction className="mt-2" onClick={() => setInviteOpen(true)}>
+                        Show the password
+                      </QuietAction>
+                    </div>
                   </div>
-                </div>
-              ) : (
-                /* S8 — the joiner's empty room: the product statement,
-                   over the same quiet watermark. */
-                <div className="settle relative flex flex-col items-center px-6 pb-16 pt-[16vh] text-center">
-                  <InkMark
-                    variant="ghost"
-                    size={150}
-                    className="pointer-events-none absolute inset-0 m-auto text-forest opacity-[0.06]"
-                  />
-                  <div className="relative flex w-full flex-col items-center">
-                    <p className="t-body max-w-[340px]">
-                      You won&rsquo;t see messages from before you joined.
-                      That&rsquo;s how this works.
-                    </p>
-                    <p className="mt-1.5 max-w-[320px] font-sans text-[13px] leading-[19px] text-mute">
-                      Everything from this moment on is encrypted and, if set to
-                      expire, will destroy itself.
-                    </p>
+                ) : (
+                  /* S8 — the joiner's empty room: the product statement,
+                     over the same quiet watermark. */
+                  <div className="settle relative flex flex-col items-center px-6 pb-16 pt-[16vh] text-center">
+                    <InkMark
+                      variant="ghost"
+                      size={150}
+                      draw
+                      className="ghost-drift pointer-events-none absolute inset-0 m-auto text-forest opacity-[0.06]"
+                    />
+                    <div className="relative flex w-full flex-col items-center">
+                      <p className="t-body max-w-[340px]">
+                        You won&rsquo;t see messages from before you joined.
+                        That&rsquo;s how this works.
+                      </p>
+                      <p className="mt-1.5 max-w-[320px] font-sans text-[13px] leading-[19px] text-mute">
+                        Everything from this moment on is encrypted and, if set to
+                        expire, will destroy itself.
+                      </p>
+                    </div>
                   </div>
-                </div>
-              )
+                )}
+              </>
             ) : (
               <TimeAwareMessages
                 groups={groups}
@@ -480,20 +495,26 @@ function TypingLine({ roomId }: { roomId: string }) {
     <div className="mx-auto flex h-[26px] w-full max-w-[720px] items-center justify-center px-5">
       {content ? (
         <p className="t-meta settle" aria-live="polite">
-          {/* Three ink dots, kept nearly still — decoration only;
-             the sentence below stays the aria-live text. */}
+          {/* Three flecks of the writer's ink, rising and fading —
+             the same vanishing the mark carries, small enough to
+             stay a whisper. Decoration only; the sentence stays
+             the aria-live text. */}
           <span
-            className="mr-1.5 inline-flex items-center gap-[3px]"
+            className="mr-1.5 inline-flex items-center gap-[4px]"
             aria-hidden
           >
-            <span className="typing-dot size-1 rounded-full bg-mute" />
-            <span
-              className="typing-dot size-1 rounded-full bg-mute"
-              style={{ animationDelay: "180ms" }}
+            <InkMark variant="fleck" size={11} className="whisper-fleck text-mute" />
+            <InkMark
+              variant="fleck"
+              size={11}
+              className="whisper-fleck text-mute"
+              style={{ animationDelay: "200ms" }}
             />
-            <span
-              className="typing-dot size-1 rounded-full bg-mute"
-              style={{ animationDelay: "360ms" }}
+            <InkMark
+              variant="fleck"
+              size={11}
+              className="whisper-fleck text-mute"
+              style={{ animationDelay: "400ms" }}
             />
           </span>
           {content}
@@ -541,7 +562,7 @@ function LockedRoomView({ roomId }: { roomId: string }) {
   }
 
   return (
-    <div className="flex h-full flex-col bg-paper">
+    <div className="screen-in flex h-full flex-col bg-paper">
       <ChatHeader
         roomId={roomId}
         onInvite={() => toast("Unlock the room first")}
