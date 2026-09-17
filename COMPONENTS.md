@@ -235,14 +235,30 @@ others left (`.bubble-other`) with the sender's ink dot + alias in
 nearest the sender (group-internal edges). Max width 75%. Entrance is the
 `rise` keyframe. States: sending (60% opacity) → sent; `burning`
 (`msg-burning` — ember-rim glow into the 600ms dissolve, handled by the store's
-burn choreography).
+burn choreography). File messages render the caption (`message.text`) as
+`t-body` above the file card — the caption rides the meta frame's canonical-
+signed text field, so it is exactly as authentic as a text message.
 
 **`CopyMenu`** — Radix ContextMenu wrapping every bubble (right-click desktop,
-press-and-hold touch): "Copy text" / "Copy file name" → toast; and for **your
-own sent messages only**, "Burn message" — a two-step arm inside the menu
-(first press turns the item terracotta and re-labels "Burn for everyone",
+press-and-hold touch): "Copy text" / "Copy caption" (file messages with a
+caption) / "Copy file name" → toast; **"Mark this message"** — a submenu with
+the four ink marks (✓ Acknowledged · ✦ Noted · ♥ Warmly received · ☾ Later,
+`REACTION_MARKS` in `lib/types.ts`), the one you currently hold flagged with a
+forest dot; and for **your own sent messages only**, "Burn message" — a
+ two-step arm inside the menu (first press turns the item terracotta and
+ re-labels "Burn for everyone",
 second press executes). Styled as paper: 12px radius, hairline, single soft
 shadow via arbitrary value (beats shadcn's layered `shadow-md`).
+
+**`MarksBar`** — the ink-mark chips under a bubble: one pill per mark
+(serif glyph + tabular count, `.mark-chip` entrance + `.mark-count` beat).
+Pressed state when YOU hold the mark (forest-tinted). Clicking a chip toggles
+your own mark on/off; `title`/`aria-label` name who marked. Marks resolve
+memberIds → live aliases at render time ("Someone who left" fallback). The
+wire side: `sealReact` frames — mark glyph rides the canonical-signed `text`
+field, target rides `messageId` (see `room-protocol.ts`); one mark per sender
+per message; the toggle transition is applied identically by the optimistic
+local update and every receiver.
 
 **`TtlRemaining`** — ticking countdown (1s interval) with terracotta hourglass
 glyph, `tabular-nums` so the meta row never jitters. Label from
@@ -278,6 +294,15 @@ surface), `role="dialog"` (not modal — the room stays alive behind it).
   fires on `message.id` change; the bubble becomes the spent card behind the
   viewer simultaneously for everyone in the room.
 - Escape closes; body scroll lock is not needed (fixed overlay).
+
+**Chat keyboard layer** (`screens/chat.tsx`) — Escape with an empty composer
+returns to the room list. Sheets, menus, dialogs and the file viewer own the
+key first (they prevent it, and `[data-state="open"]` / `[role="dialog"]` is
+checked besides); a composer holding words never loses them to a stray
+Escape. **`TypingLine`** carries three `.typing-dot` ink dots (aria-hidden,
+staggered 180ms) before the aria-live sentence. **`ChatHeader`** renders per-
+member presence dots in each member's own ink (`.dot-in` entrance, away
+members rest at 35% opacity) before the member count.
 
 ---
 

@@ -65,6 +65,27 @@ export interface MessageView {
   expiresAt?: number;
   viewOnce?: boolean;
   spent?: boolean;
+  /** ink margin marks — mark glyph → memberIds of everyone who set it */
+  marks?: Partial<Record<ReactionMark, string[]>>;
+}
+
+/* ---------------- ink reactions ---------------- */
+
+/** The four quiet margin marks. These exact strings travel on the wire
+ *  (inside the encrypted, signed body) and key the local view state —
+ *  they are product vocabulary, not decoration. */
+export const REACTION_MARKS = ["✓", "✦", "♥", "☾"] as const;
+export type ReactionMark = (typeof REACTION_MARKS)[number];
+
+export const REACTION_LABELS: Record<ReactionMark, string> = {
+  "✓": "Acknowledged",
+  "✦": "Noted",
+  "♥": "Warmly received",
+  "☾": "Later",
+};
+
+export function isReactionMark(s: string): s is ReactionMark {
+  return (REACTION_MARKS as readonly string[]).includes(s);
 }
 
 export interface SystemLine extends MessageView {

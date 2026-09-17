@@ -269,3 +269,39 @@ Priority recommendations for next phase:
 - The standing feature-brief cron was suspended for Task 19 per the reviewer's instruction; it is re-armed now that the task is closed (next rounds may resume styling/feature work on top of protocol v2).
 - If another hardening round is wanted: authenticate relay joins with a server-issued member token (removes the REST round-trip on every join), presence-driven rotation grace, and a TLS-like handshake transcript binding for offers.
 - Operational reminders: manual relay restart after mini-services edits; two-member browser QA needs two ORIGINS (localhost vs 127.0.0.1) — tabs share localStorage; unregister the service worker before hot-reload QA.
+
+---
+Task ID: 20 (20-0 … 20-c)
+Agent: lead (Z.ai Code) + frontend-styling-expert subagent (20-c, styling pass)
+Task: webDevReview round 20 — QA + bug fix + features + styling per standing brief (fix bugs first, then mandatory styling details + mandatory features)
+
+Current project status / assessment (at round start):
+- Protocol v2 (Task 19) closed: 47/47 tests, both services healthy (Next :3000, relay :3003), dev.log clean. This round returned to the standing styling/feature brief.
+
+Work Log:
+- 20-0 QA (agent-browser, two origins localhost:81 + 127.0.0.1:81): create (argon2id) → join → bidirectional signature-verified messaging → file transfer → unlock/rejoin bootstrap → all healthy. ONE REAL BUG FOUND: text typed alongside a file attachment was SILENTLY DROPPED — the wire FileMetaBody carried no caption and the bubble rendered FileContent exclusively (both sender's optimistic view and receivers). Also identified my own QA artifacts (a NotFoundError from a missing test file) and a stale-console probe from the previous round (not in code).
+- 20-1 FIX file captions (6 tests: task-20.1-caption.test.ts): FileMetaBody now rides the meta frame's TOP-LEVEL text field — canonicalV2 signs it, so a caption is exactly as unforgeable as a text message. sealFile(opts.text), AssemblingFile.text, OpenResult "file" carries text, store passes trimmed caption + renders it, bubble renders caption as t-body above the file card, CopyMenu gains "Copy caption". Meta frames stay uniform size regardless of caption length (test-asserted; 4000-char worst-case UTF-8 fits CONTROL_FRAME_BYTES). E2E verified on both origins.
+- 20-2 FEATURE ink reactions (5 tests: task-20.2-reactions.test.ts): four product-vocabulary marks (✓ Acknowledged · ✦ Noted · ♥ Warmly received · ☾ Later — REACTION_MARKS in lib/types.ts). New FrameKind "react"; sealReact(messageId, mark) puts the glyph in the canonical-signed text field and the target in messageId; open validates isReactionMark (arbitrary strings rejected as shape). One mark per sender per message; the toggle transition (set/clear/move) is applied identically by the optimistic local update and every receiver (applyMarkToggle in store) so frames converge. UI: "Mark this message" context-menu submenu (desktop right-click, touch long-press) + MarksBar chips under the bubble (serif glyph + count, who-marked tooltip, own mark highlighted, click toggles). Marks resolve memberIds → live aliases at render ("Someone who left" fallback). E2E verified: mark set on member B → chip on both tabs; creator chip-click adds (✓2) → chip-click removes (✓1) → both tabs converge.
+- 20-3 FEATURE Escape-to-rooms: in ActiveRoom, Escape with an empty composer navigates to the room list; sheets/menus/dialogs/file-viewer own the key first (defaultPrevented + [data-state=open]/[role=dialog] guards). Verified live in the browser (it fired during QA screenshots — the guard logic works).
+- 20-c STYLING pass (frontend-styling-expert subagent; verified and kept after its context deadline — tsc/lint/tests green): landing entrance choreography (staggered settle: seal → headline → CTAs → footer); room-list rows settle onto the desk (30ms stagger, capped); unread dot gets dot-pulse; ChatHeader presence — per-member ink dots in their own color (away = 35% opacity, dot-in entrance) before the member count; TypingLine gains three aria-hidden typing-dot ink dots before the aria-live sentence; jump pill hover-lift; file-card icon tint + download glyph shift on hover; SecondaryAction hover border; DestructiveAction token cleanup (text-paper); paperclip rotates 10° on hover; TTL button press physics. globals.css: mark-in (chip entrance), mark-count (count beat), typing-dot, dot-in keyframes. VLM review of 6 screenshots (light+dark landing, chat with marks, room list): landing CLEAN both themes; 2 flagged items on the chat shot were geometrically disproven via DOM measurement (chip sits 4px below the bubble, right edges intentionally aligned, caption padding matches the text-bubble system).
+- 20-4 FIX recurring QA gotcha at the source: sw-register.tsx no longer registers the service worker in development (NODE_ENV guard) — the stale-chunk-through-SW problem bit this round three times (a phantom "@lib/format" module-not-found from a briefly-typo'd import kept replaying from cache). Verified: after unregister + reload, swCount stays 0.
+- 20-5 Docs: README (ink marks + captioned files in "What it is"; uniformity row lists ink marks + file meta; test counts updated to 58), COMPONENTS.md (CopyMenu mark submenu, MarksBar, caption rendering, chat keyboard layer, TypingLine dots, ChatHeader presence dots).
+
+Stage Summary:
+- 58/58 vitest green (47 protocol + 6 caption + 5 reactions), tsc src clean, lint clean, dev.log clean, both services single-listening.
+- Bug fixed: file captions were silently dropped (now signed + rendered + copyable).
+- Features added: ink reactions (full protocol→UI), Escape-to-rooms shortcut.
+- Styling: entrance choreography, presence ink dots, typing dots, hover micro-interactions across all surfaces, dark mode verified.
+- Operational: service worker dev-guard closes the stale-chunk class of QA failures permanently.
+
+Unresolved issues / risks:
+- Reactions to a message that arrives on a receiver AFTER the react frame (out-of-order delivery for a receiver that missed the target message entirely, e.g. pre-join) are quietly ignored by design — the mark has nothing to annotate.
+- Marks on view-once files remain after the card is spent (intentional — the margin note outlives the sealed letter).
+- VLM screenshot review remains advisory; this round's two flags were false positives, verified by DOM geometry.
+- Relay hardening rules unchanged: if mini-services/relay-service/index.ts is ever edited, manual restart required (not edited this round).
+
+Priority recommendations for next phase:
+- Presence-driven rotation grace (rotate when a member's connection drops for >N min, not only on clean leave) — closes the documented "silent leaver retains keys" gap.
+- Relay join member token (server-issued auth on room:join, removing the REST confirmation round-trip).
+- Optional polish: room-list skeleton shimmer (cosmetic, low value — list is instant from localStorage), draft persistence per room across room switches within a session.
+- Operational reminders: two-member QA needs two ORIGINS; relay restart after mini-service edits; QA gotcha now closed (SW no longer registers in dev).

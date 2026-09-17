@@ -142,6 +142,23 @@ function ActiveRoom({ roomId }: { roomId: string }) {
     }
   }, [inviteOpen, isCreator, roomId]);
 
+  // Escape from a quiet composer returns to the desk. Sheets, menus,
+  // dialogs and the file viewer own the key first (they prevent it);
+  // a composer holding words never loses them to a stray Escape.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (document.querySelector('[data-state="open"], [role="dialog"]')) return;
+      const composer = document.querySelector(
+        'textarea[aria-label="Message"]',
+      ) as HTMLTextAreaElement | null;
+      if (composer && composer.value.trim().length > 0) return;
+      navigate("rooms");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [navigate]);
+
   const dismissTtlHint = useCallback(() => {
     setHintRoom(null);
     markTtlHintSeen();
@@ -243,7 +260,7 @@ function ActiveRoom({ roomId }: { roomId: string }) {
                 ? `Scroll to ${newBelow} new ${newBelow === 1 ? "message" : "messages"}`
                 : "Scroll to the latest messages"
             }
-            className="settle absolute bottom-3 left-1/2 flex h-11 -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline bg-side px-4 font-sans text-[12.5px] font-medium text-charcoal shadow-float transition duration-150 hover:border-forest/30 hover:bg-wash active:scale-[0.97]"
+            className="settle absolute bottom-3 left-1/2 flex h-11 -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline bg-side px-4 font-sans text-[12.5px] font-medium text-charcoal shadow-float transition duration-150 hover:-translate-y-px hover:border-forest/30 hover:bg-wash active:translate-y-0 active:scale-[0.97]"
           >
             {newBelow > 0 ? (
               <>
@@ -381,6 +398,22 @@ function TypingLine({ roomId }: { roomId: string }) {
     <div className="mx-auto flex h-[26px] w-full max-w-[720px] items-center justify-center px-5">
       {content ? (
         <p className="t-meta settle" aria-live="polite">
+          {/* Three ink dots, kept nearly still — decoration only;
+             the sentence below stays the aria-live text. */}
+          <span
+            className="mr-1.5 inline-flex items-center gap-[3px]"
+            aria-hidden
+          >
+            <span className="typing-dot size-1 rounded-full bg-mute" />
+            <span
+              className="typing-dot size-1 rounded-full bg-mute"
+              style={{ animationDelay: "180ms" }}
+            />
+            <span
+              className="typing-dot size-1 rounded-full bg-mute"
+              style={{ animationDelay: "360ms" }}
+            />
+          </span>
           {content}
         </p>
       ) : null}

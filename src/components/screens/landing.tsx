@@ -37,11 +37,23 @@ export function LandingScreen() {
       </header>
 
       <main className="mx-auto flex w-full max-w-[440px] flex-1 flex-col items-center justify-center px-6 py-16 [@media(max-height:720px)]:py-9">
-        <SealMark size={72} breathe />
-        <h1 className="t-display mt-7 text-center">
+        {/* Entrance: the desk wakes in one quiet beat — seal, headline,
+            actions, escape, each a step behind the last. Delays are
+            inline because unlayered keyframe classes outrank
+            utilities-layer animation-delay. */}
+        <div className="settle">
+          <SealMark size={72} breathe />
+        </div>
+        <h1
+          className="t-display settle mt-7 text-center"
+          style={{ animationDelay: "80ms" }}
+        >
           A conversation that leaves&nbsp;no&nbsp;trace.
         </h1>
-        <div className="mt-9 flex w-full flex-col gap-3">
+        <div
+          className="mt-9 flex w-full flex-col gap-3 settle"
+          style={{ animationDelay: "160ms" }}
+        >
           <PrimaryAction
             full
             onClick={() => setCreateOpen(true)}
@@ -59,7 +71,8 @@ export function LandingScreen() {
         </div>
         {hasRooms ? (
           <QuietAction
-            className="mt-5 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-forest/25"
+            className="mt-5 settle focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-forest/25"
+            style={{ animationDelay: "240ms" }}
             onClick={() => navigate("rooms")}
           >
             Back to your rooms
@@ -67,7 +80,10 @@ export function LandingScreen() {
         ) : null}
       </main>
 
-      <footer className="mx-auto w-full max-w-[440px] px-6 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-8 [@media(max-height:720px)]:pt-5">
+      <footer
+        className="settle mx-auto w-full max-w-[440px] px-6 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-8 [@media(max-height:720px)]:pt-5"
+        style={{ animationDelay: "320ms" }}
+      >
         <p className="text-center font-sans text-[11.5px] leading-[17px] text-mute">
           Messages are encrypted in your browser and destroyed on schedule.
           We can&rsquo;t read them. Neither can anyone else.

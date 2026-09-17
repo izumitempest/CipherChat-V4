@@ -83,10 +83,11 @@ function RoomListBody() {
     </div>
   ) : (
     <ul className="flex flex-1 flex-col gap-3 overflow-y-auto overscroll-contain scroll-quiet px-4 pb-4 sm:px-5 md:gap-2 md:pb-3">
-      {roomCards.map((card) => (
+      {roomCards.map((card, i) => (
         <RoomCardRow
           key={card.roomId}
           card={card}
+          index={i}
           locked={!getSession(card.roomId)}
           onOpen={() => {
             if (card.burned) return;
@@ -116,21 +117,26 @@ function RoomListBody() {
 
 function RoomCardRow({
   card,
+  index,
   locked,
   onOpen,
 }: {
   card: RoomCard;
+  index: number;
   locked: boolean;
   onOpen: () => void;
 }) {
   const members = useApp((s) => s.members[card.roomId]?.length ?? 0);
   const isOpen = useApp((s) => s.activeRoomId === card.roomId);
   const count = Math.max(1, members || card.lastMembers || 1);
+  /* The letters settle onto the desk, one behind the next —
+     a 30ms step, capped, so a long desk never drags. */
+  const settleDelay = { animationDelay: `${Math.min(index, 8) * 30}ms` };
 
   if (card.burned) {
     // The one-session ash state: quiet, gray, gone after reload.
     return (
-      <li>
+      <li className="settle" style={settleDelay}>
         <div
           aria-disabled
           className="flex items-center justify-between gap-3 rounded-[12px] border border-dashed border-ash/45 bg-paper px-4 py-3"
@@ -152,7 +158,7 @@ function RoomCardRow({
   }
 
   return (
-    <li>
+    <li className="settle" style={settleDelay}>
       <button
         onClick={onOpen}
         className={cn(
@@ -168,19 +174,22 @@ function RoomCardRow({
             </p>
             {card.unread && !locked ? (
               <span
-                className="size-2 shrink-0 translate-y-px rounded-full bg-forest"
+                className="dot-pulse size-2 shrink-0 translate-y-px rounded-full bg-forest"
                 aria-label="New messages"
               />
             ) : null}
           </div>
           <p
             className={cn(
-              "t-meta mt-1 flex items-center gap-1.5",
+              "t-meta mt-1 flex items-center gap-1.5 tabular-nums",
               locked && "text-mute/75",
             )}
           >
             {locked ? (
-              <Lock className="size-3 text-mute/60" aria-label="Locked room" />
+              <Lock
+                className="size-3 text-mute/60 transition-colors duration-150 group-hover:text-mute/90"
+                aria-label="Locked room"
+              />
             ) : null}
             <span>
               {count} {count === 1 ? "member" : "members"}

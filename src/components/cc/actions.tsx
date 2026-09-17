@@ -43,7 +43,7 @@ export const SecondaryAction = forwardRef<HTMLButtonElement, ActionProps>(
         ref={ref}
         className={cn(
           base,
-          "border border-hairline bg-side text-charcoal hover:bg-wash",
+          "border border-hairline bg-side text-charcoal hover:border-forest/25 hover:bg-wash",
           full && "w-full",
           className,
         )}
@@ -64,7 +64,7 @@ export const DestructiveAction = forwardRef<HTMLButtonElement, ActionProps>(
         ref={ref}
         className={cn(
           base,
-          "bg-terracotta text-[#FBF3ED] hover:bg-terracotta-deep dark:text-[#17181A]",
+          "bg-terracotta text-paper hover:bg-terracotta-deep",
           full && "w-full",
           className,
         )}

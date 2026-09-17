@@ -186,9 +186,9 @@ export function Composer({ onTtlArmed }: { onTtlArmed?: () => void }) {
             aria-label="Attach a file"
             disabled={disabled}
             onClick={() => fileRef.current?.click()}
-            className="flex size-11 shrink-0 items-center justify-center rounded-[12px] text-mute transition-colors duration-150 hover:bg-wash hover:text-charcoal disabled:pointer-events-none disabled:opacity-50"
+            className="group flex size-11 shrink-0 items-center justify-center rounded-[12px] text-mute transition-colors duration-150 hover:bg-wash hover:text-charcoal disabled:pointer-events-none disabled:opacity-50"
           >
-            <Paperclip className="size-[18px]" />
+            <Paperclip className="size-[18px] transition-transform duration-150 group-hover:rotate-[10deg]" />
           </button>
           <input
             ref={fileRef}
@@ -240,7 +240,7 @@ export function Composer({ onTtlArmed }: { onTtlArmed?: () => void }) {
             }
             aria-pressed={ttl !== 0}
             className={cn(
-              "flex h-11 shrink-0 items-center gap-1.5 rounded-[6px] border px-2 font-sans text-[12px] font-medium transition-colors duration-150 disabled:pointer-events-none disabled:opacity-50",
+              "flex h-11 shrink-0 items-center gap-1.5 rounded-[6px] border px-2 font-sans text-[12px] font-medium transition duration-150 active:translate-y-px disabled:pointer-events-none disabled:opacity-50",
               ttl !== 0
                 ? "border-terracotta/40 text-terracotta hover:border-terracotta/60"
                 : "border-hairline text-mute hover:border-forest/25 hover:text-charcoal",

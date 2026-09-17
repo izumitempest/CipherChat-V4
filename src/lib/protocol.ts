@@ -56,7 +56,8 @@ export type FrameKind =
   | "burn"
   | "key:offer"
   | "file:meta"
-  | "file:chunk";
+  | "file:chunk"
+  | "react";
 
 export interface OfferBody {
   to: string;

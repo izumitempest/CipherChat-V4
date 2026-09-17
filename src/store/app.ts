@@ -11,15 +11,17 @@
 //   adapter that turns OpenResults into UI.
 
 import { create } from "zustand";
-import type {
-  MessageView,
-  RoomCard,
-  Screen,
-  TtlChoice,
-  WireEnvelope,
-  Payload,
-  MemberPublic,
-  FilePayload,
+import {
+  isReactionMark,
+  type MessageView,
+  type ReactionMark,
+  type RoomCard,
+  type Screen,
+  type TtlChoice,
+  type WireEnvelope,
+  type Payload,
+  type MemberPublic,
+  type FilePayload,
 } from "@/lib/types";
 import {
   verifyCanonical,
@@ -112,6 +114,7 @@ interface AppState {
   ) => Promise<void>;
   emitTyping: (roomId: string) => void;
   spendViewOnce: (roomId: string, messageId: string) => void;
+  reactToMessage: (roomId: string, messageId: string, mark: string) => void;
   burnMessage: (roomId: string, messageId: string) => Promise<void>;
   burnRoom: (roomId: string) => Promise<void>;
   finishRoomBurn: (roomId: string) => void;
@@ -161,6 +164,35 @@ function clearTyping(roomId: string, memberId: string) {
         [roomId]: list.filter((t) => t.memberId !== memberId),
       },
     };
+  });
+}
+
+/** The single transition rule for ink marks: setting a mark you already
+ *  hold clears it; setting a different one moves yours; each sender holds
+ *  at most one mark per message. Applied identically by the optimistic
+ *  local update and by every receiver, so the frames converge. */
+function applyMarkToggle(
+  list: MessageView[],
+  messageId: string,
+  senderId: string,
+  mark: ReactionMark,
+): MessageView[] {
+  return list.map((m) => {
+    if (m.id !== messageId || m.kind === "system") return m;
+    const marks: Partial<Record<ReactionMark, string[]>> = { ...(m.marks ?? {}) };
+    if ((marks[mark] ?? []).includes(senderId)) {
+      const next = (marks[mark] ?? []).filter((id) => id !== senderId);
+      if (next.length > 0) marks[mark] = next;
+      else delete marks[mark];
+    } else {
+      for (const k of Object.keys(marks) as ReactionMark[]) {
+        const kept = (marks[k] ?? []).filter((id) => id !== senderId);
+        if (kept.length > 0) marks[k] = kept;
+        else delete marks[k];
+      }
+      marks[mark] = [...(marks[mark] ?? []), senderId];
+    }
+    return { ...m, marks };
   });
 }
 
@@ -598,6 +630,8 @@ export const useApp = create<AppState>()((set, get) => ({
         size: file.size,
         dataB64: file.dataB64,
         sha,
+        // The caption rides the meta frame's canonical-signed text field.
+        text: trimmed || undefined,
         ttlSec,
         viewOnce: viewOnce || undefined,
       });
@@ -683,6 +717,29 @@ export const useApp = create<AppState>()((set, get) => ({
         for (const f of frames) relay.emit("message:send", { roomId, envelope: f });
       });
     }
+  },
+
+  /* -------------------------------------------- ink marks --- */
+
+  /** Set or clear one of the four quiet margin marks on any message.
+   *  The frame is signed (canonical covers mark + target), so a mark
+   *  is exactly as authentic as the words it annotates. */
+  reactToMessage: (roomId, messageId, mark) => {
+    const session = getSession(roomId);
+    const cipher = getCipher(roomId);
+    if (!session || !cipher || !isReactionMark(mark)) return;
+    // Optimistic local toggle — the frame carries the same transition
+    // for everyone else.
+    useApp.setState((s) => ({
+      messages: {
+        ...s.messages,
+        [roomId]: applyMarkToggle(s.messages[roomId] ?? [], messageId, session.memberId, mark),
+      },
+    }));
+    void cipher.sealReact(messageId, mark).then((frames) => {
+      const relay = getRelay();
+      for (const f of frames) relay.emit("message:send", { roomId, envelope: f });
+    });
   },
 
   /* --------------------------------------------- burn-one ---- */
@@ -1250,6 +1307,25 @@ async function handleOpenResult(roomId: string, frame: WireFrame, result: OpenRe
       return;
     }
 
+    case "react": {
+      // A margin mark on a message. If the target is gone (expired, or
+      // sent before this member joined), the mark simply has nothing
+      // to annotate — quietly ignored.
+      clearTyping(roomId, result.senderId);
+      useApp.setState((s) => ({
+        messages: {
+          ...s.messages,
+          [roomId]: applyMarkToggle(
+            s.messages[roomId] ?? [],
+            result.messageId,
+            result.senderId,
+            result.mark as ReactionMark,
+          ),
+        },
+      }));
+      return;
+    }
+
     case "burn": {
       const target = (useApp.getState().messages[roomId] ?? []).find(
         (m) => m.id === result.messageId,
@@ -1278,6 +1354,7 @@ async function handleOpenResult(roomId: string, frame: WireFrame, result: OpenRe
         self: sender.memberId === session.memberId,
         status: "sent",
         ts: result.ts,
+        text: result.text,
         file: {
           name: result.file.name,
           mime: result.file.mime,

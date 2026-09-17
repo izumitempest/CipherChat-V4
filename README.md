@@ -14,6 +14,12 @@ browser — the server is a blind relay that cannot read a single frame.
   New joiners see nothing from before they joined. Messages can carry a
   TTL (5m / 1h / 8h) and destroy themselves on schedule; the creator can
   burn the whole room for everyone.
+- **Ink marks.** Mark any message with one of four quiet margin marks
+  (✓ acknowledged · ✦ noted · ♥ warmly received · ☾ later). Marks are
+  encrypted, signed, uniform-sized frames — the relay cannot even tell
+  a mark happened.
+- **Captioned files.** Attach a file with words — the caption rides the
+  file's meta frame, canonical-signed like any text message.
 - **Refresh locks every room.** Keys live only in memory. Reload the page
   and each room must be unlocked again with its password.
 - **Honest identity.** You are a derived alias and a fingerprint others
@@ -26,7 +32,7 @@ browser — the server is a blind relay that cannot read a single frame.
 | --- | --- |
 | Room entry key | argon2id (64 MB, t=3, p=1) from the password + a random salt in a versioned key bundle (legacy PBKDF2 rooms still unlock) |
 | Every frame | JSON → ECDSA-P256 signature → **padded to a uniform size** → AES-256-GCM |
-| Uniformity | All control frames (messages, typing, receipts, burns, key offers) are the same size; every file transfer is the same fixed number of chunk frames — the relay cannot read file sizes or even tell typing from messages |
+| Uniformity | All control frames (messages, typing, receipts, burns, key offers, file meta, ink marks) are the same size; every file transfer is the same fixed number of chunk frames — the relay cannot read file sizes or even tell typing from messages |
 | Replay defense | per-sender monotonic counters, ±10-minute timestamp window, frame-id dedup, refresh-surviving watermarks |
 | Rotation on leave | the remaining members seal the room under a **new random key**, delivered pairwise over ephemeral ECDH — the leaver never receives it, and it is not derived from the password |
 | Rejoin after rotation | the current key arrives ECDH-wrapped and sealed under the password-derived entry key, so only a joiner who proved the password can open it |
@@ -34,8 +40,9 @@ browser — the server is a blind relay that cannot read a single frame.
 | Verifiability | fingerprints derive from registered public keys; verification marks live on your device |
 
 The full property suite is enforced by tests named after the properties
-they protect: `src/lib/__tests__/task-19.*.test.ts` (44 tests — replay,
-rotation, padding, KDF, identity, hardening). Run them with `bun run test`.
+they protect: `src/lib/__tests__/task-19.*.test.ts` (47 tests — replay,
+rotation, padding, KDF, identity, hardening) plus `task-20.*.test.ts`
+(file captions, ink reactions). Run them with `bun run test`.
 
 ## What CipherChat does NOT protect against
 

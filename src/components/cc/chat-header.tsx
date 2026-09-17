@@ -7,6 +7,9 @@
 import { ChevronLeft, Link2, Settings2, Shield } from "lucide-react";
 import { useApp } from "@/store/app";
 import { cn } from "@/lib/utils";
+import type { MemberPublic } from "@/lib/types";
+
+const EMPTY_MEMBERS: MemberPublic[] = [];
 
 export function ChatHeader({
   roomId,
@@ -21,9 +24,9 @@ export function ChatHeader({
 }) {
   const navigate = useApp((s) => s.navigate);
   const card = useApp((s) => s.roomCards.find((c) => c.roomId === roomId));
-  const members = useApp((s) => s.members[roomId]?.length ?? 0);
+  const members = useApp((s) => s.members[roomId] ?? EMPTY_MEMBERS);
   const relayOnline = useApp((s) => s.relayOnline);
-  const count = Math.max(1, members);
+  const count = Math.max(1, members.length);
 
   return (
     <header className="sticky top-0 z-20 border-b border-hairline bg-paper pt-[env(safe-area-inset-top)]">
@@ -44,7 +47,25 @@ export function ChatHeader({
             {card?.localName ?? "Room"}
           </p>
           <p className="t-meta mt-0.5 flex items-center gap-1.5 truncate">
-            <span>
+            {/* Presence, as ink — each member a dot in their own ink;
+                away ones rest at 35%. Decoration only: the count below
+                is the accessible text. */}
+            <span
+              aria-hidden
+              className="inline-flex shrink-0 items-center gap-1"
+            >
+              {members.slice(0, 5).map((m) => (
+                <span
+                  key={m.memberId}
+                  className="dot-in size-1.5 rounded-full transition-opacity duration-[250ms]"
+                  style={{
+                    background: `var(--ink-${m.colorIdx})`,
+                    opacity: m.connected === false ? 0.35 : 1,
+                  }}
+                />
+              ))}
+            </span>
+            <span className="truncate">
               {count} {count === 1 ? "member" : "members"}
             </span>
             {!relayOnline ? (

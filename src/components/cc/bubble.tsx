@@ -15,6 +15,7 @@ import {
   Image as ImageIcon,
   Mail,
   MailOpen,
+  PenLine,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -22,10 +23,15 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { fmtBytes, fmtTime, fmtTtlRemaining } from "@/lib/format";
-import type { MessageView } from "@/lib/types";
+import { REACTION_LABELS, REACTION_MARKS, type MessageView } from "@/lib/types";
+import { getSession } from "@/lib/session";
+import { useApp } from "@/store/app";
 import { cn } from "@/lib/utils";
 
 /* Right-click (desktop) or press-and-hold (touch) — the quiet
@@ -34,19 +40,24 @@ import { cn } from "@/lib/utils";
 function CopyMenu({
   message,
   onBurn,
+  onReact,
+  myMark,
   children,
 }: {
   message: MessageView;
   onBurn?: () => void;
+  onReact?: (mark: string) => void;
+  myMark?: string;
   children: React.ReactNode;
 }) {
   const isFile = message.kind === "file" && message.file;
   const value = isFile ? message.file!.name : message.text ?? "";
+  const caption = isFile && message.text ? message.text : "";
   const [armed, setArmed] = useState(false);
-  async function copyText() {
+  async function copyValue(v: string, label: string) {
     try {
-      await navigator.clipboard.writeText(value);
-      toast(isFile ? "File name copied" : "Message copied");
+      await navigator.clipboard.writeText(v);
+      toast(label);
     } catch {
       toast("Copying wasn't permitted by the browser");
     }
@@ -58,14 +69,54 @@ function CopyMenu({
   return (
     <ContextMenu onOpenChange={(open) => !open && setArmed(false)}>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-      <ContextMenuContent className="min-w-[10rem] rounded-[12px] border-hairline bg-paper p-1 shadow-[0_1px_2px_rgba(28,24,20,0.08)]">
+      <ContextMenuContent className="min-w-[10rem] rounded-[12px] border-hairline bg-paper p-1 shadow-[0_1px_2px_rgba(28,24,20,0.08)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.3)]">
+        {caption ? (
+          <ContextMenuItem
+            onSelect={() => copyValue(caption, "Caption copied")}
+            className="gap-2 rounded-[8px] px-2.5 py-2 font-sans text-[13px] text-charcoal focus:bg-wash focus:text-charcoal data-highlighted:bg-wash"
+          >
+            <Copy className="size-3.5 text-mute" aria-hidden />
+            Copy caption
+          </ContextMenuItem>
+        ) : null}
         <ContextMenuItem
-          onSelect={copyText}
+          onSelect={() => copyValue(value, isFile ? "File name copied" : "Message copied")}
           className="gap-2 rounded-[8px] px-2.5 py-2 font-sans text-[13px] text-charcoal focus:bg-wash focus:text-charcoal data-highlighted:bg-wash"
         >
           <Copy className="size-3.5 text-mute" aria-hidden />
           {isFile ? "Copy file name" : "Copy text"}
         </ContextMenuItem>
+        {onReact ? (
+          <>
+            <ContextMenuSeparator className="my-1 bg-hairline" />
+            <ContextMenuSub>
+              <ContextMenuSubTrigger className="gap-2 rounded-[8px] px-2.5 py-2 font-sans text-[13px] text-charcoal data-highlighted:bg-wash data-highlighted:text-charcoal data-state-open:bg-wash">
+                <PenLine className="size-3.5 text-mute" aria-hidden />
+                Mark this message
+              </ContextMenuSubTrigger>
+              <ContextMenuSubContent className="min-w-[11rem] rounded-[12px] border-hairline bg-paper p-1 shadow-[0_1px_2px_rgba(28,24,20,0.08)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.3)]">
+                {REACTION_MARKS.map((m) => (
+                  <ContextMenuItem
+                    key={m}
+                    onSelect={() => onReact(m)}
+                    className="gap-2 rounded-[8px] px-2.5 py-2 font-sans text-[13px] text-charcoal focus:bg-wash focus:text-charcoal data-highlighted:bg-wash"
+                  >
+                    <span
+                      className="w-4 text-center font-serif text-[14px] leading-none text-forest"
+                      aria-hidden
+                    >
+                      {m}
+                    </span>
+                    {REACTION_LABELS[m]}
+                    {myMark === m ? (
+                      <span className="ml-auto size-1.5 rounded-full bg-forest" aria-label="Your mark" />
+                    ) : null}
+                  </ContextMenuItem>
+                ))}
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+          </>
+        ) : null}
         {onBurn ? (
           <>
             <ContextMenuSeparator className="my-1 bg-hairline" />
@@ -122,6 +173,70 @@ function TtlRemaining({ expiresAt }: { expiresAt: number }) {
   );
 }
 
+/* ---------------- ink marks ---------------- */
+
+const EMPTY_MEMBERS_LIST: { memberId: string; alias: string }[] = [];
+
+/** The readers' margin notes: one quiet chip per mark, serif glyph and
+ *  a count, held under the bubble it annotates. Pressing a chip toggles
+ *  your own mark; the tooltip names who wrote in the margin. */
+function MarksBar({
+  message,
+  onReact,
+}: {
+  message: MessageView;
+  onReact?: (mark: string) => void;
+}) {
+  const roomId = useApp((s) => s.activeRoomId);
+  const meId = roomId ? getSession(roomId)?.memberId : undefined;
+  const members = useApp((s) => (roomId ? s.members[roomId] : undefined)) ?? EMPTY_MEMBERS_LIST;
+
+  const marks = Object.entries(message.marks ?? {}) as [string, string[]][];
+  if (marks.length === 0) return null;
+
+  return (
+    <div className="mt-1 flex flex-wrap gap-1">
+      {marks.map(([mark, ids]) => {
+        if (ids.length === 0) return null;
+        const mine = !!meId && ids.includes(meId);
+        const who = ids
+          .map(
+            (id) =>
+              members.find((m) => m.memberId === id)?.alias ??
+              (id === meId ? "You" : "Someone who left"),
+          )
+          .join(", ");
+        const label = REACTION_LABELS[mark as keyof typeof REACTION_LABELS];
+        return (
+          <button
+            key={mark}
+            type="button"
+            onClick={() => onReact?.(mark)}
+            disabled={!onReact}
+            aria-pressed={mine}
+            aria-label={`${label} — ${who}`}
+            title={who}
+            className={cn(
+              "mark-chip relative flex h-[26px] items-center gap-1.5 rounded-full border px-2.5 font-sans text-[11.5px] font-medium tabular-nums transition duration-150 before:absolute before:-inset-x-1.5 before:-inset-y-[9px] before:content-['']",
+              mine
+                ? "border-forest/40 bg-forest/10 text-forest hover:border-forest/60"
+                : "border-hairline bg-paper text-mute hover:border-forest/30 hover:text-charcoal",
+              !onReact && "pointer-events-none",
+            )}
+          >
+            <span className="font-serif text-[13px] leading-none" aria-hidden>
+              {mark}
+            </span>
+            <span className="mark-count" key={ids.length}>
+              {ids.length}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export interface BubblePosition {
   first: boolean;
   last: boolean;
@@ -141,6 +256,24 @@ export function MessageBubble({
 }) {
   const self = message.self;
   const burning = message.status === "burning";
+  const reactable = message.kind !== "system" && message.status !== "sending" && !burning;
+  const roomId = useApp((s) => s.activeRoomId);
+  const reactToMessage = useApp((s) => s.reactToMessage);
+  const meId = roomId ? getSession(roomId)?.memberId : undefined;
+  const myMark = useMemo(
+    () =>
+      meId && message.marks
+        ? (Object.keys(message.marks) as (keyof typeof message.marks)[]).find((k) =>
+            (message.marks![k] ?? []).includes(meId),
+          )
+        : undefined,
+    [meId, message.marks],
+  );
+  const onReact = reactable
+    ? (mark: string) => {
+        if (roomId) reactToMessage(roomId, message.id, mark);
+      }
+    : undefined;
 
   return (
     <div
@@ -166,7 +299,12 @@ export function MessageBubble({
           </p>
         ) : null}
 
-        <CopyMenu message={message} onBurn={self && message.status === "sent" ? onBurn : undefined}>
+        <CopyMenu
+          message={message}
+          onBurn={self && message.status === "sent" ? onBurn : undefined}
+          onReact={onReact}
+          myMark={myMark}
+        >
           <div
             className={cn(
               "rise px-3.5 py-2",
@@ -178,12 +316,22 @@ export function MessageBubble({
             )}
           >
             {message.kind === "file" && message.file ? (
-              <FileContent message={message} onOpenFile={onOpenFile} />
+              <>
+                {message.text ? (
+                  <p className="t-body mb-1.5 whitespace-pre-wrap break-words">{message.text}</p>
+                ) : null}
+                <FileContent message={message} onOpenFile={onOpenFile} />
+              </>
             ) : (
               <p className="t-body whitespace-pre-wrap break-words">{message.text}</p>
             )}
           </div>
         </CopyMenu>
+
+        {/* ink margin marks — the readers' quiet annotations */}
+        {reactable && message.marks && Object.keys(message.marks).length > 0 ? (
+          <MarksBar message={message} onReact={onReact} />
+        ) : null}
 
         {/* meta — the machine's voice, under the last of a group */}
         {position.last || message.ttlSec ? (
@@ -247,7 +395,7 @@ function FileContent({
         className="group flex w-[230px] max-w-full items-center gap-3 rounded-[10px] border border-hairline bg-paper p-3 text-left transition duration-150 hover:border-forest/30 hover:bg-wash active:translate-y-px"
         aria-label="Open sealed file — it can be opened once"
       >
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-[8px] bg-wash text-forest">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-[8px] bg-wash text-forest transition-colors duration-150 group-hover:bg-forest/10">
           <Mail className="size-4" aria-hidden />
         </span>
         <div className="min-w-0">
@@ -286,7 +434,7 @@ function FileContent({
       className="group flex w-[230px] max-w-full items-center gap-3 rounded-[10px] border border-hairline bg-paper p-2.5 text-left transition duration-150 hover:border-forest/30 hover:bg-wash active:translate-y-px"
       aria-label={`Download ${file.name}`}
     >
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-[8px] bg-wash text-forest">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-[8px] bg-wash text-forest transition-colors duration-150 group-hover:bg-forest/10">
         <FileText className="size-4" aria-hidden />
       </span>
       <span className="min-w-0 flex-1">
@@ -296,7 +444,7 @@ function FileContent({
         <span className="t-meta mt-0.5 block">{fmtBytes(file.size)}</span>
       </span>
       <Download
-        className="size-4 shrink-0 text-mute transition-colors duration-150 group-hover:text-charcoal"
+        className="size-4 shrink-0 text-mute transition-colors duration-150 group-hover:text-forest"
         aria-hidden
       />
     </button>

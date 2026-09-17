@@ -50,6 +50,7 @@ import {
   toB64,
   verifyCanonical,
 } from "./crypto";
+import { isReactionMark } from "./types";
 
 export interface RegistryEntry {
   pubkey: JsonWebKey;
@@ -86,12 +87,16 @@ export type OpenResult =
   | { type: "typing"; senderId: string }
   | { type: "spent"; messageId: string; senderId: string }
   | { type: "burn"; messageId: string; senderId: string }
+  | { type: "react"; messageId: string; senderId: string; mark: string }
   | { type: "file-meta"; senderId: string }
   | { type: "file-chunk"; senderId: string }
   | {
       type: "file";
       senderId: string;
       ts: number;
+      /** caption typed alongside the attachment — rides in the meta frame's
+       * canonical-signed top-level text field, so it is nameplate-authentic */
+      text?: string;
       file: FileMetaBody & { dataB64: string };
     }
   | { type: "offer-installed"; kv: number; rotation: boolean }
@@ -122,6 +127,8 @@ interface InstalledKey {
 
 interface AssemblingFile {
   meta: FileMetaBody;
+  /** the signature-covered caption (top-level frame text) */
+  text?: string;
   metaTs: number;
   chunks: Map<number, string>;
 }
@@ -304,6 +311,14 @@ export class RoomCipher {
     return [await this.seal({ kind: "spent", messageId }, CONTROL_FRAME_BYTES)];
   }
 
+  /** An ink margin mark on a message. The mark glyph rides the
+   *  canonical-signed `text` field and the target rides `messageId` —
+   *  both are signature-covered, so a mark is exactly as unforgeable
+   *  as the words it annotates. */
+  async sealReact(messageId: string, mark: string): Promise<WireFrame[]> {
+    return [await this.seal({ kind: "react", messageId, text: mark }, CONTROL_FRAME_BYTES)];
+  }
+
   /** Early burn of one of our own messages. Signed with the burn
    *  canonical, so nobody else can retire our letters. */
   async sealBurn(messageId: string): Promise<WireFrame[]> {
@@ -322,6 +337,8 @@ export class RoomCipher {
     size: number;
     dataB64: string;
     sha: string;
+    /** caption typed alongside the attachment */
+    text?: string;
     ttlSec?: number;
     viewOnce?: boolean;
   }): Promise<WireFrame[]> {
@@ -331,6 +348,9 @@ export class RoomCipher {
       {
         kind: "file:meta",
         messageId,
+        // Top-level text is part of canonicalV2 — the caption is signed,
+        // so it is exactly as authentic as the sender's words in text frames.
+        text: opts.text,
         file: {
           messageId,
           name: opts.name,
@@ -571,6 +591,14 @@ export class RoomCipher {
         if (!okBurn) return { type: "reject", reason: "signature" };
         return { type: "burn", messageId: body.messageId, senderId: frame.from };
       }
+      case "react": {
+        // A mark is only valid if it is one of the product's four glyphs —
+        // the wire never carries arbitrary strings a page could abuse.
+        if (!body.messageId || typeof body.text !== "string" || !isReactionMark(body.text)) {
+          return { type: "reject", reason: "shape" };
+        }
+        return { type: "react", messageId: body.messageId, senderId: frame.from, mark: body.text };
+      }
       case "file:meta": {
         if (!body.file?.messageId) return { type: "reject", reason: "shape" };
         // Bounded: a flood of orphan metas cannot grow the map forever.
@@ -580,6 +608,7 @@ export class RoomCipher {
         }
         this.files.set(body.file.messageId, {
           meta: body.file,
+          text: typeof body.text === "string" && body.text.length > 0 ? body.text : undefined,
           metaTs: body.ts,
           chunks: new Map(),
         });
@@ -606,7 +635,13 @@ export class RoomCipher {
         } catch {
           return { type: "reject", reason: "sha" };
         }
-        return { type: "file", senderId: frame.from, ts: file.metaTs, file: { ...file.meta, dataB64 } };
+        return {
+          type: "file",
+          senderId: frame.from,
+          ts: file.metaTs,
+          text: file.text,
+          file: { ...file.meta, dataB64 },
+        };
       }
       case "key:offer":
         return this.openOffer(body.offer, frame.from);
