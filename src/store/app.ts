@@ -408,6 +408,8 @@ export const useApp = create<AppState>()((set, get) => ({
       alias,
       colorIdx,
       kv: 1,
+      // Kept in the memory-only session: the invite sheet re-shares
+      // it (masked, toggle to reveal) for as long as the room is open.
       password,
       creatorToken,
       expiresAt: expiresAt ? Date.parse(expiresAt) : undefined,

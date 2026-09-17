@@ -559,6 +559,9 @@ function LockedRoomView({ roomId }: { roomId: string }) {
       );
       return;
     }
+    // Unlocked — the entry key is derived; the plaintext has no
+    // further business in this (or any) input.
+    setPassword("");
   }
 
   return (

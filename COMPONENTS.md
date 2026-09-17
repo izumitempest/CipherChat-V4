@@ -106,10 +106,14 @@ browser and destroyed on schedule."
 **`CreateRoomSheet`** (internal): bottom sheet (mobile) / plain sheet (it is
 always `side="bottom"`; the grabber shows on touch) with two fields — room name
 (private label, maxLength 60) and password **pre-seeded with a generated
-passphrase** (`generatePassphrase()`), refreshable via a "New password" quiet
-action. Submits `createRoom(name, password)`; on success closes and toasts the
-standing advice ("Share the link — and the password through a different
-channel."). Error state is neutral charcoal, never terracotta.
+passphrase** (`generatePassphrase()` — five CSPRNG-picked words from a
+256-entry list, 40 bits), refreshable via a "New password" quiet
+action. The field masks by default (`PasswordField`, eye toggle to
+reveal) and is **cleared when the sheet closes** — the plaintext never
+outlives the create flow. Submits `createRoom(name, password)`; on
+success closes and toasts the standing advice ("Share the link — and
+the password through a different channel."). Error state is neutral
+charcoal, never terracotta.
 
 ### `InviteScreen` — `screens/invite.tsx` · **S2**
 
@@ -750,8 +754,8 @@ that once let handlers register twice). Composer drafts live in
 | `rate-limit.ts` | Token bucket (20 frames/s per socket), IP limiter (5 rooms/min), frame-size cap — shared by relay and API |
 | `silent-grace.ts` | **Round 21**: the silent-departure decision logic — `SILENT_GRACE_MS` (120s client clock), `EVICT_MIN_OFFLINE_MS` (60s server floor), `authorizeEviction` (pure; the /evict route obeys), `stillSilentAtExpiry` (pure; the client's gate at timer expiry) |
 | `drafts.ts` | Per-room composer drafts — memory-only, like the keys |
-| `identity.ts` | Deterministic aliases ("Quiet Heron") and ink indexes from fingerprints; 8-hex fingerprints + `3F2A · 91BC` grouping; passphrase generator; room-code parser |
-| `session.ts` | **Memory-only** room sessions (member ids, kv, passwords, default TTL, legacy flag) — refresh = locked rooms, by design |
+| `identity.ts` | Deterministic aliases ("Quiet Heron") and ink indexes from fingerprints; 8-hex fingerprints + `3F2A · 91BC` grouping; passphrase generator (CSPRNG, 256-word list, 5 words = 40 bits — see DESIGN.md §5); room-code parser |
+| `session.ts` | **Memory-only** room sessions (member ids, kv, the password — kept while the room is open so the invite sheet can re-share it; never on disk; refresh = locked rooms, by design) |
 | `local.ts` | localStorage: room cards, creator tokens, verify marks, replay watermarks, TTL-hint flag, per-room settings |
 | `relay.ts` | The single socket.io client (`io("/?XTransformPort=3003")`) |
 | `types.ts` | `MessageView`, `RoomCard`, `MemberPublic` (incl. `ecdhPub`), legacy `WireEnvelope`, TTL steps, `Screen` |

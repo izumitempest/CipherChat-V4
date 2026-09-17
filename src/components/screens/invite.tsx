@@ -70,7 +70,10 @@ function InviteForm({ prefilledCode }: { prefilledCode: string | null }) {
         // The card on the desk, if any, is ash now.
         useApp.setState((s) => ({ roomCards: s.roomCards.map((c) => (c.roomId === parsed ? { ...c, burned: true } : c)) }));
       }
+      return;
     }
+    // Joined — the key is derived; the plaintext leaves with the form.
+    setPassword("");
   }
 
   return (

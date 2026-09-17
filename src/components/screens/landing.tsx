@@ -135,6 +135,11 @@ function CreateRoomSheet({
       setPassword(generatePassphrase());
       setTtl(ROOM_TTL_DEFAULT_SEC);
       setError(null);
+    } else {
+      // Closed — the plaintext dies with the sheet instead of living
+      // on in component state (and React's value-attribute mirror of
+      // it in the DOM) until the next create.
+      setPassword("");
     }
   }
 

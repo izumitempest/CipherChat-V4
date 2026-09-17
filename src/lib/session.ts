@@ -14,7 +14,11 @@ export interface RoomSession {
   /** current room key version (1 = the password-derived entry key;
    *  higher versions = random keys delivered over ECDH) */
   kv: number;
-  /** in-memory only — the shared secret that gates join delivery */
+  /** in-memory only — retained for the room's open lifetime because
+   *  the invite sheet re-displays and re-copies it (masked, with a
+   *  reveal toggle) so a member can bring someone in at any time;
+   *  legacy v1 rooms additionally re-derive epoch keys from it. Never
+   *  written to disk; refresh locks every room and empties this. */
   password: string;
   creatorToken?: string;
   /** when this room's time runs out (ms epoch) — undefined = until

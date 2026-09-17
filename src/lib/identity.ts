@@ -14,12 +14,57 @@ const ANIMALS = [
   "Teal", "Vole", "Cormorant", "Dunlin", "Ermine", "Ferret", "Goshawk", "Ibis",
 ];
 
-// For room passwords — words meant to be read aloud and typed on a phone.
+// For room passwords — words meant to be read aloud and typed on a
+// phone. EXACTLY 256 of them, so one random byte picks one word with
+// zero bias, and five words carry 40 bits of entropy. The list is the
+// whole defense: the room's verifier bundle is a public offline
+// oracle (see kdf.ts), so the password itself must be big enough that
+// grinding argon2id over every possible passphrase costs years, not
+// afternoons. The old 24-word list held 18 bits — under 7 hours of
+// single-CPU guessing — which is why it is gone.
 const PASS_WORDS = [
-  "almanac", "bramble", "clover", "driftwood", "fern", "grove", "harbor",
-  "inkwell", "juniper", "kettle", "lantern", "lilac", "meadow", "nutmeg",
-  "opal", "orchard", "pebble", "quill", "ripple", "saffron", "thistle",
-  "vellum", "willow", "yarrow",
+  "acorn", "almanac", "amber", "anchor", "apple", "apricot", "arrow",
+  "aspen", "badger", "basil", "basket", "birch",
+  "bison", "blanket", "blossom", "bonfire", "bookmark",
+  "bracken", "bramble", "brass", "briar", "brook", "brush", "buckle",
+  "burrow", "cabin", "candle", "canvas", "canyon", "cardinal", "cedar",
+  "chalk", "chestnut", "chimney", "cinnamon", "cliff", "clover",
+  "cobalt", "compass", "copper", "coral", "cotton", "crayon", "creek",
+  "crown", "dahlia", "daisy", "dawn", "deer", "delta",
+  "denim", "dew", "dill", "dolphin", "drift", "driftwood",
+  "dune", "dusk", "eagle", "elder", "elm", "ember", "emerald",
+  "falcon", "feather", "felt", "fern", "finch", "fjord",
+  "flannel", "flint", "flora", "forest", "fossil", "foxglove",
+  "garnet", "geode", "geyser", "ginger", "glacier", "glade", "glass",
+  "glove", "granite", "gravel", "grove", "gull", "hammock",
+  "harbor", "hatch", "hawthorn", "hazel", "heather", "hedge", "heron",
+  "hickory", "hollow", "honey", "indigo", "inkwell",
+  "iris", "island", "ivy", "jasmine", "jetty", "jewel", "juniper",
+  "jute", "kettle", "knot", "lace",
+  "lagoon", "lantern", "larch", "lavender", "ledger", "lemon",
+  "lichen", "lilac", "linen", "locket", "lodge", "loon", "lotus",
+  "lumber", "lupine", "magnet", "magpie", "mahogany", "maple",
+  "marigold", "marlin", "marten", "meadow", "mitten",
+  "monsoon", "moonrise", "moss", "moth", "mountain", "mulberry",
+  "nebula", "nest", "nettle", "notebook",
+  "nutmeg", "ocean", "olive", "onyx", "opal", "orchard", "osprey",
+  "otter", "owl", "paddle", "pansy", "parsley", "pastel",
+  "patch", "patio", "pebble", "peony", "pepper", "pigeon", "pillow",
+  "pine", "plum", "pollen", "pond", "poplar", "poppy",
+  "porch", "prairie", "primrose", "puffin", "quartz", "quill", "quince",
+  "rabbit", "raccoon", "radish", "rain", "ravine", "reed",
+  "reef", "ribbon", "ripple", "river", "rook", "rosemary",
+  "rubble", "saddle", "saffron", "sage", "salmon", "sandal", "sapphire",
+  "satchel", "scarlet", "seaweed", "shawl", "shepherd", "shore",
+  "shovel", "shrub", "silk", "silver", "sketch", "slate", "smock",
+  "snowfall", "sorrel", "sparrow", "spindle", "spruce", "starling",
+  "stone", "sundial", "swan", "tapestry", "teak",
+  "thicket", "thimble", "thistle", "thyme", "tide", "tiger", "timber",
+  "tinder", "topaz", "trail", "trellis", "trout", "truffle", "tulip",
+  "tundra", "tweed", "umber", "valley", "vanilla", "velvet",
+  "verbena", "vellum", "vine", "violet",
+  "walnut", "waxwing", "wicker", "willow", "windmill", "winter",
+  "wolf", "wren", "yarrow", "zebra", "zinnia",
 ];
 
 export async function sha256Hex(input: string): Promise<string> {
@@ -53,11 +98,29 @@ export function inkFromFingerprint(hex: string): number {
   return parseInt(hex.slice(16, 20), 16) % 8;
 }
 
-export function generatePassphrase(words = 4): string {
+/** A room password, drawn from the CSPRNG — never Math.random, whose
+ * xorshift stream is predictable and shared with unrelated app code.
+ * Each byte selects one of the 256 words exactly (no modulo bias at
+ * this list size; the rejection guard below keeps the function honest
+ * if the list ever changes), duplicates are skipped so the words stay
+ * distinct, and the 5-word default holds 2^40 candidates — grinding
+ * the public verifier through argon2id over all of them is a
+ * multi-year, multi-machine project instead of an afternoon. */
+export function generatePassphrase(words = 5): string {
+  const n = Math.min(words, PASS_WORDS.length);
+  const limit = Math.floor(256 / PASS_WORDS.length) * PASS_WORDS.length;
   const picks: string[] = [];
   const used = new Set<number>();
-  while (picks.length < words) {
-    const i = Math.floor(Math.random() * PASS_WORDS.length);
+  const buf = crypto.getRandomValues(new Uint8Array(32));
+  let k = 0;
+  while (picks.length < n) {
+    if (k === buf.length) {
+      crypto.getRandomValues(buf); // refill in place
+      k = 0;
+    }
+    const b = buf[k++];
+    if (b >= limit) continue; // unbiased: reject the tail
+    const i = b % PASS_WORDS.length;
     if (used.has(i)) continue;
     used.add(i);
     picks.push(PASS_WORDS[i]);

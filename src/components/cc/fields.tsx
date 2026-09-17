@@ -79,15 +79,19 @@ export const PasswordField = forwardRef<
           "h-12 w-full rounded-[8px] border border-hairline bg-paper pl-3.5 pr-12 font-sans text-[15px] text-charcoal placeholder:text-mute/70 transition-colors duration-150 focus:border-forest/45 focus:outline-none focus:ring-2 focus:ring-forest/15 disabled:opacity-50",
           className,
         )}
-        autoComplete="off"
+        // "off" is advisory — Chrome still offers to save these
+        // ephemeral room passwords to its on-disk manager, which is
+        // exactly what "keys live only in memory" forbids.
+        // "new-password" is the documented suppressor.
+        autoComplete="new-password"
         autoCapitalize="none"
         spellCheck={false}
         {...props}
       />
       <button
         type="button"
-        tabIndex={-1}
         aria-label={shown ? "Hide password" : "Show password"}
+        aria-pressed={shown}
         onClick={() => setShown((v) => !v)}
         className="absolute right-0.5 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-[8px] text-mute transition-colors duration-150 hover:text-charcoal"
       >
