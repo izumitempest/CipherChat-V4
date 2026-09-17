@@ -1,0 +1,1767 @@
+     1→// The application store. One place owns: the desk (room cards),
+     2→// per-room message memory, member registries, the relay wiring, and
+     3→// the choreography of enter / unlock / send / burn.
+     4→//
+     5→// SECURITY MODEL (protocol v2 — see lib/protocol.ts + lib/room-protocol.ts):
+     6→//   Every frame the relay carries is padded to a uniform size and
+     7→//   encrypted; typing, receipts, burns, key offers and file chunks all
+     8→//   ride the same indistinguishable frames. Replay protection, the
+     9→//   member-registry eviction gate, signature checks and the ECDH key
+    10→//   rotation ceremony all live in RoomCipher — this store is a thin
+    11→//   adapter that turns OpenResults into UI.
+    12→
+    13→import { create } from "zustand";
+    14→import {
+    15→  isReactionMark,
+    16→  type MessageView,
+    17→  type ReactionMark,
+    18→  type RoomCard,
+    19→  type Screen,
+    20→  type TtlChoice,
+    21→  type WireEnvelope,
+    22→  type Payload,
+    23→  type MemberPublic,
+    24→  type FilePayload,
+    25→} from "@/lib/types";
+    26→import {
+    27→  verifyCanonical,
+    28→  canonicalFor,
+    29→  decryptJson,
+    30→  sha256HexOfBytes,
+    31→  fromB64,
+    32→} from "@/lib/crypto";
+    33→import { aliasFromFingerprint, inkFromFingerprint } from "@/lib/identity";
+    34→import { createKeyBundleV2, unlockWithBundle } from "@/lib/kdf";
+    35→import { loadDeviceSeed, deriveRoomSigningKey } from "@/lib/room-identity";
+    36→import {
+    37→  RoomCipher,
+    38→  generateSessionEcdh,
+    39→  getCipher,
+    40→  setCipher,
+    41→  dropCipher,
+    42→  type OpenResult,
+    43→} from "@/lib/room-protocol";
+    44→import type { WireFrame } from "@/lib/protocol";
+    45→import {
+    46→  getSession,
+    47→  setSession,
+    48→  dropSession,
+    49→  sessionRoomIds,
+    50→  type RoomSession,
+    51→} from "@/lib/session";
+    52→import {
+    53→  loadRoomCards,
+    54→  upsertRoomCard,
+    55→  patchRoomCard,
+    56→  removeRoomCard,
+    57→  clearUnread,
+    58→  loadRoomSettings,
+    59→  saveRoomSettings,
+    60→  loadVerified,
+    61→  saveVerified,
+    62→  saveCreatorToken,
+    63→  loadCreatorToken,
+    64→  sweepBurnedRooms,
+    65→  roomWatermarkStore,
+    66→} from "@/lib/local";
+    67→import { getRelay } from "@/lib/relay";
+    68→import { SILENT_GRACE_MS, stillSilentAtExpiry } from "@/lib/silent-grace";
+    69→import { ROOM_TTL_DEFAULT_SEC } from "@/lib/room-ttl";
+    70→import { dropDraft } from "@/lib/drafts";
+    71→import { fmtTtlRemaining } from "@/lib/format";
+    72→
+    73→export const FILE_LIMIT = 2 * 1024 * 1024; // 2 MB — nothing is stored anywhere
+    74→
+    75→export interface SealingState {
+    76→  roomId: string;
+    77→  label: string;
+    78→}
+    79→
+    80→export interface JoinResult {
+    81→  ok: boolean;
+    82→  reason?:
+    83→    | "wrong-password"
+    84→    | "not-found"
+    85→    | "burned"
+    86→    | "expired"
+    87→    | "room-full"
+    88→    | "error";
+    89→}
+    90→
+    91→/** Someone is writing — transient, expires by its own clock. */
+    92→export interface TypingSignal {
+    93→  memberId: string;
+    94→  alias: string;
+    95→  at: number;
+    96→}
+    97→
+    98→interface AppState {
+    99→  ready: boolean;
+   100→  seed: Uint8Array | null;
+   101→  screen: Screen;
+   102→  activeRoomId: string | null;
+   103→  inviteCode: string | null;
+   104→
+   105→  roomCards: RoomCard[];
+   106→  messages: Record<string, MessageView[]>;
+   107→  members: Record<string, MemberPublic[]>;
+   108→  typing: Record<string, TypingSignal[]>;
+   109→  relayOnline: boolean;
+   110→  resealing: Record<string, boolean>;
+   111→  sealing: SealingState | null;
+   112→  burn: { roomId: string } | null;
+   113→
+   114→  init: () => Promise<void>;
+   115→  navigate: (screen: Screen, roomId?: string | null) => void;
+   116→  syncHash: () => void;
+   117→  createRoom: (
+   118→    localName: string,
+   119→    password: string,
+   120→    ttlSec?: number,
+   121→  ) => Promise<JoinResult>;
+   122→  joinRoom: (code: string, password: string, localName?: string) => Promise<JoinResult>;
+   123→  enterRoom: (session: RoomSession, localName: string, rejoined: boolean) => Promise<void>;
+   124→  /** Creator-only: change the room's lifetime while it lives. */
+   125→  adjustRoomTtl: (roomId: string, ttlSec: number) => Promise<{ ok: boolean; reason?: string }>;
+   126→  /** The room's time ran out while we were in it — mark and step out. */
+   127→  closeExpiredRoom: (roomId: string) => void;
+   128→  sendMessage: (
+   129→    text: string,
+   130→    file?: Omit<FilePayload, "sha"> & { viewOnce?: boolean },
+   131→    ttlOverride?: TtlChoice,
+   132→  ) => Promise<void>;
+   133→  emitTyping: (roomId: string) => void;
+   134→  spendViewOnce: (roomId: string, messageId: string) => void;
+   135→  reactToMessage: (roomId: string, messageId: string, mark: string) => void;
+   136→  burnMessage: (roomId: string, messageId: string) => Promise<void>;
+   137→  burnRoom: (roomId: string) => Promise<void>;
+   138→  finishRoomBurn: (roomId: string) => void;
+   139→  leaveRoom: (roomId: string) => Promise<void>;
+   140→  renameRoom: (roomId: string, name: string) => void;
+   141→  setDefaultTtl: (roomId: string, ttl: TtlChoice) => void;
+   142→  markVerified: (roomId: string, memberId: string, verified: boolean) => void;
+   143→  isVerified: (roomId: string, memberId: string) => boolean;
+   144→  refreshMembers: (roomId: string) => Promise<void>;
+   145→}
+   146→
+   147→/* ------------ TTL burn scheduling (module memory) ------------ */
+   148→const burnTimers = new Map<string, ReturnType<typeof setTimeout>>();
+   149→
+   150→/* ------------ typing whispers (transient by design) ------------ */
+   151→const TYPING_TTL_MS = 3500;
+   152→const TYPING_EMIT_THROTTLE_MS = 2500;
+   153→const typingLastEmit = new Map<string, number>();
+   154→const typingPruneTimers = new Map<string, ReturnType<typeof setTimeout>>();
+   155→
+   156→/* ------------ join-key requests (self-healing delivery) ------------ */
+   157→const KEYREQ_THROTTLE_MS = 5000;
+   158→const keyReqLastEmit = new Map<string, number>();
+   159→
+   160→function pruneTypingLater(roomId: string) {
+   161→  const existing = typingPruneTimers.get(roomId);
+   162→  if (existing) clearTimeout(existing);
+   163→  const t = setTimeout(() => {
+   164→    typingPruneTimers.delete(roomId);
+   165→    useApp.setState((s) => {
+   166→      const fresh = (s.typing[roomId] ?? []).filter(
+   167→        (x) => Date.now() - x.at < TYPING_TTL_MS,
+   168→      );
+   169→      return { typing: { ...s.typing, [roomId]: fresh } };
+   170→    });
+   171→  }, TYPING_TTL_MS + 100);
+   172→  typingPruneTimers.set(roomId, t);
+   173→}
+   174→
+   175→function clearTyping(roomId: string, memberId: string) {
+   176→  useApp.setState((s) => {
+   177→    const list = s.typing[roomId] ?? [];
+   178→    if (!list.some((t) => t.memberId === memberId)) return {};
+   179→    return {
+   180→      typing: {
+   181→        ...s.typing,
+   182→        [roomId]: list.filter((t) => t.memberId !== memberId),
+   183→      },
+   184→    };
+   185→  });
+   186→}
+   187→
+   188→/** The single transition rule for ink marks: setting a mark you already
+   189→ *  hold clears it; setting a different one moves yours; each sender holds
+   190→ *  at most one mark per message. Applied identically by the optimistic
+   191→ *  local update and by every receiver, so the frames converge. */
+   192→function applyMarkToggle(
+   193→  list: MessageView[],
+   194→  messageId: string,
+   195→  senderId: string,
+   196→  mark: ReactionMark,
+   197→): MessageView[] {
+   198→  return list.map((m) => {
+   199→    if (m.id !== messageId || m.kind === "system") return m;
+   200→    const marks: Partial<Record<ReactionMark, string[]>> = { ...(m.marks ?? {}) };
+   201→    if ((marks[mark] ?? []).includes(senderId)) {
+   202→      const next = (marks[mark] ?? []).filter((id) => id !== senderId);
+   203→      if (next.length > 0) marks[mark] = next;
+   204→      else delete marks[mark];
+   205→    } else {
+   206→      for (const k of Object.keys(marks) as ReactionMark[]) {
+   207→        const kept = (marks[k] ?? []).filter((id) => id !== senderId);
+   208→        if (kept.length > 0) marks[k] = kept;
+   209→        else delete marks[k];
+   210→      }
+   211→      marks[mark] = [...(marks[mark] ?? []), senderId];
+   212→    }
+   213→    return { ...m, marks };
+   214→  });
+   215→}
+   216→
+   217→function scheduleBurn(
+   218→  roomId: string,
+   219→  messageId: string,
+   220→  expiresAt: number,
+   221→  onBurn: (roomId: string, messageId: string) => void,
+   222→) {
+   223→  if (burnTimers.has(messageId)) return;
+   224→  const delay = Math.max(0, expiresAt - Date.now());
+   225→  const t = setTimeout(() => {
+   226→    burnTimers.delete(messageId);
+   227→    onBurn(roomId, messageId);
+   228→  }, delay);
+   229→  burnTimers.set(messageId, t);
+   230→}
+   231→
+   232→function cancelBurns(roomId: string, messages: MessageView[]) {
+   233→  for (const m of messages) {
+   234→    if (m.id) {
+   235→      const t = burnTimers.get(m.id);
+   236→      if (t) {
+   237→        clearTimeout(t);
+   238→        burnTimers.delete(m.id);
+   239→      }
+   240→    }
+   241→  }
+   242→  void roomId;
+   243→}
+   244→
+   245→const MIN_SEAL_MS = 1700; // the vault moment takes at least this long, on purpose
+   246→
+   247→// Set synchronously at the top of init() — see the comment there.
+   248→let initStarted = false;
+   249→
+   250→export const useApp = create<AppState>()((set, get) => ({
+   251→  ready: false,
+   252→  seed: null,
+   253→  screen: "landing",
+   254→  activeRoomId: null,
+   255→  inviteCode: null,
+   256→
+   257→  roomCards: [],
+   258→  messages: {},
+   259→  members: {},
+   260→  typing: {},
+   261→  relayOnline: false,
+   262→  resealing: {},
+   263→  sealing: null,
+   264→  burn: null,
+   265→
+   266→  /* -------------------------------------------------- init ---- */
+   267→
+   268→  init: async () => {
+   269→    // The synchronous flag matters: `ready` is only set after an
+   270→    // await, so two concurrent init() calls (a remount racing the
+   271→    // first mount) would BOTH pass the ready check and register every
+   272→    // relay handler twice. The flag has no await before it.
+   273→    if (initStarted || get().ready) return;
+   274→    initStarted = true;
+   275→    // One random seed per device; every room derives its own signing
+   276→    // key from it, so registries can never be correlated across rooms.
+   277→    const seed = await loadDeviceSeed();
+   278→    // Burned rooms showed their ash last session; now they are gone.
+   279→    const cards = sweepBurnedRooms();
+   280→    set({ seed, roomCards: cards, ready: true });
+   281→
+   282→    get().syncHash();
+   283→    window.addEventListener("hashchange", () => get().syncHash());
+   284→
+   285→    wireRelay(set, get);
+   286→  },
+   287→
+   288→  syncHash: () => {
+   289→    const hash = window.location.hash.replace(/^#\/?/, "");
+   290→    if (hash.startsWith("join")) {
+   291→      const code = hash.split("/")[1] ?? "";
+   292→      set({ screen: "invite", inviteCode: code || null, activeRoomId: null });
+   293→      return;
+   294→    }
+   295→    if (hash.startsWith("new")) {
+   296→      set({ screen: "landing", activeRoomId: null });
+   297→      return;
+   298→    }
+   299→    if (hash.startsWith("rooms")) {
+   300→      set({ screen: "rooms", activeRoomId: null });
+   301→      return;
+   302→    }
+   303→    if (hash.startsWith("r/")) {
+   304→      const roomId = hash.slice(2);
+   305→      const session = getSession(roomId);
+   306→      set({ screen: "chat", activeRoomId: roomId });
+   307→      if (session) {
+   308→        patchRoomCard(roomId, { unread: false, unreadCount: 0 });
+   309→        set({ roomCards: loadRoomCards() });
+   310→      }
+   311→      // No keys in memory — the room is locked. A first-class state,
+   312→      // never an error.
+   313→      return;
+   314→    }
+   315→    // Root: the desk if you have rooms, the landing if you don't.
+   316→    if (get().roomCards.length > 0) {
+   317→      set({ screen: "rooms", activeRoomId: null });
+   318→    } else {
+   319→      set({ screen: "landing", activeRoomId: null });
+   320→    }
+   321→  },
+   322→
+   323→  navigate: (screen, roomId = null) => {
+   324→    const hash =
+   325→      screen === "rooms"
+   326→        ? "#/rooms"
+   327→        : screen === "chat" && roomId
+   328→          ? `#/r/${roomId}`
+   329→          : screen === "invite"
+   330→            ? "#/join"
+   331→            : screen === "landing"
+   332→              ? "#/new"
+   333→              : "#/";
+   334→    if (window.location.hash !== hash) {
+   335→      window.location.hash = hash;
+   336→    } else {
+   337→      get().syncHash();
+   338→    }
+   339→  },
+   340→
+   341→  /* ----------------------------------------------- create ---- */
+   342→
+   343→  createRoom: async (localName, password, ttlSec) => {
+   344→    const seed = get().seed;
+   345→    if (!seed) return { ok: false, reason: "error" };
+   346→
+   347→    const res = await fetch("/api/rooms", {
+   348→      method: "POST",
+   349→      headers: { "content-type": "application/json" },
+   350→      body: JSON.stringify({ ttlSec: ttlSec ?? ROOM_TTL_DEFAULT_SEC }),
+   351→    });
+   352→    if (!res.ok) return { ok: false, reason: "error" };
+   353→    const { roomId, creatorToken, expiresAt } = await res.json();
+   354→    saveCreatorToken(roomId, creatorToken);
+   355→
+   356→    set({ sealing: { roomId, label: "Sealing the room" } });
+   357→    const started = Date.now();
+   358→
+   359→    // This room's own signing identity + session ECDH pair, and the
+   360→    // argon2id key bundle (random salt, versioned, memory-hard).
+   361→    const [identity, ecdh, bundle] = await Promise.all([
+   362→      deriveRoomSigningKey(seed, roomId),
+   363→      generateSessionEcdh(),
+   364→      createKeyBundleV2(password),
+   365→    ]);
+   366→
+   367→    await Promise.all([
+   368→      fetch(`/api/rooms/${roomId}/verifier`, {
+   369→        method: "PUT",
+   370→        headers: { "content-type": "application/json" },
+   371→        body: JSON.stringify({ verifier: JSON.stringify(bundle.bundle) }),
+   372→      }),
+   373→      new Promise((r) => setTimeout(r, MIN_SEAL_MS - (Date.now() - started))),
+   374→    ]);
+   375→
+   376→    const alias = aliasFromFingerprint(identity.fingerprintHex);
+   377→    const colorIdx = inkFromFingerprint(identity.fingerprintHex);
+   378→    const joinRes = await fetch(`/api/rooms/${roomId}/members`, {
+   379→      method: "POST",
+   380→      headers: { "content-type": "application/json" },
+   381→      body: JSON.stringify({
+   382→        pubkey: identity.pubJwk,
+   383→        ecdhPub: ecdh.pubRawB64,
+   384→        alias,
+   385→        colorIdx,
+   386→      }),
+   387→    });
+   388→    if (!joinRes.ok) {
+   389→      set({ sealing: null });
+   390→      return { ok: false, reason: "error" };
+   391→    }
+   392→    const { memberId } = await joinRes.json();
+   393→
+   394→    const cipher = new RoomCipher({
+   395→      roomId,
+   396→      selfId: memberId,
+   397→      sig: { privJwk: identity.privJwk, pubJwk: identity.pubJwk },
+   398→      ecdh,
+   399→      entryKey: bundle.key,
+   400→      watermarks: roomWatermarkStore(roomId),
+   401→    });
+   402→    setCipher(roomId, cipher);
+   403→
+   404→    const session: RoomSession = {
+   405→      roomId,
+   406→      memberId,
+   407→      alias,
+   408→      colorIdx,
+   409→      kv: 1,
+   410→      password,
+   411→      creatorToken,
+   412→      expiresAt: expiresAt ? Date.parse(expiresAt) : undefined,
+   413→      defaultTtl: loadRoomSettings(roomId).defaultTtl,
+   414→      legacy: false,
+   415→    };
+   416→    setSession(session);
+   417→    set({ sealing: null });
+   418→    await get().enterRoom(session, localName || "New room", false);
+   419→    return { ok: true };
+   420→  },
+   421→
+   422→  /* ------------------------------------------------- join ---- */
+   423→
+   424→  joinRoom: async (code, password, localName) => {
+   425→    const seed = get().seed;
+   426→    if (!seed) return { ok: false, reason: "error" };
+   427→
+   428→    const infoRes = await fetch(`/api/rooms/${encodeURIComponent(code)}`);
+   429→    if (!infoRes.ok) {
+   430→      const info = await infoRes.json().catch(() => ({}));
+   431→      return {
+   432→        ok: false,
+   433→        reason: info?.burned ? "burned" : info?.expired ? "expired" : "not-found",
+   434→      };
+   435→    }
+   436→    const info = await infoRes.json();
+   437→    if (info.memberCount >= info.memberCap) {
+   438→      return { ok: false, reason: "room-full" };
+   439→    }
+   440→
+   441→    set({ sealing: { roomId: code, label: "Sealing the room" } });
+   442→    const started = Date.now();
+   443→    // The entry key (version 1) — argon2id for new rooms, PBKDF2 for
+   444→    // rooms created before the upgrade. The bundle decides.
+   445→    const entryKey = await unlockWithBundle(password, info.verifier, code, info.epoch);
+   446→    await new Promise((r) =>
+   447→      setTimeout(r, Math.max(0, MIN_SEAL_MS - (Date.now() - started))),
+   448→    );
+   449→
+   450→    if (!entryKey) {
+   451→      set({ sealing: null });
+   452→      return { ok: false, reason: "wrong-password" };
+   453→    }
+   454→
+   455→    const [identity, ecdh] = await Promise.all([
+   456→      deriveRoomSigningKey(seed, code),
+   457→      generateSessionEcdh(),
+   458→    ]);
+   459→    const alias = aliasFromFingerprint(identity.fingerprintHex);
+   460→    const colorIdx = inkFromFingerprint(identity.fingerprintHex);
+   461→    const joinRes = await fetch(`/api/rooms/${code}/members`, {
+   462→      method: "POST",
+   463→      headers: { "content-type": "application/json" },
+   464→      body: JSON.stringify({
+   465→        pubkey: identity.pubJwk,
+   466→        ecdhPub: ecdh.pubRawB64,
+   467→        alias,
+   468→        colorIdx,
+   469→      }),
+   470→    });
+   471→    if (!joinRes.ok) {
+   472→      set({ sealing: null });
+   473→      if (joinRes.status === 403) return { ok: false, reason: "room-full" };
+   474→      return { ok: false, reason: "error" };
+   475→    }
+   476→    const { memberId, rejoined } = await joinRes.json();
+   477→
+   478→    const cipher = new RoomCipher({
+   479→      roomId: code,
+   480→      selfId: memberId,
+   481→      sig: { privJwk: identity.privJwk, pubJwk: identity.pubJwk },
+   482→      ecdh,
+   483→      entryKey,
+   484→      watermarks: roomWatermarkStore(code),
+   485→    });
+   486→    setCipher(code, cipher);
+   487→
+   488→    // v1 rooms (versionless key bundles) keep the legacy receive path;
+   489→    // v2 rooms refuse v1 envelopes outright.
+   490→    let legacyRoom = true;
+   491→    try {
+   492→      legacyRoom = !info.verifier || JSON.parse(info.verifier)?.v !== 2;
+   493→    } catch {
+   494→      legacyRoom = true;
+   495→    }
+   496→
+   497→    const session: RoomSession = {
+   498→      roomId: code,
+   499→      memberId,
+   500→      alias,
+   501→      colorIdx,
+   502→      kv: 1, // the current key arrives via ECDH offers if the room has rotated
+   503→      password,
+   504→      creatorToken: loadCreatorToken(code),
+   505→      expiresAt: info.expiresAt ? Date.parse(info.expiresAt) : undefined,
+   506→      defaultTtl: loadRoomSettings(code).defaultTtl,
+   507→      legacy: legacyRoom,
+   508→    };
+   509→    setSession(session);
+   510→    set({ sealing: null });
+   511→    const name =
+   512→      localName ||
+   513→      get().roomCards.find((c) => c.roomId === code)?.localName ||
+   514→      `Room ${code.slice(0, 4)}`;
+   515→    await get().enterRoom(session, name, !!rejoined);
+   516→
+   517→    // The server's epoch is the rotation LEDGER (it persists; keys do
+   518→    // not). If the room has rotated before and we are back at the
+   519→    // password-derived key — a rejoin after refresh, or a fresh join —
+   520→    // the current key must arrive via ECDH offers. Give live members a
+   521→    // moment to deliver; if nobody does (everyone refreshed), the
+   522→    // coordinator re-seals past the ledger so keys any departed member
+   523→    // may still hold are dead again.
+   524→    if (info.epoch > 1) {
+   525→      const attemptRotation = (minKv: number) => {
+   526→        const c = getCipher(code);
+   527→        const s = getSession(code);
+   528→        if (!c || !s || c.kv > 1) return;
+   529→        void c.rotateTo(minKv).then((offers) => {
+   530→          const relay2 = getRelay();
+   531→          for (const f of offers) {
+   532→            relay2.emit("message:send", { roomId: code, envelope: f });
+   533→          }
+   534→          addSystemLine(code, "The room re-sealed for those who remain.");
+   535→        });
+   536→      };
+   537→      setTimeout(() => {
+   538→        const cipher2 = getCipher(code);
+   539→        const session2 = getSession(code);
+   540→        if (!cipher2 || !session2 || cipher2.kv > 1) return;
+   541→        if (cipher2.expectedCoordinator() === session2.memberId) {
+   542→          attemptRotation(info.epoch);
+   543→        } else {
+   544→          // Ask the room for the current key; a live key-holder answers
+   545→          // with an ECDH offer.
+   546→          getRelay().emit("key:request", { roomId: code, from: session.memberId });
+   547→          setResealing(code, true);
+   548→          // Fallback: if nobody answers (every member refreshed, or the
+   549→          // holder is offline), re-seal on our own after a randomized
+   550→          // delay. The version jump is randomized too, so simultaneous
+   551→          // fallbacks converge: a lower-version holder always accepts
+   552→          // a higher-version offer.
+   553→          setTimeout(() => {
+   554→            const c = getCipher(code);
+   555→            const s = getSession(code);
+   556→            if (!c || !s || c.kv > 1) return;
+   557→            void c.rotateTo(info.epoch + 1 + Math.floor(Math.random() * 8), false).then((offers) => {
+   558→              const relay2 = getRelay();
+   559→              for (const f of offers) {
+   560→                relay2.emit("message:send", { roomId: code, envelope: f });
+   561→              }
+   562→              addSystemLine(code, "The room re-sealed for those who remain.");
+   563→              setResealing(code, false);
+   564→            });
+   565→          }, 5000 + Math.floor(Math.random() * 3000));
+   566→        }
+   567→      }, 3000);
+   568→    }
+   569→    return { ok: true };
+   570→  },
+   571→
+   572→  /* ----------------------------------------------- enter ----- */
+   573→
+   574→  enterRoom: async (session, localName, rejoined) => {
+   575→    const now = Date.now();
+   576→    upsertRoomCard({
+   577→      roomId: session.roomId,
+   578→      localName,
+   579→      createdAt: now,
+   580→      lastActivity: now,
+   581→      lastMembers: 1,
+   582→      unread: false,
+   583→      unreadCount: 0,
+   584→      burned: false,
+   585→      locked: false,
+   586→      expiresAt: session.expiresAt,
+   587→    });
+   588→    set({ roomCards: loadRoomCards() });
+   589→
+   590→    // Fresh message memory — there is no backlog, ever.
+   591→    set((s) => ({ messages: { ...s.messages, [session.roomId]: [] } }));
+   592→
+   593→    // A room with a clock announces it once, on entry — everyone
+   594→    // deserves to know when the door closes.
+   595→    if (session.expiresAt && session.expiresAt > Date.now()) {
+   596→      addSystemLine(
+   597→        session.roomId,
+   598→        `This room closes in ${fmtTtlRemaining(session.expiresAt - Date.now())} — then it's gone for everyone.`,
+   599→      );
+   600→    }
+   601→
+   602→    await get().refreshMembers(session.roomId);
+   603→
+   604→    const cipher = getCipher(session.roomId);
+   605→    const relay = getRelay();
+   606→    relay.emit("room:join", {
+   607→      roomId: session.roomId,
+   608→      memberId: session.memberId,
+   609→      alias: session.alias,
+   610→      colorIdx: session.colorIdx,
+   611→      pubkey: cipher?.sigPubJwk,
+   612→      ecdhPub: cipher?.ecdh.pubRawB64,
+   613→      rejoined,
+   614→    });
+   615→    set({ relayOnline: relay.connected });
+   616→
+   617→    get().navigate("chat", session.roomId);
+   618→  },
+   619→
+   620→  refreshMembers: async (roomId) => {
+   621→    try {
+   622→      const res = await fetch(`/api/rooms/${roomId}/members`);
+   623→      if (!res.ok) return;
+   624→      const { members } = (await res.json()) as { members: MemberPublic[] };
+   625→      set((s) => ({ members: { ...s.members, [roomId]: members } }));
+   626→
+   627→      // Keep the cipher's registry in sync — it is the eviction gate.
+   628→      const cipher = getCipher(roomId);
+   629→      if (cipher) {
+   630→        const seen = new Set<string>();
+   631→        for (const m of members) {
+   632→          seen.add(m.memberId);
+   633→          const cur = cipher.registry.get(m.memberId);
+   634→          cipher.registry.set(m.memberId, {
+   635→            pubkey: m.pubkey,
+   636→            ecdhPubB64: m.ecdhPub ?? cur?.ecdhPubB64,
+   637→            connected: cur?.connected ?? true,
+   638→            joinedAt: m.joinedAt ?? cur?.joinedAt,
+   639→            alias: m.alias,
+   640→            colorIdx: m.colorIdx,
+   641→          });
+   642→        }
+   643→        for (const id of [...cipher.registry.keys()]) {
+   644→          if (!seen.has(id)) cipher.registry.delete(id);
+   645→        }
+   646→      }
+   647→    } catch {
+   648→      /* offline — the registry stays as-is */
+   649→    }
+   650→  },
+   651→
+   652→  /* ------------------------------------------------- send ---- */
+   653→
+   654→  sendMessage: async (text, file, ttlOverride) => {
+   655→    const viewOnce = !!file?.viewOnce;
+   656→    const { activeRoomId } = get();
+   657→    if (!activeRoomId) return;
+   658→    const session = getSession(activeRoomId);
+   659→    const cipher = getCipher(activeRoomId);
+   660→    if (!session || !cipher) return;
+   661→    const trimmed = text.trim();
+   662→    if (!trimmed && !file) return;
+   663→
+   664→    const ttlSec = (ttlOverride !== undefined ? ttlOverride : session.defaultTtl) || undefined;
+   665→    const ts = Date.now();
+   666→
+   667→    let frames: WireFrame[];
+   668→    if (file) {
+   669→      const sha = await sha256HexOfBytes(fromB64(file.dataB64));
+   670→      frames = await cipher.sealFile({
+   671→        name: file.name,
+   672→        mime: file.mime,
+   673→        size: file.size,
+   674→        dataB64: file.dataB64,
+   675→        sha,
+   676→        // The caption rides the meta frame's canonical-signed text field.
+   677→        text: trimmed || undefined,
+   678→        ttlSec,
+   679→        viewOnce: viewOnce || undefined,
+   680→      });
+   681→    } else {
+   682→      frames = await cipher.sealText({ text: trimmed, ttlSec });
+   683→    }
+   684→    // The first frame's id IS the message id (text frame, or the file
+   685→    // meta frame) — the relay acks it and the view flips to "sent".
+   686→    const id = frames[0].id;
+   687→
+   688→    const kind = file ? "file" : "text";
+   689→    const view: MessageView = {
+   690→      id,
+   691→      kind,
+   692→      senderId: session.memberId,
+   693→      senderAlias: session.alias,
+   694→      senderColor: session.colorIdx,
+   695→      self: true,
+   696→      status: "sending",
+   697→      ts,
+   698→      text: trimmed,
+   699→      file: file
+   700→        ? { name: file.name, mime: file.mime, size: file.size, dataB64: file.dataB64 }
+   701→        : undefined,
+   702→      ttlSec,
+   703→      expiresAt: ttlSec ? ts + ttlSec * 1000 : undefined,
+   704→      viewOnce: file && viewOnce ? true : undefined,
+   705→    };
+   706→
+   707→    set((s) => ({
+   708→      messages: {
+   709→        ...s.messages,
+   710→        [session.roomId]: [...(s.messages[session.roomId] ?? []), view],
+   711→      },
+   712→    }));
+   713→    patchRoomCard(session.roomId, { lastActivity: ts });
+   714→    set({ roomCards: loadRoomCards() });
+   715→
+   716→    if (ttlSec) {
+   717→      scheduleBurn(session.roomId, id, ts + ttlSec * 1000, onMessageBurn);
+   718→    }
+   719→
+   720→    const relay = getRelay();
+   721→    for (const f of frames) {
+   722→      relay.emit("message:send", { roomId: session.roomId, envelope: f });
+   723→    }
+   724→  },
+   725→
+   726→  /* --------------------------------------------- typing ------- */
+   727→
+   728→  emitTyping: (roomId) => {
+   729→    const session = getSession(roomId);
+   730→    const cipher = getCipher(roomId);
+   731→    if (!session || !cipher) return;
+   732→    const now = Date.now();
+   733→    const last = typingLastEmit.get(roomId) ?? 0;
+   734→    if (now - last < TYPING_EMIT_THROTTLE_MS) return;
+   735→    typingLastEmit.set(roomId, now);
+   736→    // Typing rides the same uniform encrypted frames as everything
+   737→    // else — the relay cannot even tell WHEN someone is typing.
+   738→    void cipher.sealTyping().then((frames) => {
+   739→      const relay = getRelay();
+   740→      for (const f of frames) relay.emit("message:send", { roomId, envelope: f });
+   741→    });
+   742→  },
+   743→
+   744→  /* --------------------------------------------- view-once --- */
+   745→
+   746→  spendViewOnce: (roomId, messageId) => {
+   747→    set((s) => {
+   748→      const list = s.messages[roomId] ?? [];
+   749→      return {
+   750→        messages: {
+   751→          ...s.messages,
+   752→          [roomId]: list.map((m) => (m.id === messageId ? { ...m, spent: true } : m)),
+   753→        },
+   754→      };
+   755→    });
+   756→    const cipher = getCipher(roomId);
+   757→    if (cipher) {
+   758→      void cipher.sealSpent(messageId).then((frames) => {
+   759→        const relay = getRelay();
+   760→        for (const f of frames) relay.emit("message:send", { roomId, envelope: f });
+   761→      });
+   762→    }
+   763→  },
+   764→
+   765→  /* -------------------------------------------- ink marks --- */
+   766→
+   767→  /** Set or clear one of the four quiet margin marks on any message.
+   768→   *  The frame is signed (canonical covers mark + target), so a mark
+   769→   *  is exactly as authentic as the words it annotates. */
+   770→  reactToMessage: (roomId, messageId, mark) => {
+   771→    const session = getSession(roomId);
+   772→    const cipher = getCipher(roomId);
+   773→    if (!session || !cipher || !isReactionMark(mark)) return;
+   774→    // Optimistic local toggle — the frame carries the same transition
+   775→    // for everyone else.
+   776→    useApp.setState((s) => ({
+   777→      messages: {
+   778→        ...s.messages,
+   779→        [roomId]: applyMarkToggle(s.messages[roomId] ?? [], messageId, session.memberId, mark),
+   780→      },
+   781→    }));
+   782→    void cipher.sealReact(messageId, mark).then((frames) => {
+   783→      const relay = getRelay();
+   784→      for (const f of frames) relay.emit("message:send", { roomId, envelope: f });
+   785→    });
+   786→  },
+   787→
+   788→  /* --------------------------------------------- burn-one ---- */
+   789→
+   790→  /** Retire one of your own letters ahead of its clock. The announce
+   791→   *  is signed inside the encrypted frame, so only the author can do
+   792→   *  this — nobody else can burn a message they did not write. */
+   793→  burnMessage: async (roomId, messageId) => {
+   794→    const { activeRoomId } = get();
+   795→    const target = roomId ?? activeRoomId;
+   796→    const session = getSession(target);
+   797→    const cipher = getCipher(target);
+   798→    const msg = (get().messages[target] ?? []).find((m) => m.id === messageId);
+   799→    if (!session || !cipher || !msg || !msg.self || msg.kind === "system") return;
+   800→
+   801→    const frames = await cipher.sealBurn(messageId);
+   802→    const relay = getRelay();
+   803→    for (const f of frames) relay.emit("message:send", { roomId: target, envelope: f });
+   804→
+   805→    const t = burnTimers.get(messageId);
+   806→    if (t) {
+   807→      clearTimeout(t);
+   808→      burnTimers.delete(messageId);
+   809→    }
+   810→    onMessageBurn(target, messageId);
+   811→  },
+   812→
+   813→  /* ------------------------------------------------- burn ---- */
+   814→
+   815→  burnRoom: async (roomId) => {
+   816→    const session = getSession(roomId);
+   817→    if (!session?.creatorToken) return;
+   818→    try {
+   819→      await fetch(`/api/rooms/${roomId}/burn`, {
+   820→        method: "POST",
+   821→        headers: { "content-type": "application/json" },
+   822→        body: JSON.stringify({ creatorToken: session.creatorToken }),
+   823→      });
+   824→    } catch {
+   825→      /* even if this fails, members burn on the announce */
+   826→    }
+   827→    getRelay().emit("room:burn", { roomId });
+   828→    set({ burn: { roomId } });
+   829→  },
+   830→
+   831→  finishRoomBurn: (roomId) => {
+   832→    const messages = get().messages[roomId] ?? [];
+   833→    cancelBurns(roomId, messages);
+   834→    dropSession(roomId);
+   835→    dropCipher(roomId);
+   836→    clearRoomGrace(roomId);
+   837→    dropDraft(roomId);
+   838→    patchRoomCard(roomId, { burned: true, unread: false, lastActivity: Date.now() });
+   839→    set((s) => ({
+   840→      burn: null,
+   841→      roomCards: loadRoomCards(),
+   842→      activeRoomId: null,
+   843→      messages: { ...s.messages, [roomId]: [] },
+   844→    }));
+   845→    get().navigate("rooms");
+   846→  },
+   847→
+   848→  /* ------------------------------------------------- leave --- */
+   849→
+   850→  leaveRoom: async (roomId) => {
+   851→    const session = getSession(roomId);
+   852→    if (session) {
+   853→      // Proof-of-possession: sign the departure with the room's signing
+   854→      // key so nobody can write us out (and rotate the room out from
+   855→      // under everyone) with just our memberId.
+   856→      const cipher = getCipher(roomId);
+   857→      if (cipher) {
+   858→        const proof = await cipher.signDepartureProof();
+   859→        try {
+   860→          await fetch(`/api/rooms/${roomId}/leave`, {
+   861→            method: "POST",
+   862→            headers: { "content-type": "application/json" },
+   863→            body: JSON.stringify({ memberId: session.memberId, ts: proof.ts, sig: proof.sig }),
+   864→          });
+   865→        } catch {
+   866→          /* best effort — receivers rotate on the announce regardless */
+   867→        }
+   868→      }
+   869→      // No cipher (locked/refreshed tab): skip the REST call entirely —
+   870→      // the server now demands a proof we cannot make without the key.
+   871→      // The relay announce below still tells receivers, who handle a
+   872→      // keyless departure via the silent-eviction grace path.
+   873→      getRelay().emit("member:leave", {
+   874→        roomId,
+   875→        memberId: session.memberId,
+   876→        alias: session.alias,
+   877→      });
+   878→    }
+   879→    const messages = get().messages[roomId] ?? [];
+   880→    cancelBurns(roomId, messages);
+   881→    dropSession(roomId);
+   882→    dropCipher(roomId);
+   883→    clearRoomGrace(roomId);
+   884→    dropDraft(roomId);
+   885→    removeRoomCard(roomId);
+   886→    set((s) => ({
+   887→      roomCards: loadRoomCards(),
+   888→      activeRoomId: null,
+   889→      messages: { ...s.messages, [roomId]: [] },
+   890→    }));
+   891→    get().navigate("rooms");
+   892→  },
+   893→
+   894→  /* ---------------------------------------------- settings --- */
+   895→
+   896→  renameRoom: (roomId, name) => {
+   897→    patchRoomCard(roomId, { localName: name });
+   898→    set({ roomCards: loadRoomCards() });
+   899→  },
+   900→
+   901→  setDefaultTtl: (roomId, ttl) => {
+   902→    const session = getSession(roomId);
+   903→    if (session) session.defaultTtl = ttl;
+   904→    saveRoomSettings(roomId, { defaultTtl: ttl });
+   905→  },
+   906→
+   907→  /* ------------------------------------------ room lifetime --- */
+   908→
+   909→  adjustRoomTtl: async (roomId, ttlSec) => {
+   910→    const session = getSession(roomId);
+   911→    const token = session?.creatorToken ?? loadCreatorToken(roomId);
+   912→    if (!token) return { ok: false, reason: "not-creator" };
+   913→    try {
+   914→      const res = await fetch(`/api/rooms/${roomId}`, {
+   915→        method: "PATCH",
+   916→        headers: { "content-type": "application/json" },
+   917→        body: JSON.stringify({ creatorToken: token, ttlSec }),
+   918→      });
+   919→      if (!res.ok) {
+   920→        const body = await res.json().catch(() => ({}));
+   921→        return { ok: false, reason: body?.error ?? "error" };
+   922→      }
+   923→      const { expiresAt } = await res.json();
+   924→      const ms = expiresAt ? Date.parse(expiresAt) : undefined;
+   925→      if (session) session.expiresAt = ms;
+   926→      patchRoomCard(roomId, { expiresAt: ms });
+   927→      set({ roomCards: loadRoomCards() });
+   928→      return { ok: true };
+   929→    } catch {
+   930→      return { ok: false, reason: "error" };
+   931→    }
+   932→  },
+   933→
+   934→  closeExpiredRoom: (roomId) => {
+   935→    // The desk remembers it as closed for this session, like ash.
+   936→    patchRoomCard(roomId, { closed: true, locked: true });
+   937→    set((s) => ({
+   938→      roomCards: loadRoomCards(),
+   939→      activeRoomId: s.activeRoomId === roomId ? null : s.activeRoomId,
+   940→      screen: s.activeRoomId === roomId ? "rooms" : s.screen,
+   941→    }));
+   942→    // Tell the room we've gone (they'll each hit the closed door on
+   943→    // their own clock or their next re-entry attempt).
+   944→    const session = getSession(roomId);
+   945→    if (session) {
+   946→      getRelay().emit("member:leave", {
+   947→        roomId,
+   948→        memberId: session.memberId,
+   949→        alias: session.alias,
+   950→      });
+   951→    }
+   952→  },
+   953→
+   954→  markVerified: (roomId, memberId, verified) => {
+   955→    const current = loadVerified(roomId);
+   956→    const next = verified
+   957→      ? Array.from(new Set([...current, memberId]))
+   958→      : current.filter((id) => id !== memberId);
+   959→    saveVerified(roomId, next);
+   960→    set((s) => ({ members: { ...s.members } })); // trigger re-render
+   961→  },
+   962→
+   963→  isVerified: (roomId, memberId) => loadVerified(roomId).includes(memberId),
+   964→}));
+   965→
+   966→/* ==================================================================
+   967→   Relay wiring — one socket, registered once, drives the whole house
+   968→   ================================================================== */
+   969→
+   970→function onMessageBurn(roomId: string, messageId: string) {
+   971→  // Phase 1: burning (CSS animation 600ms)
+   972→  useApp.setState((s) => ({
+   973→    messages: {
+   974→      ...s.messages,
+   975→      [roomId]: (s.messages[roomId] ?? []).map((m) =>
+   976→        m.id === messageId ? { ...m, status: "burning" } : m,
+   977→      ),
+   978→    },
+   979→  }));
+   980→  // Phase 2: gone.
+   981→  setTimeout(() => {
+   982→    useApp.setState((s) => ({
+   983→      messages: {
+   984→        ...s.messages,
+   985→        [roomId]: (s.messages[roomId] ?? []).filter((m) => m.id !== messageId),
+   986→      },
+   987→    }));
+   988→  }, 620);
+   989→}
+   990→
+   991→function addSystemLine(roomId: string, text: string) {
+   992→  const line: MessageView = {
+   993→    id: crypto.randomUUID(),
+   994→    kind: "system",
+   995→    status: "sent",
+   996→    ts: Date.now(),
+   997→    text,
+   998→  };
+   999→  useApp.setState((s) => ({
+  1000→    messages: {
+  1001→      ...s.messages,
+  1002→      [roomId]: [...(s.messages[roomId] ?? []), line],
+  1003→    },
+  1004→  }));
+  1005→}
+  1006→
+  1007→function patchView(roomId: string, messageId: string, patch: Partial<MessageView>) {
+  1008→  useApp.setState((s) => ({
+  1009→    messages: {
+  1010→      ...s.messages,
+  1011→      [roomId]: (s.messages[roomId] ?? []).map((m) =>
+  1012→        m.id === messageId ? { ...m, ...patch } : m,
+  1013→      ),
+  1014→    },
+  1015→  }));
+  1016→}
+  1017→
+  1018→/** Room-card touch. `letters` > 0 counts real letters for the
+  1019→ *  unread badge (dot-only for joins and rejections); unread=false
+  1020→ *  (the room is being read) always resets the count. */
+  1021→function touchCard(roomId: string, unread: boolean, letters = 0) {
+  1022→  const card = loadRoomCards().find((c) => c.roomId === roomId);
+  1023→  const nextCount = unread
+  1024→    ? Math.min(99, (card?.unreadCount ?? 0) + letters)
+  1025→    : 0;
+  1026→  patchRoomCard(roomId, {
+  1027→    lastActivity: Date.now(),
+  1028→    unread,
+  1029→    ...(unread || letters > 0 || card?.unreadCount ? { unreadCount: nextCount } : {}),
+  1030→  });
+  1031→  useApp.setState({ roomCards: loadRoomCards() });
+  1032→}
+  1033→
+  1034→function setResealing(roomId: string, value: boolean) {
+  1035→  useApp.setState((s) => {
+  1036→    const next = { ...s.resealing };
+  1037→    if (value) next[roomId] = true;
+  1038→    else delete next[roomId];
+  1039→    return { resealing: next };
+  1040→  });
+  1041→}
+  1042→
+  1043→/* ==================================================================
+  1044→   Silent-departure grace (Task 21.1)
+  1045→
+  1046→   A member whose connection silently drops — no clean leave, just a
+  1047→   closed laptop — keeps the room key until the room re-seals. Every
+  1048→   unlocked client quietly watches each offline member; when the
+  1049→   grace window expires, the CONNECTED COORDINATOR (smallest memberId
+  1050→   among live members) asks the server to write them out. The server
+  1051→   consults the relay's presence clock before agreeing (see
+  1052→   /api/rooms/:id/evict), so a forged or premature request gains
+  1053→   nothing. Peers then treat it exactly like a departure: REST-
+  1054→   confirmed eviction, random new key, pairwise ECDH delivery.
+  1055→   ================================================================== */
+  1056→
+  1057→const silentGrace = new Map<string, Map<string, ReturnType<typeof setTimeout>>>();
+  1058→
+  1059→function startGraceTimer(roomId: string, memberId: string) {
+  1060→  const session = getSession(roomId);
+  1061→  if (!session || session.memberId === memberId) return; // nothing to act with; never for self
+  1062→  let room = silentGrace.get(roomId);
+  1063→  if (!room) {
+  1064→    room = new Map();
+  1065→    silentGrace.set(roomId, room);
+  1066→  }
+  1067→  if (room.has(memberId)) return;
+  1068→  room.set(
+  1069→    memberId,
+  1070→    setTimeout(() => {
+  1071→      room.delete(memberId);
+  1072→      void fireSilentEviction(roomId, memberId);
+  1073→    }, SILENT_GRACE_MS),
+  1074→  );
+  1075→}
+  1076→
+  1077→function cancelGraceTimer(roomId: string, memberId: string) {
+  1078→  silentGrace.get(roomId)?.delete(memberId);
+  1079→}
+  1080→
+  1081→function clearRoomGrace(roomId: string) {
+  1082→  const room = silentGrace.get(roomId);
+  1083→  if (!room) return;
+  1084→  for (const t of room.values()) clearTimeout(t);
+  1085→  silentGrace.delete(roomId);
+  1086→}
+  1087→
+  1088→function clearAllGrace() {
+  1089→  for (const room of silentGrace.values()) for (const t of room.values()) clearTimeout(t);
+  1090→  silentGrace.clear();
+  1091→}
+  1092→
+  1093→/** The shared body of every confirmed departure — clean leave or
+  1094→ *  silent expiry alike. REST is the identity authority: the relay
+  1095→ *  event only SUGGESTS the departure; the registry confirms it
+  1096→ *  before anyone is evicted or any key rotates. */
+  1097→async function confirmDeparture(roomId: string, memberId: string, alias: string, line: string) {
+  1098→  const session = getSession(roomId);
+  1099→  if (!session) return;
+  1100→
+  1101→  await useApp.getState().refreshMembers(roomId).catch(() => undefined);
+  1102→  const stillMember = (useApp.getState().members[roomId] ?? []).some(
+  1103→    (m) => m.memberId === memberId,
+  1104→  );
+  1105→  clearTyping(roomId, memberId);
+  1106→  cancelGraceTimer(roomId, memberId);
+  1107→  if (stillMember) return; // forged or racy — the "leaver" is still registered
+  1108→
+  1109→  // Evict the leaver everywhere.
+  1110→  useApp.setState((s) => ({
+  1111→    members: {
+  1112→      ...s.members,
+  1113→      [roomId]: (s.members[roomId] ?? []).filter((m) => m.memberId !== memberId),
+  1114→    },
+  1115→  }));
+  1116→  const cipher = getCipher(roomId);
+  1117→  if (cipher) cipher.registry.delete(memberId);
+  1118→  addSystemLine(roomId, line);
+  1119→
+  1120→  // Those who stay re-seal the room: if this client is the
+  1121→  // deterministic coordinator, generate a RANDOM new key and deliver
+  1122→  // it pairwise over ECDH. The leaver never receives it — not through
+  1123→  // the password, not through the wire.
+  1124→  if (cipher && cipher.expectedCoordinator() === session.memberId) {
+  1125→    const offerFrames = await cipher.rotateAsCoordinator();
+  1126→    for (const f of offerFrames) {
+  1127→      getRelay().emit("message:send", { roomId, envelope: f });
+  1128→    }
+  1129→    addSystemLine(roomId, "The room re-sealed for those who remain.");
+  1130→  }
+  1131→}
+  1132→
+  1133→async function fireSilentEviction(roomId: string, memberId: string) {
+  1134→  const session = getSession(roomId);
+  1135→  const cipher = getCipher(roomId);
+  1136→  if (!session || !cipher || session.memberId === memberId) return;
+  1137→
+  1138→  const member = (useApp.getState().members[roomId] ?? []).find((m) => m.memberId === memberId);
+  1139→  const registryEntry = cipher.registry.get(memberId);
+  1140→  const okToAct = stillSilentAtExpiry({
+  1141→    selfConnected: getRelay().connected,
+  1142→    memberPresent: !!member && !!registryEntry,
+  1143→    // The member's own connected STATE (false = quietly gone) — not a
+  1144→    // comparison result. The UI list and the cipher registry are kept
+  1145→    // in sync by the same presence handler.
+  1146→    memberConnected: member?.connected ?? registryEntry?.connected ?? true,
+  1147→    isCoordinator: cipher.expectedCoordinator() === session.memberId,
+  1148→  });
+  1149→  if (!okToAct || !member) return;
+  1150→
+  1151→  try {
+  1152→    const res = await fetch(`/api/rooms/${roomId}/evict`, {
+  1153→      method: "POST",
+  1154→      headers: { "content-type": "application/json" },
+  1155→      body: JSON.stringify({ memberId, callerId: session.memberId }),
+  1156→    });
+  1157→    if (!res.ok) return; // the server's facts disagreed — let it be
+  1158→
+  1159→    // Announce to the room. Receivers REST-confirm before acting,
+  1160→    // exactly as with member:left — the relay event carries no
+  1161→    // authority of its own.
+  1162→    getRelay().emit("member:expired", { roomId, memberId, alias: member.alias });
+  1163→    // Our own emit does not echo back — run the confirmation locally.
+  1164→    await confirmDeparture(roomId, memberId, member.alias, `${member.alias} drifted away.`);
+  1165→  } catch {
+  1166→    /* offline — the next unlock restarts the grace clock via room:state */
+  1167→  }
+  1168→}
+  1169→
+  1170→function wireRelay(
+  1171→  set: (
+  1172→    partial:
+  1173→      | Partial<AppState>
+  1174→      | ((state: AppState) => Partial<AppState>),
+  1175→  ) => void,
+  1176→  get: () => AppState,
+  1177→) {
+  1178→  const relay = getRelay();
+  1179→
+  1180→  relay.on("connect", () => {
+  1181→    set({ relayOnline: true });
+  1182→    for (const roomId of sessionRoomIds()) {
+  1183→      const session = getSession(roomId);
+  1184→      const cipher = getCipher(roomId);
+  1185→      if (session && cipher) {
+  1186→        relay.emit("room:join", {
+  1187→          roomId,
+  1188→          memberId: session.memberId,
+  1189→          alias: session.alias,
+  1190→          colorIdx: session.colorIdx,
+  1191→          pubkey: cipher.sigPubJwk,
+  1192→          ecdhPub: cipher.ecdh.pubRawB64,
+  1193→          rejoined: true,
+  1194→        });
+  1195→      }
+  1196→    }
+  1197→  });
+  1198→
+  1199→  relay.on("disconnect", () => {
+  1200→    set({ relayOnline: false });
+  1201→    // We cannot be the connection authority while offline ourselves;
+  1202→    // the room:state after reconnect re-arms whatever still matters.
+  1203→    clearAllGrace();
+  1204→  });
+  1205→
+  1206→  relay.on("room:state", ({ roomId, members }: { roomId: string; members: MemberPublic[] }) => {
+  1207→    // The relay authenticates nothing: room:state only updates
+  1208→    // PRESENCE. Identity (pubkeys, ECDH keys) comes exclusively from
+  1209→    // the REST registry, which is keyed by pubkey and cannot be
+  1210→    // poisoned by a forged join. (Adversarial review 19-10, finding 1.)
+  1211→    //
+  1212→    // The relay sees exactly who is live right now: registry members
+  1213→    // absent from its list are OFFLINE — the honest away-dot after a
+  1214→    // refresh, and the starting point of the silent-departure grace.
+  1215→    const liveIds = new Set(members.map((m) => m.memberId));
+  1216→    set((s) => {
+  1217→      const registry = s.members[roomId] ?? [];
+  1218→      if (!registry.length) return {};
+  1219→      return {
+  1220→        members: {
+  1221→          ...s.members,
+  1222→          [roomId]: registry.map((m) => ({ ...m, connected: liveIds.has(m.memberId) })),
+  1223→        },
+  1224→      };
+  1225→    });
+  1226→
+  1227→    const cipher = getCipher(roomId);
+  1228→    if (cipher) {
+  1229→      for (const live of members) {
+  1230→        const cur = cipher.registry.get(live.memberId);
+  1231→        if (cur) cipher.registry.set(live.memberId, { ...cur, connected: true });
+  1232→      }
+  1233→      // Unknown members wait for the REST refresh that member:joined
+  1234→      // triggers — a forged relay join never enters the registry.
+  1235→      for (const [id, cur] of cipher.registry) {
+  1236→        if (!liveIds.has(id)) {
+  1237→          cipher.registry.set(id, { ...cur, connected: false });
+  1238→          startGraceTimer(roomId, id);
+  1239→        }
+  1240→      }
+  1241→    }
+  1242→  });
+  1243→
+  1244→  relay.on(
+  1245→    "member:joined",
+  1246→    async ({ roomId, member, rejoined }: { roomId: string; member: MemberPublic; rejoined?: boolean }) => {
+  1247→      const session = getSession(roomId);
+  1248→      if (!session) return;
+  1249→
+  1250→      // The relay join broadcast carries NO authentication — key
+  1251→      // material from it is never trusted. The REST registry (keyed by
+  1252→      // pubkey, so a forged memberId cannot overwrite a real member)
+  1253→      // is the only identity authority: refresh from it, then act on
+  1254→      // what it confirms. (Adversarial review 19-10, finding 1.)
+  1255→      await get().refreshMembers(roomId).catch(() => undefined);
+  1256→      const confirmed = (useApp.getState().members[roomId] ?? []).find(
+  1257→        (m) => m.memberId === member.memberId,
+  1258→      );
+  1259→      if (!confirmed) {
+  1260→        return; // forged or unconfirmed join — no registry entry, no key
+  1261→      }
+  1262→
+  1263→      set((s) => ({
+  1264→        members: {
+  1265→          ...s.members,
+  1266→          [roomId]: (s.members[roomId] ?? []).map((m) =>
+  1267→            m.memberId === confirmed.memberId ? { ...m, connected: true } : m,
+  1268→          ),
+  1269→        },
+  1270→      }));
+  1271→
+  1272→      const cipher = getCipher(roomId);
+  1273→      if (cipher && confirmed.ecdhPub) {
+  1274→        const cur = cipher.registry.get(confirmed.memberId);
+  1275→        cipher.registry.set(confirmed.memberId, {
+  1276→          pubkey: confirmed.pubkey,
+  1277→          ecdhPubB64: confirmed.ecdhPub ?? cur?.ecdhPubB64,
+  1278→          connected: true,
+  1279→          joinedAt: confirmed.joinedAt ?? cur?.joinedAt,
+  1280→          alias: confirmed.alias,
+  1281→          colorIdx: confirmed.colorIdx,
+  1282→        });
+  1283→        // If the room has rotated past the password-derived key, hand
+  1284→        // the newcomer the CURRENT key — ECDH-wrapped and sealed under
+  1285→        // the entry key, so only a joiner who proved the password can
+  1286→        // open it. Every member sends; the joiner keeps the highest.
+  1287→        if (cipher.kv > 1 && confirmed.memberId !== session.memberId) {
+  1288→          void cipher.deliverKeyTo(confirmed.memberId).then((frames) => {
+  1289→            for (const f of frames) {
+  1290→              relay.emit("message:send", { roomId, envelope: f });
+  1291→            }
+  1292→          });
+  1293→        }
+  1294→      }
+  1295→      if (confirmed.memberId !== session.memberId) {
+  1296→        addSystemLine(roomId, rejoined ? `${confirmed.alias} returned.` : `${confirmed.alias} joined.`);
+  1297→        touchCard(roomId, get().activeRoomId !== roomId);
+  1298→      }
+  1299→      // A return within the grace window cancels any pending
+  1300→      // silent-eviction clock for them.
+  1301→      cancelGraceTimer(roomId, member.memberId);
+  1302→    },
+  1303→  );
+  1304→
+  1305→  relay.on(
+  1306→    "member:presence",
+  1307→    ({ roomId, memberId, connected }: { roomId: string; memberId: string; connected: boolean }) => {
+  1308→      set((s) => ({
+  1309→        members: {
+  1310→          ...s.members,
+  1311→          [roomId]: (s.members[roomId] ?? []).map((m) =>
+  1312→            m.memberId === memberId ? { ...m, connected } : m,
+  1313→          ),
+  1314→        },
+  1315→      }));
+  1316→      const cipher = getCipher(roomId);
+  1317→      if (cipher) {
+  1318→        const cur = cipher.registry.get(memberId);
+  1319→        if (cur) cipher.registry.set(memberId, { ...cur, connected });
+  1320→      }
+  1321→      // Connected again — the grace clock for this member stops.
+  1322→      // Quietly gone — it starts (never for ourselves: our own
+  1323→      // disconnects are visible to us, not departures).
+  1324→      if (connected) cancelGraceTimer(roomId, memberId);
+  1325→      else startGraceTimer(roomId, memberId);
+  1326→    },
+  1327→  );
+  1328→
+  1329→  relay.on(
+  1330→    "member:left",
+  1331→    async ({ roomId, memberId, alias }: { roomId: string; memberId: string; alias: string }) => {
+  1332→      const session = getSession(roomId);
+  1333→      if (!session) return;
+  1334→      // The relay event is unauthenticated — confirmDeparture()
+  1335→      // re-checks the REST registry before evicting or rotating, so a
+  1336→      // forged member:left cannot force a rotation or evict a live
+  1337→      // member. (Adversarial review 19-10, finding 2.)
+  1338→      await confirmDeparture(roomId, memberId, alias, `${alias} left.`);
+  1339→    },
+  1340→  );
+  1341→
+  1342→  // A silent leaver was written out server-side (the coordinator's
+  1343→  // grace-expired eviction). Same rule as member:left: the relay
+  1344→  // event suggests, the registry confirms.
+  1345→  relay.on(
+  1346→    "member:expired",
+  1347→    async ({ roomId, memberId, alias }: { roomId: string; memberId: string; alias: string }) => {
+  1348→      const session = getSession(roomId);
+  1349→      if (!session) return;
+  1350→      await confirmDeparture(roomId, memberId, alias, `${alias} drifted away.`);
+  1351→    },
+  1352→  );
+  1353→
+  1354→  relay.on("message:ack", ({ id, roomId }: { id: string; roomId?: string }) => {
+  1355→    const target = roomId ?? get().activeRoomId;
+  1356→    if (!target) return;
+  1357→    patchView(target, id, { status: "sent" });
+  1358→  });
+  1359→
+  1360→  // NOTE: the legacy `message:spent` relay event is deliberately NOT
+  1361→  // handled anymore — it carried no authentication, so anyone who knew
+  1362→  // the room id could spoil view-once files for everyone. v2 clients
+  1363→  // spend via cipher-verified encrypted frames. (Review 19-10, finding 3.)
+  1364→
+  1365→  // Legacy early-burn announces from pre-upgrade clients.
+  1366→  relay.on(
+  1367→    "message:burn",
+  1368→    async ({
+  1369→      roomId,
+  1370→      messageId,
+  1371→      senderId,
+  1372→      sig,
+  1373→    }: {
+  1374→      roomId: string;
+  1375→      messageId: string;
+  1376→      senderId?: string;
+  1377→      sig?: string;
+  1378→    }) => {
+  1379→      const session = getSession(roomId);
+  1380→      if (!session || !senderId) return;
+  1381→      const target = (useApp.getState().messages[roomId] ?? []).find(
+  1382→        (m) => m.id === messageId,
+  1383→      );
+  1384→      if (!target || target.kind === "system") return;
+  1385→
+  1386→      const registry = useApp.getState().members[roomId] ?? [];
+  1387→      const author = registry.find((m) => m.memberId === senderId);
+  1388→      const ok =
+  1389→        !!author?.pubkey &&
+  1390→        !!sig &&
+  1391→        target.senderId === senderId &&
+  1392→        (await verifyCanonical(author.pubkey, ["v1", "burn", roomId, senderId, messageId].join("|"), sig));
+  1393→      if (!ok) {
+  1394→        addSystemLine(
+  1395→          roomId,
+  1396→          `A burn request claiming to be from ${author?.alias ?? "an unknown member"} was rejected — signature invalid.`,
+  1397→        );
+  1398→        return;
+  1399→      }
+  1400→      const t = burnTimers.get(messageId);
+  1401→      if (t) {
+  1402→        clearTimeout(t);
+  1403→        burnTimers.delete(messageId);
+  1404→      }
+  1405→      onMessageBurn(roomId, messageId);
+  1406→    },
+  1407→  );
+  1408→
+  1409→  relay.on("room:burned", ({ roomId }: { roomId: string }) => {
+  1410→    const session = getSession(roomId);
+  1411→    if (!session) return;
+  1412→    clearRoomGrace(roomId);
+  1413→    set({ burn: { roomId } });
+  1414→  });
+  1415→
+  1416→  relay.on(
+  1417→    "message:new",
+  1418→    async ({ roomId, envelope }: { roomId: string; envelope: WireFrame | WireEnvelope }) => {
+  1419→      const session = getSession(roomId);
+  1420→      if (!session || !envelope) return;
+  1421→
+  1422→      if ((envelope as WireFrame).v === 2) {
+  1423→        await receiveFrame(roomId, envelope as WireFrame);
+  1424→        return;
+  1425→      }
+  1426→      // v1 envelopes only decode in v1 rooms — a v2 room accepting
+  1427→      // them would let any password-holder bypass replay defense,
+  1428→      // uniform padding and the registry gate. (Review 19-10, finding 4.)
+  1429→      if (!session.legacy) return;
+  1430→      await receiveLegacyEnvelope(roomId, envelope as WireEnvelope);
+  1431→    },
+  1432→  );
+  1433→
+  1434→  // Legacy typing whispers from pre-upgrade clients — display only,
+  1435→  // and only for senders the REST registry actually knows.
+  1436→  relay.on(
+  1437→    "member:typing",
+  1438→    ({ roomId, memberId, alias }: { roomId: string; memberId: string; alias: string }) => {
+  1439→      const session = getSession(roomId);
+  1440→      if (!session || memberId === session.memberId) return;
+  1441→      const known = (useApp.getState().members[roomId] ?? []).some(
+  1442→        (m) => m.memberId === memberId,
+  1443→      );
+  1444→      if (!known) return;
+  1445→      useApp.setState((s) => {
+  1446→        const list = (s.typing[roomId] ?? []).filter((t) => t.memberId !== memberId);
+  1447→        return {
+  1448→          typing: { ...s.typing, [roomId]: [...list, { memberId, alias, at: Date.now() }] },
+  1449→        };
+  1450→      });
+  1451→      pruneTypingLater(roomId);
+  1452→    },
+  1453→  );
+  1454→
+  1455→  // A member who is stuck on an old key version asks for delivery.
+  1456→  // Answer with the current key — wrapped so only password-holders
+  1457→  // can open it. (Relay rate-limits these.)
+  1458→  relay.on("key:request", ({ roomId, from }: { roomId: string; from: string }) => {
+  1459→    const session = getSession(roomId);
+  1460→    const cipher = getCipher(roomId);
+  1461→    if (!session || !cipher || cipher.kv <= 1) return;
+  1462→    if (from === session.memberId) return;
+  1463→    if (!cipher.registry.has(from)) return;
+  1464→    void cipher.deliverKeyTo(from).then((frames) => {
+  1465→      for (const f of frames) {
+  1466→        relay.emit("message:send", { roomId, envelope: f });
+  1467→      }
+  1468→    });
+  1469→  });
+  1470→}
+  1471→
+  1472→/* ------------------------------------------------------------------
+  1473→   v2 receive path — every security decision lives in the cipher
+  1474→   ------------------------------------------------------------------ */
+  1475→
+  1476→async function receiveFrame(roomId: string, frame: WireFrame) {
+  1477→  const session = getSession(roomId);
+  1478→  const cipher = getCipher(roomId);
+  1479→  if (!session || !cipher) return;
+  1480→
+  1481→  const result = await cipher.open(frame);
+  1482→  await handleOpenResult(roomId, frame, result);
+  1483→
+  1484→  // A frame we could not yet decrypt may mean we are a joiner (or a
+  1485→  // reconnecter) waiting for key delivery — ask for it, quietly.
+  1486→  if (result.type === "pending" && cipher.kv === 1) {
+  1487→    const now = Date.now();
+  1488→    const last = keyReqLastEmit.get(roomId) ?? 0;
+  1489→    if (now - last > KEYREQ_THROTTLE_MS) {
+  1490→      keyReqLastEmit.set(roomId, now);
+  1491→      getRelay().emit("key:request", { roomId, from: session.memberId });
+  1492→      setResealing(roomId, true);
+  1493→    }
+  1494→  }
+  1495→}
+  1496→
+  1497→async function handleOpenResult(roomId: string, frame: WireFrame, result: OpenResult) {
+  1498→  const session = getSession(roomId);
+  1499→  const cipher = getCipher(roomId);
+  1500→  if (!session || !cipher) return;
+  1501→  const registry = useApp.getState().members[roomId] ?? [];
+  1502→  const inRoom = useApp.getState().activeRoomId === roomId;
+  1503→
+  1504→  switch (result.type) {
+  1505→    case "text": {
+  1506→      const sender = registry.find((m) => m.memberId === result.body.senderId);
+  1507→      if (!sender) return;
+  1508→      const ttlSec = result.body.ttlSec;
+  1509→      const view: MessageView = {
+  1510→        id: frame.id,
+  1511→        kind: "text",
+  1512→        senderId: sender.memberId,
+  1513→        senderAlias: sender.alias,
+  1514→        senderColor: sender.colorIdx,
+  1515→        self: sender.memberId === session.memberId,
+  1516→        status: "sent",
+  1517→        ts: result.body.ts,
+  1518→        text: result.body.text ?? "",
+  1519→        ttlSec,
+  1520→        expiresAt: ttlSec ? result.body.ts + ttlSec * 1000 : undefined,
+  1521→      };
+  1522→      useApp.setState((s) => ({
+  1523→        messages: {
+  1524→          ...s.messages,
+  1525→          [roomId]: [...(s.messages[roomId] ?? []), view],
+  1526→        },
+  1527→      }));
+  1528→      clearTyping(roomId, sender.memberId);
+  1529→      touchCard(roomId, !inRoom, 1);
+  1530→      if (view.expiresAt) {
+  1531→        scheduleBurn(roomId, view.id, view.expiresAt, onMessageBurn);
+  1532→      }
+  1533→      return;
+  1534→    }
+  1535→
+  1536→    case "typing": {
+  1537→      if (result.senderId === session.memberId) return;
+  1538→      const sender = registry.find((m) => m.memberId === result.senderId);
+  1539→      useApp.setState((s) => {
+  1540→        const list = (s.typing[roomId] ?? []).filter((t) => t.memberId !== result.senderId);
+  1541→        return {
+  1542→          typing: {
+  1543→            ...s.typing,
+  1544→            [roomId]: [
+  1545→              ...list,
+  1546→              { memberId: result.senderId, alias: sender?.alias ?? "Someone", at: Date.now() },
+  1547→            ],
+  1548→          },
+  1549→        };
+  1550→      });
+  1551→      pruneTypingLater(roomId);
+  1552→      return;
+  1553→    }
+  1554→
+  1555→    case "spent": {
+  1556→      patchView(roomId, result.messageId, { spent: true });
+  1557→      return;
+  1558→    }
+  1559→
+  1560→    case "react": {
+  1561→      // A margin mark on a message. If the target is gone (expired, or
+  1562→      // sent before this member joined), the mark simply has nothing
+  1563→      // to annotate — quietly ignored.
+  1564→      clearTyping(roomId, result.senderId);
+  1565→      useApp.setState((s) => ({
+  1566→        messages: {
+  1567→          ...s.messages,
+  1568→          [roomId]: applyMarkToggle(
+  1569→            s.messages[roomId] ?? [],
+  1570→            result.messageId,
+  1571→            result.senderId,
+  1572→            result.mark as ReactionMark,
+  1573→          ),
+  1574→        },
+  1575→      }));
+  1576→      return;
+  1577→    }
+  1578→
+  1579→    case "burn": {
+  1580→      const target = (useApp.getState().messages[roomId] ?? []).find(
+  1581→        (m) => m.id === result.messageId,
+  1582→      );
+  1583→      // The cipher already verified the author's signature; make sure
+  1584→      // the target is actually the author's own letter.
+  1585→      if (!target || target.kind === "system" || target.senderId !== result.senderId) return;
+  1586→      const t = burnTimers.get(result.messageId);
+  1587→      if (t) {
+  1588→        clearTimeout(t);
+  1589→        burnTimers.delete(result.messageId);
+  1590→      }
+  1591→      onMessageBurn(roomId, result.messageId);
+  1592→      return;
+  1593→    }
+  1594→
+  1595→    case "file": {
+  1596→      const sender = registry.find((m) => m.memberId === result.senderId);
+  1597→      if (!sender) return;
+  1598→      const view: MessageView = {
+  1599→        id: result.file.messageId,
+  1600→        kind: "file",
+  1601→        senderId: sender.memberId,
+  1602→        senderAlias: sender.alias,
+  1603→        senderColor: sender.colorIdx,
+  1604→        self: sender.memberId === session.memberId,
+  1605→        status: "sent",
+  1606→        ts: result.ts,
+  1607→        text: result.text,
+  1608→        file: {
+  1609→          name: result.file.name,
+  1610→          mime: result.file.mime,
+  1611→          size: result.file.size,
+  1612→          dataB64: result.file.dataB64,
+  1613→        },
+  1614→        ttlSec: result.file.ttlSec,
+  1615→        expiresAt: result.file.ttlSec ? result.ts + result.file.ttlSec * 1000 : undefined,
+  1616→        viewOnce: result.file.viewOnce,
+  1617→      };
+  1618→      useApp.setState((s) => ({
+  1619→        messages: {
+  1620→          ...s.messages,
+  1621→          [roomId]: [...(s.messages[roomId] ?? []), view],
+  1622→        },
+  1623→      }));
+  1624→      clearTyping(roomId, sender.memberId);
+  1625→      touchCard(roomId, !inRoom, 1);
+  1626→      if (view.expiresAt) {
+  1627→        scheduleBurn(roomId, view.id, view.expiresAt, onMessageBurn);
+  1628→      }
+  1629→      return;
+  1630→    }
+  1631→
+  1632→    case "file-meta":
+  1633→    case "file-chunk":
+  1634→      return; // assembly happens inside the cipher; render on completion
+  1635→
+  1636→    case "offer-installed": {
+  1637→      session.kv = cipher.kv;
+  1638→      setResealing(roomId, false);
+  1639→      if (result.rotation) {
+  1640→        addSystemLine(roomId, "The room re-sealed for those who remain.");
+  1641→      }
+  1642→      // Frames that were parked waiting for this key.
+  1643→      const drained = await cipher.drainPending();
+  1644→      for (const { frame: parked, result: r } of drained) {
+  1645→        await handleOpenResult(roomId, parked, r).catch(() => undefined);
+  1646→      }
+  1647→      return;
+  1648→    }
+  1649→
+  1650→    case "pending":
+  1651→      return;
+  1652→
+  1653→    case "reject": {
+  1654→      if (result.reason === "signature") {
+  1655→        const sender = registry.find((m) => m.memberId === frame.from);
+  1656→        addSystemLine(
+  1657→          roomId,
+  1658→          `A message claiming to be from ${sender?.alias ?? "an unknown member"} was rejected — signature invalid.`,
+  1659→        );
+  1660→        touchCard(roomId, !inRoom);
+  1661→      }
+  1662→      // Other rejections (replay, registry, kv, shape) are silent —
+  1663→      // they are the protocol defending itself, not user-actionable.
+  1664→      return;
+  1665→    }
+  1666→  }
+  1667→}
+  1668→
+  1669→/* ------------ legacy envelope id dedup (v1 rooms only) ------------ */
+  1670→const legacySeen = new Set<string>();
+  1671→const legacySeenOrder: string[] = [];
+  1672→
+  1673→function legacySeenOnce(id: string): boolean {
+  1674→  if (legacySeen.has(id)) return false;
+  1675→  legacySeen.add(id);
+  1676→  legacySeenOrder.push(id);
+  1677→  if (legacySeenOrder.length > 1024) {
+  1678→    const drop = legacySeenOrder.splice(0, legacySeenOrder.length - 1024);
+  1679→    for (const d of drop) legacySeen.delete(d);
+  1680→  }
+  1681→  return true;
+  1682→}
+  1683→
+  1684→/* ------------------------------------------------------------------
+  1685→   Legacy receive path — rooms created before protocol v2
+  1686→   ------------------------------------------------------------------ */
+  1687→
+  1688→async function receiveLegacyEnvelope(roomId: string, envelope: WireEnvelope) {
+  1689→  const session = getSession(roomId);
+  1690→  if (!session || !session.legacy || !envelope) return;
+  1691→  if (envelope.id && !legacySeenOnce(envelope.id)) return; // duplicate
+  1692→
+  1693→  let payload: Payload | null = null;
+  1694→  try {
+  1695→    const { getEpochKeyLegacy } = await import("@/lib/legacy");
+  1696→    const key = await getEpochKeyLegacy(roomId, envelope.epoch, session.password);
+  1697→    payload = await decryptJson<Payload>(key, envelope.iv, envelope.ct);
+  1698→  } catch {
+  1699→    payload = null;
+  1700→  }
+  1701→
+  1702→  const registry = useApp.getState().members[roomId] ?? [];
+  1703→  const sender = registry.find((m) => m.memberId === envelope.senderId);
+  1704→
+  1705→  if (!payload || !sender) {
+  1706→    addSystemLine(
+  1707→      roomId,
+  1708→      `A message claiming to be from ${sender?.alias ?? "an unknown member"} was rejected — signature invalid.`,
+  1709→    );
+  1710→    touchCard(roomId, useApp.getState().activeRoomId !== roomId);
+  1711→    return;
+  1712→  }
+  1713→
+  1714→  const canonical = canonicalFor({
+  1715→    roomId,
+  1716→    epoch: envelope.epoch,
+  1717→    senderId: envelope.senderId,
+  1718→    ts: payload.ts,
+  1719→    kind: envelope.kind,
+  1720→    text: payload.text,
+  1721→    fileSha: payload.file?.sha,
+  1722→  });
+  1723→  const ok = await verifyCanonical(sender.pubkey, canonical, payload.sig);
+  1724→  if (!ok) {
+  1725→    addSystemLine(
+  1726→      roomId,
+  1727→      `A message claiming to be from ${sender.alias} was rejected — signature invalid.`,
+  1728→    );
+  1729→    touchCard(roomId, useApp.getState().activeRoomId !== roomId);
+  1730→    return;
+  1731→  }
+  1732→
+  1733→  const view: MessageView = {
+  1734→    id: envelope.id,
+  1735→    kind: envelope.kind,
+  1736→    senderId: sender.memberId,
+  1737→    senderAlias: sender.alias,
+  1738→    senderColor: sender.colorIdx,
+  1739→    self: sender.memberId === session.memberId,
+  1740→    status: "sent",
+  1741→    ts: payload.ts,
+  1742→    text: payload.text,
+  1743→    file: payload.file
+  1744→      ? {
+  1745→          name: payload.file.name,
+  1746→          mime: payload.file.mime,
+  1747→          size: payload.file.size,
+  1748→          dataB64: payload.file.dataB64,
+  1749→        }
+  1750→      : undefined,
+  1751→    ttlSec: envelope.ttlSec,
+  1752→    expiresAt: envelope.ttlSec ? payload.ts + envelope.ttlSec * 1000 : undefined,
+  1753→    viewOnce: envelope.viewOnce,
+  1754→  };
+  1755→  useApp.setState((s) => ({
+  1756→    messages: {
+  1757→      ...s.messages,
+  1758→      [roomId]: [...(s.messages[roomId] ?? []), view],
+  1759→    },
+  1760→  }));
+  1761→  clearTyping(roomId, sender.memberId);
+  1762→  touchCard(roomId, useApp.getState().activeRoomId !== roomId, 1);
+  1763→  if (view.expiresAt) {
+  1764→    scheduleBurn(roomId, view.id, view.expiresAt, onMessageBurn);
+  1765→  }
+  1766→}
+  1767→

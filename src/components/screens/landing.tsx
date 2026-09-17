@@ -19,6 +19,7 @@ import { PrimaryAction, SecondaryAction, QuietAction } from "@/components/cc/act
 import { InkMark } from "@/components/cc/mark";
 import { SheetGrabber } from "@/components/cc/sheet-grabber";
 import { ThemeToggle } from "@/components/cc/theme-toggle";
+import { AppSettingsButton } from "@/components/cc/app-settings-sheet";
 import { LegalLinks } from "@/components/cc/legal-sheet";
 import { RoomTtlPicker } from "@/components/cc/room-ttl-picker";
 import { generatePassphrase } from "@/lib/identity";
@@ -36,7 +37,10 @@ export function LandingScreen() {
         <span className="font-serif text-[18px] font-semibold tracking-[-0.01em]">
           CipherChat
         </span>
-        <ThemeToggle />
+        <div className="flex items-center gap-1.5">
+          <AppSettingsButton />
+          <ThemeToggle />
+        </div>
       </header>
 
       <main className="mx-auto flex w-full max-w-[440px] flex-1 flex-col items-center justify-center px-6 py-16 [@media(max-height:720px)]:py-9">

@@ -13,7 +13,7 @@
  * outranks freshness) and old caches are swept on activate.
  */
 
-const VERSION = "cipherchat-v3";
+const VERSION = "cipherchat-v4";
 const SHELL_CACHE = `${VERSION}-shell`;
 const ASSET_CACHE = `${VERSION}-assets`;
 
@@ -65,6 +65,36 @@ self.addEventListener("message", (event) => {
   if (event.data?.type === "SKIP_WAITING") {
     self.skipWaiting();
   }
+});
+
+/* A tapped notification returns to its room. Focus an open window
+ * and tell it to navigate (the hash router takes it from there — a
+ * locked room shows its unlock sheet, a first-class state); with no
+ * window open, launch straight into the room. */
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const roomId = event.notification.data?.roomId;
+  event.waitUntil(
+    (async () => {
+      const clientList = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      for (const client of clientList) {
+        if (
+          "focus" in client &&
+          new URL(client.url).origin === self.location.origin
+        ) {
+          await client.focus();
+          if (roomId) {
+            client.postMessage({ type: "cipherchat:navigate", roomId });
+          }
+          return;
+        }
+      }
+      return self.clients.openWindow(roomId ? `/#/r/${roomId}` : "/");
+    })(),
+  );
 });
 
 self.addEventListener("fetch", (event) => {

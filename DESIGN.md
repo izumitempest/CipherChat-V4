@@ -122,6 +122,10 @@ Standard easing: `cubic-bezier(0.2, 0, 0, 1)`. Durations: 150 state / 250 entran
 | Room burn: overlay out | 400ms | standard | 150ms fade |
 | "Reconnecting…" dot pulse | 1.6s × 3, then rests | ease-in-out | static |
 | Landing mark breath + evaporation | 6s + 2.7s infinite | ease-in-out | disabled |
+| **In-app notice in (`notice-open`)** | 360ms | grid-rows 0fr→1fr, the app steps down | 150ms (global rule) |
+| **In-app notice out (`notice-close`)** | 300ms | row collapses, card lifts | 150ms (global rule) |
+| **Notice card settle (`notice-card-in`)** | 360ms | −12px + scale 0.985 → seat | 150ms (global rule) |
+| Toast seat | Sonner default 400ms | seats at `--toast-top` (header + notices + safe area) | n/a |
 
 ---
 
@@ -133,6 +137,10 @@ Standard easing: `cubic-bezier(0.2, 0, 0, 1)`. Durations: 150 state / 250 entran
 - **Identity inks are muted stationery tones** — distinguishable at a glance, yet none reads as an accent color; forest and terracotta keep their exclusive meanings.
 - **The signature lives inside the ciphertext**, so a malicious relay cannot strip or swap it invisibly; registry pubkeys make forged senders detectable ("A message claiming to be from … was rejected").
 - **Errors are neutral charcoal** — terracotta means impermanence, not failure; wrong-password is a fact, not a danger.
+- **A banner never covers anything.** In-app notices open a grid track (0fr→1fr) at the top of the shell: the whole app steps down to make room. Overlays are for sheets and burns — never for a letter's arrival.
+- **The top of the screen belongs to one thing at a time.** Toasts seat at `--toast-top` = safe area + header + measured notice-stack height, published live by a ResizeObserver — so a toast can never land on the header or on a banner.
+- **Notification previews are a preference, and the default is "sender only."** The OS notification shade is exactly where ephemerality is easiest to forget; the brand keeps its mouth shut until asked. Files are never quoted — the act, not the contents.
+- **Native notifications ride the service worker** (`registration.showNotification`), the only path that works on Android Chrome and installed iOS PWAs; the page-level `Notification` constructor is a desktop-dev fallback. Taps focus the app and navigate; a cold start opens `/#/r/:id`, where a locked room shows its unlock sheet — a first-class state.
 - **The composer's send slot becomes "Reconnecting… / Re-sealing…"** — the one input that can never silently accept text into a void.
 - **Ash cards persist for exactly one session** — the destruction deserves a witness; the next page load sweeps the desk.
 - **Creator's empty room shows the invite verb** ("Copy invite link"), the joiner's shows the product statement ("You won't see messages from before you joined. That's how this works.") — two honest empties, not one apology.

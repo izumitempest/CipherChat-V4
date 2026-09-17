@@ -100,6 +100,16 @@
      desktop, on Android (native resizes-content) and whenever no
      field is focused. Consumed by the app shell and bottom sheets. */
   --kb-inset: 0px;
+
+  /* The in-app notice stack's measured height (published live by
+     NoticeStack's ResizeObserver). */
+  --cc-notice-h: 0px;
+
+  /* Where toasts seat: below the chat header (56px + one gap) and
+     below any notice currently on stage — the top of the screen
+     belongs to one thing at a time. The safe-area inset covers
+     notched phones in standalone. */
+  --toast-top: calc(env(safe-area-inset-top, 0px) + 64px + var(--cc-notice-h, 0px));
 }
 
 .dark {
@@ -902,6 +912,67 @@
 }
 .strip-out {
   animation: strip-out 280ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+/* ---------- In-app notices (the banner stack) ----------
+   A notice takes its seat the way a bottom sheet does, turned
+   upside down: the row is a grid track opening from 0fr to 1fr, so
+   everything below steps DOWN to make room — a banner never covers
+   the header, the messages, anything. The card itself settles from
+   slightly above, like a note set down on the desk. */
+@keyframes notice-open {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  to {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+@keyframes notice-close {
+  from {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+  to {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+.notice-row {
+  display: grid;
+  grid-template-rows: 0fr;
+  animation: notice-open 360ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+.notice-row[data-leaving="true"] {
+  animation: notice-close 300ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+.notice-row-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+@keyframes notice-card-in {
+  from {
+    transform: translateY(-12px) scale(0.985);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes notice-card-out {
+  from {
+    transform: none;
+  }
+  to {
+    transform: translateY(-10px) scale(0.985);
+  }
+}
+.notice-card {
+  animation: notice-card-in 360ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+.notice-row[data-leaving="true"] .notice-card {
+  animation: notice-card-out 300ms cubic-bezier(0.4, 0, 1, 1) both;
 }
 
 /* The line-down dot keeps trying: three quiet pulses, a rest, again. */

@@ -20,6 +20,7 @@ import { Field, PasswordField } from "@/components/cc/fields";
 import { PrimaryAction, SecondaryAction } from "@/components/cc/actions";
 import { InkMark } from "@/components/cc/mark";
 import { ThemeToggle } from "@/components/cc/theme-toggle";
+import { AppSettingsButton } from "@/components/cc/app-settings-sheet";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
 import { SheetGrabber } from "@/components/cc/sheet-grabber";
 import { fmtAgo, fmtTtlRemaining } from "@/lib/format";
@@ -44,6 +45,7 @@ export function RoomListColumn() {
           >
             <Plus className="size-[18px]" />
           </button>
+          <AppSettingsButton />
           <ThemeToggle />
         </div>
       </header>

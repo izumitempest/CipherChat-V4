@@ -6,7 +6,10 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "launch_handler": { "client_mode": "focus-existing" },
   "orientation": "portrait-primary",
+  "categories": ["social", "communication"],
   "background_color": "#F4F1EB",
   "theme_color": "#F4F1EB",
   "icons": [
@@ -27,6 +30,22 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "New room",
+      "short_name": "New room",
+      "description": "Seal a fresh room",
+      "url": "/#/new",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Your rooms",
+      "short_name": "Rooms",
+      "description": "Open the desk",
+      "url": "/#/rooms",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

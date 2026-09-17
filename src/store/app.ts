@@ -31,6 +31,7 @@ import {
   fromB64,
 } from "@/lib/crypto";
 import { aliasFromFingerprint, inkFromFingerprint } from "@/lib/identity";
+import { notifyIncoming } from "@/lib/notifications";
 import { createKeyBundleV2, unlockWithBundle } from "@/lib/kdf";
 import { loadDeviceSeed, deriveRoomSigningKey } from "@/lib/room-identity";
 import {
@@ -1031,6 +1032,13 @@ function touchCard(roomId: string, unread: boolean, letters = 0) {
   useApp.setState({ roomCards: loadRoomCards() });
 }
 
+/* The room's local name, for notices that name the room. */
+function roomNameOf(roomId: string): string {
+  return (
+    useApp.getState().roomCards.find((c) => c.roomId === roomId)?.localName ?? "Room"
+  );
+}
+
 function setResealing(roomId: string, value: boolean) {
   useApp.setState((s) => {
     const next = { ...s.resealing };
@@ -1527,6 +1535,18 @@ async function handleOpenResult(roomId: string, frame: WireFrame, result: OpenRe
       }));
       clearTyping(roomId, sender.memberId);
       touchCard(roomId, !inRoom, 1);
+      // A letter for a room the user isn't looking at rises as a
+      // notice — banner while the app is open, system notification
+      // while it's hidden. What it says follows the preview setting.
+      if (!view.self && !inRoom) {
+        notifyIncoming({
+          roomId,
+          roomName: roomNameOf(roomId),
+          alias: sender.alias,
+          colorIdx: sender.colorIdx,
+          text: view.text,
+        });
+      }
       if (view.expiresAt) {
         scheduleBurn(roomId, view.id, view.expiresAt, onMessageBurn);
       }
@@ -1623,6 +1643,16 @@ async function handleOpenResult(roomId: string, frame: WireFrame, result: OpenRe
       }));
       clearTyping(roomId, sender.memberId);
       touchCard(roomId, !inRoom, 1);
+      if (!view.self && !inRoom) {
+        notifyIncoming({
+          roomId,
+          roomName: roomNameOf(roomId),
+          alias: sender.alias,
+          colorIdx: sender.colorIdx,
+          text: result.text,
+          isFile: true,
+        });
+      }
       if (view.expiresAt) {
         scheduleBurn(roomId, view.id, view.expiresAt, onMessageBurn);
       }

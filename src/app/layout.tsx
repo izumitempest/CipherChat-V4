@@ -97,7 +97,14 @@ export default function RootLayout({
           {children}
           {/* Paper grain — the whole world is paper, even at night */}
           <div className="grain" aria-hidden="true" />
-          <Toaster position="top-center" />
+          {/* Toasts seat below the header and any on-stage notice
+              (--toast-top, globals.css) — the top of the screen is
+              never spoken for twice. */}
+          <Toaster
+            position="top-center"
+            offset="var(--toast-top)"
+            mobileOffset="var(--toast-top)"
+          />
           <SwRegister />
         </ThemeProvider>
       </body>

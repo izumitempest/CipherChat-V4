@@ -10,11 +10,13 @@ import { InkMark } from "@/components/cc/mark";
 import { SealingOverlay } from "@/components/cc/sealing";
 import { BurnOverlay } from "@/components/cc/burn-overlay";
 import { LegalSheetHost } from "@/components/cc/legal-sheet";
+import { NoticeStack } from "@/components/cc/notice-stack";
 import { LandingScreen } from "@/components/screens/landing";
 import { InviteScreen } from "@/components/screens/invite";
 import { RoomListColumn } from "@/components/screens/room-list";
 import { ChatScreen } from "@/components/screens/chat";
 import { parseRoomCode } from "@/lib/identity";
+import { syncBadge } from "@/lib/notifications";
 import { useApp } from "@/store/app";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { cn } from "@/lib/utils";
@@ -58,12 +60,49 @@ export default function CipherChatApp() {
 
   return (
     <>
-      <Screens />
+      <Shell />
       <SealingOverlay />
       <BurnOverlay />
       <LegalSheetHost />
     </>
   );
+}
+
+/* The desk and the room need an exact viewport fit (their own inner
+ * scroll); landing and invite are pages that grow. The wrapper picks
+ * its height accordingly — and the notice stack rides above both,
+ * in flow, so a banner never covers anything: the app steps down. */
+function Shell() {
+  const screen = useApp((s) => s.screen);
+  const scrolls = screen === "landing" || screen === "invite";
+  return (
+    <div
+      className={cn(
+        "flex flex-col bg-paper",
+        scrolls ? "min-h-dvh" : "h-dvh overflow-hidden",
+      )}
+    >
+      <NoticeStack />
+      <div className="flex min-h-0 flex-1 flex-col">
+        <Screens />
+      </div>
+      <BadgeSync />
+    </div>
+  );
+}
+
+/* The launcher badge — the sum of unread letters, kept in step with
+ * the desk. Cleared the moment the rooms are read (or swept). */
+function BadgeSync() {
+  const roomCards = useApp((s) => s.roomCards);
+  useEffect(() => {
+    const total = roomCards.reduce(
+      (sum, c) => sum + (c.unread ? Math.min(c.unreadCount ?? 1, 99) : 0),
+      0,
+    );
+    syncBadge(total);
+  }, [roomCards]);
+  return null;
 }
 
 function Screens() {
@@ -83,7 +122,7 @@ function Screens() {
   // the scroll area shrinks to the visible viewport.
   const inRoom = screen === "chat" && activeRoomId;
   return (
-    <div className="screen-in flex h-dvh overflow-hidden bg-paper pb-[var(--kb-inset,0px)] transition-[padding-bottom] duration-[250ms]">
+    <div className="screen-in flex h-full overflow-hidden bg-paper pb-[var(--kb-inset,0px)] transition-[padding-bottom] duration-[250ms]">
       <div
         className={cn(
           "h-full w-full shrink-0 md:w-[320px] md:border-r md:border-hairline",
