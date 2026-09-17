@@ -1,14 +1,29 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { IpRateLimiter, ROOM_INFO_PER_MIN } from "@/lib/rate-limit";
 
 // PUT /api/rooms/:roomId/verifier — the creator stores an encrypted
 // known-plaintext blob. Joiners derive their key and try to decrypt it:
 // success = right password, failure = wrong password. The server still
 // learns nothing. Can only be set once.
+//
+// Rate-limited per IP like room info: PUTs against this route are an
+// oracle for room existence (and a write path), so excess is refused.
+const verifierLimiter = new IpRateLimiter({ limit: ROOM_INFO_PER_MIN, windowMs: 60_000 });
+
+function clientIp(request: Request): string {
+  const fwd = request.headers.get("x-forwarded-for");
+  if (fwd) return fwd.split(",")[0].trim();
+  return request.headers.get("x-real-ip") ?? "local";
+}
+
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ roomId: string }> },
 ) {
+  if (!verifierLimiter.allow(clientIp(request))) {
+    return NextResponse.json({ error: "slow-down" }, { status: 429 });
+  }
   const { roomId } = await params;
   const body = (await request.json().catch(() => null)) as {
     verifier?: string;

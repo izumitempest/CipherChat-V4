@@ -86,6 +86,57 @@ async function hkdf(
   return new Uint8Array(bits);
 }
 
+/** Big-endian unsigned integer decode (for 32-byte candidate
+ *  scalars). BigInt() calls instead of literals — the repo targets
+ *  ES2017. */
+function bytesToBigIntBE(bytes: Uint8Array): bigint {
+  let n = BigInt(0);
+  for (let i = 0; i < bytes.length; i++) n = (n << BigInt(8)) | BigInt(bytes[i]);
+  return n;
+}
+
+/** Build a room signing identity from a candidate scalar, or null when
+ *  the scalar is outside the valid P-256 private range. The range check
+ *  is EXPLICIT — a P-256 private scalar must be an integer in [1, n-1]
+ *  — rather than an incidental side effect of @noble/curves throwing.
+ *  Deterministic: the same scalar always yields the same identity.
+ *  (Async only because the WebCrypto importKey proof is.) */
+export async function scalarToRoomIdentity(
+  scalar: Uint8Array,
+): Promise<RoomSigningIdentity | null> {
+  // all-zero (or empty) scalar — not a valid private key
+  if (scalar.every((b) => b === 0)) return null;
+  // d must be < n (the P-256 subgroup order) — checked, not thrown
+  if (bytesToBigIntBE(scalar) >= p256.Point.CURVE().n) return null;
+  try {
+    // noble recovers the public point from the (now provably in-range)
+    // scalar.
+    const pubBytes = p256.getPublicKey(scalar, false); // 65 bytes, uncompressed
+    const x = b64url(pubBytes.subarray(1, 33));
+    const y = b64url(pubBytes.subarray(33, 65));
+    const d = b64url(scalar);
+    const privJwk: JsonWebKey = { kty: "EC", crv: "P-256", d, x, y };
+    const pubJwk: JsonWebKey = { kty: "EC", crv: "P-256", x, y };
+    // Prove WebCrypto accepts the derived pair before returning it.
+    await crypto.subtle.importKey(
+      "jwk",
+      privJwk,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["sign"],
+    );
+    const fingerprintHex = await sha256Hex(`${x}|${y}`);
+    return {
+      privJwk,
+      pubJwk,
+      fingerprintHex,
+      fingerprint: fingerprintHex.slice(0, 8).toUpperCase(),
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Derive this room's signing keypair from the device seed. Deterministic:
  *  the same (seed, roomId) always yields the same key. */
 export async function deriveRoomSigningKey(
@@ -95,34 +146,8 @@ export async function deriveRoomSigningKey(
   for (let attempt = 0; attempt < 8; attempt++) {
     const info = attempt === 0 ? "cc-sig-v1" : `cc-sig-v1:${attempt}`;
     const scalar = await hkdf(seed, encoder.encode(roomId), encoder.encode(info));
-    if (scalar.every((b) => b === 0)) continue;
-    try {
-      // noble validates the scalar is a valid P-256 private key
-      // (throws on d = 0 or d >= n) and recovers the public point.
-      const pubBytes = p256.getPublicKey(scalar, false); // 65 bytes, uncompressed
-      const x = b64url(pubBytes.subarray(1, 33));
-      const y = b64url(pubBytes.subarray(33, 65));
-      const d = b64url(scalar);
-      const privJwk: JsonWebKey = { kty: "EC", crv: "P-256", d, x, y };
-      const pubJwk: JsonWebKey = { kty: "EC", crv: "P-256", x, y };
-      // Prove WebCrypto accepts the derived pair before returning it.
-      await crypto.subtle.importKey(
-        "jwk",
-        privJwk,
-        { name: "ECDSA", namedCurve: "P-256" },
-        false,
-        ["sign"],
-      );
-      const fingerprintHex = await sha256Hex(`${x}|${y}`);
-      return {
-        privJwk,
-        pubJwk,
-        fingerprintHex,
-        fingerprint: fingerprintHex.slice(0, 8).toUpperCase(),
-      };
-    } catch {
-      continue; // invalid scalar (probability ~2^-96) — derive again
-    }
+    const identity = await scalarToRoomIdentity(scalar);
+    if (identity) return identity; // invalid scalar → derive again
   }
   throw new Error("could not derive a valid room signing key");
 }

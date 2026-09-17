@@ -3,12 +3,17 @@
  * The product's promise: nothing of the conversation persists here.
  * Message content lives only in browser memory (never in responses
  * we could cache), so this worker deliberately caches no API
- * responses, no navigations' bodies beyond the shell, and nothing
- * under socket.io. It exists so the app installs and launches
- * instantly — not so it remembers.
+ * responses and nothing under the relay path. It exists so the app
+ * installs and launches instantly — not so it remembers.
+ *
+ * Update flow (Task 22): bump VERSION on every release. The browser
+ * byte-compares /sw.js on navigation, installs the new worker, which
+ * skips waiting and claims clients immediately; the page then shows
+ * an update prompt (never an automatic reload — a half-written draft
+ * outranks freshness) and old caches are swept on activate.
  */
 
-const VERSION = "cipherchat-v1";
+const VERSION = "cipherchat-v3";
 const SHELL_CACHE = `${VERSION}-shell`;
 const ASSET_CACHE = `${VERSION}-assets`;
 
@@ -16,7 +21,9 @@ const ASSET_CACHE = `${VERSION}-assets`;
 const ASSET_PATTERNS = [
   /\/_next\/static\//,
   /\/icons\//,
+  /\/legal\//,
   /\/icon\.svg$/,
+  /\/logo\.svg$/,
   /\/manifest\.webmanifest$/,
   /\/fonts\//,
 ];
@@ -41,8 +48,23 @@ self.addEventListener("activate", (event) => {
             .map((k) => caches.delete(k)),
         ),
       )
-      .then(() => self.clients.claim()),
+      .then(() => self.clients.claim())
+      // Tell every open page a new seal took over. The page decides
+      // how to surface it (SwRegister shows the reload prompt).
+      .then(() =>
+        self.clients.matchAll({ includeUncontrolled: true }).then((clients) => {
+          for (const client of clients) {
+            client.postMessage({ type: "cipherchat:updated", version: VERSION });
+          }
+        }),
+      ),
   );
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener("fetch", (event) => {

@@ -445,12 +445,31 @@ Paper surfaces, hairline borders, forest focus (border 45% + 15% ring).
 - `MonoValue` — selectable mono block with an inline copy affordance and
   "Copied" confirmation state.
 
-### `mark.tsx` — `SealMark`
+### `mark.tsx` — `SealMark` (the Split Seal)
 
-The wax-seal identity: three concentric circles (forest stroke 5, ghost stroke
-1.5 at 45%, forest core 12) drawn in `var(--forest)` so it re-inks per theme.
-`breathe` applies `mark-breathe` — the landing page's single intentional idle
-animation. Pure SVG, `aria-hidden`; it never carries meaning alone.
+The brand mark: a wax seal struck once, then cracked along a single −62°
+diagonal. Hand-tuned beziers on a 96×96 grid — joint radii wobble
+(33.3/35.1 against a nominal 34) so the rim reads letterpressed, not
+compass-drawn. The split inner disc and the ember diamond in the fracture
+carry the product metaphors: the seal is the encryption, the fracture is
+the ephemerality, the ember is the heat still inside. Three variants:
+
+- `intact` (default) — seated, whole silhouette; halves keep the few
+  degrees of rotation the wax took when it broke. Brand, landing hero
+  (stamps in via `seal-stamp`, then breathes), desk centrepieces.
+- `cracked` — the halves jarred apart with ember flecks; animates once
+  on mount. Burn/destruction contexts only (terracotta is legitimate
+  there — see the burn overlay).
+- `ring` — one broken rim fragment in `currentColor`, so member inks
+  (`--ink-0..7`) and watermark tones drive it from outside. This is the
+  identity system: every member is a shard of the same broken ring
+  (bubble sender lines), empty-state watermarks, and the argon2id
+  sealing screen's wax-drip dots.
+
+Props stay backwards-compatible (`size`, `breathe`, `className`) plus
+`variant` and `ink`. Pure SVG, `aria-hidden`; it never carries meaning
+alone. Assets regenerate from the same geometry via
+`scripts/gen-icons.ts` (sharp): PWA icons, apple-touch, OG image.
 
 ### `sheet-grabber.tsx`
 
@@ -464,10 +483,32 @@ Daylight/Nightfall switch. CSS decides which icon shows
 
 ### `sw-register.tsx`
 
-Registers `/sw.js` after a 1.2s idle delay; failures are silent by design.
-The worker itself (public/sw.js) is network-first for navigations,
-stale-while-revalidate for static assets, versioned caches, and **never**
-caches `/api/` or socket traffic — installability without retention.
+Registers `/sw.js` after a 1.2s idle delay with `updateViaCache: "none"`;
+failures are silent by design. The worker itself (public/sw.js) is
+network-first for navigations, stale-while-revalidate for static assets
+(now including `/legal/`), versioned caches, and **never** caches `/api/`
+or socket traffic — installability without retention.
+
+Update flow (Task 22): when a freshly deployed worker takes over
+(`controllerchange` after a first controller existed, or the worker's
+`cipherchat:updated` activate message), the page shows ONE persistent
+sonner toast — "A fresh seal is ready" — with a Reload action and no
+auto-reload: a half-written draft outranks freshness. Dev is exempt
+(a caching worker and HMR serve each other stale chunks).
+
+### `legal-sheet.tsx`
+
+The in-app reading surface for the legal documents. A tiny local zustand
+store (`useLegalSheet`) drives it; `LegalLinks` renders the footer pair
+("Terms of Use" / "Privacy Policy") and Settings → About opens the same
+store. `LegalSheetHost` (mounted once in `app.tsx` beside the overlays)
+fetches `/legal/{terms,privacy}.md` on first open (module-level cache),
+renders via react-markdown with hand-styled elements — serif forest
+headings, `max-w-prose` body, hairline rules, mono code — in the Sheet
+primitive (bottom sheet `h-[92dvh]` on mobile, right sheet on desktop;
+centered modals remain reserved for the burn moment). Loading is a mono
+status line, errors get a retry. Single source of truth lives in
+`public/legal/*.md`; the repo root has no duplicate.
 
 ---
 

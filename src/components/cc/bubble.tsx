@@ -18,6 +18,7 @@ import {
   PenLine,
 } from "lucide-react";
 import { toast } from "sonner";
+import { SealMark } from "@/components/cc/mark";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -284,16 +285,18 @@ export function MessageBubble({
       )}
     >
       <div className={cn("flex max-w-[75%] flex-col", self ? "items-end" : "items-start")}>
-        {/* sender identity — first of a group only */}
+        {/* sender identity — first of a group only. The mark is a
+            fragment of the seal in the sender's own ink: everyone's
+            identity is a shard of the same broken ring. */}
         {!self && position.first && message.senderAlias != null ? (
           <p
             className="mb-1.5 flex items-center gap-1.5 font-serif text-[13px] font-medium leading-[18px]"
             style={{ color: `var(--ink-${message.senderColor ?? 0})` }}
           >
-            <span
-              className="size-2 translate-y-px rounded-full"
-              style={{ background: `var(--ink-${message.senderColor ?? 0})` }}
-              aria-hidden
+            <SealMark
+              variant="ring"
+              size={13}
+              className="shrink-0 translate-y-px"
             />
             {message.senderAlias}
           </p>

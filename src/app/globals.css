@@ -269,6 +269,130 @@
   animation: seal-press 1740ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
+/* The seal lands on the page the way wax meets paper: pressed down
+   with a hair of over-rotation, one overshoot, then it rests. A
+   one-shot entrance — afterwards the 6s breath is the only motion. */
+@keyframes stamp-in {
+  0% {
+    opacity: 0;
+    transform: scale(1.32) rotate(-5deg);
+  }
+  55% {
+    opacity: 1;
+    transform: scale(0.955) rotate(1deg);
+  }
+  78% {
+    transform: scale(1.015) rotate(-0.35deg);
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+}
+.seal-stamp {
+  animation: stamp-in 520ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+/* A re-seal is announced the way it happened: the intact seal stamps
+   once beside the room's name (scale 0.9→1 in ~200ms), rests a beat,
+   then fades to nothing. No words needed. */
+@keyframes reseal-stamp {
+  0% {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  22% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+  33% {
+    transform: scale(1);
+  }
+  62% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+.reseal-flash {
+  animation: reseal-stamp 900ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+/* The Split Seal gives way (burn overlay): each half jars loose about
+   its own centre and drifts apart along the fracture. transform-box
+   view-box + px origins keep the pivots in viewBox units, matching
+   the baked attribute transforms in mark.tsx. */
+@keyframes seal-break-a {
+  from {
+    transform: translate(-0.4px, -0.21px) rotate(-1.2deg);
+  }
+  to {
+    transform: translate(-2.7px, -1.45px) rotate(-8deg);
+  }
+}
+@keyframes seal-break-b {
+  from {
+    transform: translate(0.44px, 0.23px) rotate(1.4deg);
+  }
+  to {
+    transform: translate(3px, 1.6px) rotate(9deg);
+  }
+}
+.seal-half-a,
+.seal-half-b {
+  transform-box: view-box;
+}
+.seal-half-a {
+  transform-origin: 30.9px 39.7px;
+  animation: seal-break-a 1100ms cubic-bezier(0.2, 0, 0, 1) 250ms both;
+}
+.seal-half-b {
+  transform-origin: 64.8px 56.9px;
+  animation: seal-break-b 1100ms cubic-bezier(0.2, 0, 0, 1) 250ms both;
+}
+
+/* The ember in the wound flares once as the halves part, then dies. */
+@keyframes seal-glint-flare {
+  0% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1.55);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.8);
+  }
+}
+.seal-glint {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: seal-glint-flare 950ms cubic-bezier(0.2, 0, 0, 1) 250ms both;
+}
+
+/* Ember flecks: quiet sparks on short fade paths — drift set per
+   fleck via --fx / --fy (see mark.tsx). */
+@keyframes ember-fleck {
+  0% {
+    opacity: 0;
+    transform: none;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--fx, 0px), var(--fy, -3px));
+  }
+}
+.seal-fleck {
+  animation: ember-fleck 850ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+
 /* S6a — a single message burns: ember edge, char to ash, recedes */
 @keyframes msg-burn {
   0% {

@@ -9,6 +9,7 @@ import { useSearchParams } from "next/navigation";
 import { SealMark } from "@/components/cc/mark";
 import { SealingOverlay } from "@/components/cc/sealing";
 import { BurnOverlay } from "@/components/cc/burn-overlay";
+import { LegalSheetHost } from "@/components/cc/legal-sheet";
 import { LandingScreen } from "@/components/screens/landing";
 import { InviteScreen } from "@/components/screens/invite";
 import { RoomListColumn } from "@/components/screens/room-list";
@@ -58,6 +59,7 @@ export default function CipherChatApp() {
       <Screens />
       <SealingOverlay />
       <BurnOverlay />
+      <LegalSheetHost />
     </>
   );
 }

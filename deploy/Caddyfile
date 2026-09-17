@@ -1,0 +1,21 @@
+# CipherChat edge — Caddy with automatic TLS.
+#
+# {$CADDY_SITE} comes from deploy/.env (docker-compose.yml passes it).
+#   localhost          → internal CA, browser will warn (fine for testing)
+#   chat.example.com   → Let's Encrypt, ACME challenge served on :80
+
+{$CADDY_SITE:localhost} {
+	encode zstd gzip
+
+	# The blind relay. handle_path STRIPS the /relay/ prefix so the
+	# socket.io server (path: "/") sees /?EIO=4&... — websocket
+	# upgrades pass through reverse_proxy automatically.
+	handle_path /relay/* {
+		reverse_proxy relay:3003
+	}
+
+	# Everything else — the Next.js app.
+	handle {
+		reverse_proxy web:3000
+	}
+}

@@ -2,7 +2,10 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  /* config options here */
+  // QA drives the app from two origins (localhost + 127.0.0.1 through
+  // the preview gateway) — two origins, because tabs share localStorage.
+  // The sandbox's outer preview proxy also reaches dev on *.space-z.ai.
+  allowedDevOrigins: ["localhost", "127.0.0.1", "*.space-z.ai"],
   typescript: {
     ignoreBuildErrors: true,
   },

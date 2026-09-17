@@ -252,36 +252,51 @@ function ActiveRoom({ roomId }: { roomId: string }) {
           <div className="mx-auto w-full max-w-[720px] px-4 pb-5 pt-4">
             {empty ? (
               solo && isCreator ? (
-                /* The creator's empty room: the verb is the invite. */
-                <div className="settle flex flex-col items-center px-6 pb-16 pt-[16vh] text-center">
-                  <SealMark size={40} className="opacity-70" />
-                  <p className="t-body mt-6 max-w-[300px]">
-                    Invite someone to begin.
-                  </p>
-                  <p className="mt-1.5 max-w-[320px] font-sans text-[13px] leading-[19px] text-mute">
-                    Share the link — and send the password through a different
-                    channel.
-                  </p>
-                  <PrimaryAction className="mt-7" onClick={copyInviteLink}>
-                    <Copy className="size-4" aria-hidden />
-                    Copy invite link
-                  </PrimaryAction>
-                  <QuietAction className="mt-2" onClick={() => setInviteOpen(true)}>
-                    Show the password
-                  </QuietAction>
+                /* The creator's empty room: the verb is the invite.
+                   Behind the copy, one broken fragment of the seal —
+                   the mark the room will carry, waiting. */
+                <div className="settle relative flex flex-col items-center px-6 pb-16 pt-[16vh] text-center">
+                  <SealMark
+                    variant="ring"
+                    size={150}
+                    className="pointer-events-none absolute inset-0 m-auto text-forest opacity-[0.06]"
+                  />
+                  <div className="relative flex w-full flex-col items-center">
+                    <p className="t-body max-w-[300px]">
+                      Invite someone to begin.
+                    </p>
+                    <p className="mt-1.5 max-w-[320px] font-sans text-[13px] leading-[19px] text-mute">
+                      Share the link — and send the password through a different
+                      channel.
+                    </p>
+                    <PrimaryAction className="mt-7" onClick={copyInviteLink}>
+                      <Copy className="size-4" aria-hidden />
+                      Copy invite link
+                    </PrimaryAction>
+                    <QuietAction className="mt-2" onClick={() => setInviteOpen(true)}>
+                      Show the password
+                    </QuietAction>
+                  </div>
                 </div>
               ) : (
-                /* S8 — the joiner's empty room: the product statement. */
-                <div className="settle flex flex-col items-center px-6 pb-16 pt-[16vh] text-center">
-                  <SealMark size={40} className="opacity-70" />
-                  <p className="t-body mt-6 max-w-[340px]">
-                    You won&rsquo;t see messages from before you joined.
-                    That&rsquo;s how this works.
-                  </p>
-                  <p className="mt-1.5 max-w-[320px] font-sans text-[13px] leading-[19px] text-mute">
-                    Everything from this moment on is encrypted and, if set to
-                    expire, will destroy itself.
-                  </p>
+                /* S8 — the joiner's empty room: the product statement,
+                   over the same quiet watermark. */
+                <div className="settle relative flex flex-col items-center px-6 pb-16 pt-[16vh] text-center">
+                  <SealMark
+                    variant="ring"
+                    size={150}
+                    className="pointer-events-none absolute inset-0 m-auto text-forest opacity-[0.06]"
+                  />
+                  <div className="relative flex w-full flex-col items-center">
+                    <p className="t-body max-w-[340px]">
+                      You won&rsquo;t see messages from before you joined.
+                      That&rsquo;s how this works.
+                    </p>
+                    <p className="mt-1.5 max-w-[320px] font-sans text-[13px] leading-[19px] text-mute">
+                      Everything from this moment on is encrypted and, if set to
+                      expire, will destroy itself.
+                    </p>
+                  </div>
                 </div>
               )
             ) : (

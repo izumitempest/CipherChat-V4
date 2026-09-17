@@ -1,0 +1,53 @@
+# CipherChat CI — red means no merge.
+#
+# lint → types → property tests → dependency audit → production build.
+# The test suite is the security contract: every property test is named
+# after the attack it prevents (see src/lib/__tests__/).
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Prisma client
+        run: bunx prisma generate
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Types
+        run: bunx tsc --noEmit
+
+      - name: Property tests (replay, rotation, padding, KDF, identity, hardening, leave-proof, admission)
+        run: bun run test
+
+      # The repo locks with bun.lock; npm is only used to materialize a
+      # lockfile for `npm audit`'s advisory database. No install happens.
+      - name: Dependency audit
+        run: |
+          npm install --package-lock-only --ignore-scripts --no-audit --silent
+          npm audit --audit-level=high
+
+      - name: Production build
+        env:
+          DATABASE_URL: file:/tmp/ci.db
+          NEXT_PUBLIC_RELAY_URL: /relay/
+        run: |
+          bunx prisma db push --accept-data-loss --skip-generate
+          bun run build

@@ -50,6 +50,7 @@ import {
   toB64,
   verifyCanonical,
 } from "./crypto";
+import { signLeaveProof } from "./leave-proof";
 import { isReactionMark } from "./types";
 
 export interface RegistryEntry {
@@ -327,6 +328,14 @@ export class RoomCipher {
       burnCanonical(this.roomId, this.selfId, messageId),
     );
     return [await this.seal({ kind: "burn", messageId, burnSig }, CONTROL_FRAME_BYTES)];
+  }
+
+  /** Proof-of-possession for a clean departure: signs the canonical
+   *  leave string with this room's signing key, so the server can
+   *  verify against the registered pubkey before writing us out —
+   *  memberId alone must never be enough to rotate the room. */
+  async signDepartureProof(ts: number = Date.now()) {
+    return signLeaveProof(this.sigPrivJwk, this.roomId, this.selfId, ts);
   }
 
   /** A file becomes exactly 1 control-sized meta frame plus a FIXED

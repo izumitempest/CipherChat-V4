@@ -1,29 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
-<svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
-	 viewBox="0 0 30 30" style="enable-background:new 0 0 30 30;" xml:space="preserve">
-<defs>
-  <style type="text/css">
-    .st194{fill:#2D2D2D;stroke:#FFFFFF;stroke-width:0.6317;stroke-miterlimit:10;}
-    .st23{fill:#FFFFFF;}
-
-    .z-breathe {
-      animation: breathe 2.5s ease-in-out infinite;
-    }
-
-    @keyframes breathe {
-      0%, 100% { opacity: 0.7; }
-      50% { opacity: 1; }
-    }
-  </style>
-</defs>
-
-<g>
-  <path class="st194" d="M24.51,28.51H5.49c-2.21,0-4-1.79-4-4V5.49c0-2.21,1.79-4,4-4h19.03c2.21,0,4,1.79,4,4v19.03
-    C28.51,26.72,26.72,28.51,24.51,28.51z"/>
-  <g class="z-breathe">
-    <path class="st23" d="M15.47,7.1l-1.3,1.85c-0.2,0.29-0.54,0.47-0.9,0.47h-7.1V7.09C6.16,7.1,15.47,7.1,15.47,7.1z"/>
-    <polygon class="st23" points="24.3,7.1 13.14,22.91 5.7,22.91 16.86,7.1"/>
-    <path class="st23" d="M14.53,22.91l1.31-1.86c0.2-0.29,0.54-0.47,0.9-0.47h7.09v2.33H14.53z"/>
+<!-- CipherChat — the Split Seal, the mark alone.
+     A wax seal cracked along one clean diagonal; the halves keep the
+     slight rotation and hair of translation from the moment the wax
+     broke; the ember diamond in the fracture is the heat inside.
+     Colors carry fallbacks so the file reads identically standalone
+     (paper print) and in-app (picks up the live theme tokens). -->
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96" fill="none">
+  <!-- half A (upper-left): rim shard + its share of the disc -->
+  <g transform="translate(-0.4 -0.21) rotate(-1.2 48 48)">
+    <path d="M 61.83 16.94 C 45.77 9.79, 26.25 16.63, 18.07 33.4 C 9.81 50.33, 16.67 69.85, 32.04 78.02"
+          stroke="var(--forest, #3A4F41)" stroke-width="7.5"/>
+    <path d="M 53.29 36.12 C 46.89 33.28, 39.39 36.01, 36.32 42.3 C 33.25 48.6, 35.71 56.19, 41.9 59.48 Z"
+          fill="var(--forest, #3A4F41)"/>
   </g>
-</g>
+  <!-- half B (lower-right) -->
+  <g transform="translate(0.44 0.23) rotate(1.4 48 48)">
+    <path d="M 34.17 79.06 C 50.97 86.54, 70.6 80.27, 78.99 64.48 C 87.21 49.02, 82.07 29.2, 66.02 19.17"
+          stroke="var(--forest, #3A4F41)" stroke-width="7.5"/>
+    <path d="M 42.71 59.88 C 48.95 62.65, 56.27 60.13, 59.48 54.1 C 62.68 48.07, 60.68 40.59, 54.89 36.98 Z"
+          fill="var(--forest, #3A4F41)"/>
+  </g>
+  <!-- the ember in the fracture -->
+  <path d="M 57.15 30.78 L 54.36 33.26 L 53.87 36.96 L 56.66 34.48 Z"
+        fill="var(--ember, #E8A87C)"/>
 </svg>

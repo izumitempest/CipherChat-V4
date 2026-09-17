@@ -1,0 +1,21 @@
+# CipherChat relay — a blind post office (socket.io on :3003, internal
+# token-guarded presence snapshot on :3004).
+#
+# Build context is the REPOSITORY ROOT (see docker-compose.yml) because
+# the relay imports src/lib/rate-limit.ts.
+#
+#   docker build -f deploy/Dockerfile.relay -t cipherchat-relay .
+
+FROM oven/bun:1 AS runtime
+WORKDIR /app
+
+# Install first (layer cache), then the two source files.
+COPY mini-services/relay-service/package.json mini-services/relay-service/bun.lock ./mini-services/relay-service/
+RUN cd mini-services/relay-service && bun install --frozen-lockfile
+
+COPY mini-services/relay-service/index.ts ./mini-services/relay-service/index.ts
+COPY src/lib/rate-limit.ts ./src/lib/rate-limit.ts
+
+ENV NODE_ENV=production
+EXPOSE 3003 3004
+CMD ["bun", "mini-services/relay-service/index.ts"]

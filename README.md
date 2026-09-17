@@ -36,16 +36,18 @@ browser — the server is a blind relay that cannot read a single frame.
 | Replay defense | per-sender monotonic counters, ±10-minute timestamp window, frame-id dedup, refresh-surviving watermarks |
 | Rotation on leave | the remaining members seal the room under a **new random key**, delivered pairwise over ephemeral ECDH — the leaver never receives it, and it is not derived from the password |
 | Silent-departure grace | a member whose connection drops without a clean leave is written out **2 minutes** later: the relay's live presence (token-guarded, server-to-server) is the connection authority the eviction route consults, the epoch ledger makes the re-seal durable, and the departed member simply re-enters with the password when they return |
-| Silent-departure grace | a member whose connection drops without a clean leave is written out **2 minutes** later: the relay's live presence (token-guarded, server-to-server) is the connection authority the eviction route consults, the epoch ledger makes the re-seal durable, and the departed member simply re-enters with the password when they return |
+| Departure proof | leaving requires a signature from the member's registered key — a room-code holder cannot trigger nuisance rotations in your name |
 | Rejoin after rotation | the current key arrives ECDH-wrapped and sealed under the password-derived entry key, so only a joiner who proved the password can open it |
 | Forgery | messages are signed inside the encrypted payload and verified against the REST member registry; forgeries render as a quiet rejection line |
 | Verifiability | fingerprints derive from registered public keys; verification marks live on your device |
 
 The full property suite is enforced by tests named after the properties
-they protect: `src/lib/__tests__/task-19.*.test.ts` (47 tests — replay,
-rotation, padding, KDF, identity, hardening) plus `task-20.*.test.ts`
-(file captions, ink reactions) and `task-21.1-silent-grace.test.ts`
-(the silent-departure grace decision logic). Run them with `bun run test`.
+they protect: `src/lib/__tests__/task-19.*.test.ts` (replay,
+rotation, padding, KDF, identity, hardening), `task-20.*.test.ts`
+(file captions, ink reactions), `task-21.1-silent-grace.test.ts` (the
+silent-departure grace decision logic) and `task-22.*.test.ts`
+(departure proofs, key-derivation range safety, room admission).
+Run them with `bun run test`.
 
 ## What CipherChat does NOT protect against
 
@@ -76,16 +78,63 @@ Read this part — it is the product's spine.
 
 ## Running it
 
+### Development (two terminals)
+
 ```bash
-bun run dev        # Next.js app on :3000
-bun run dev        # (in mini-services/relay-service) blind relay on :3003
-bun run test       # the Task 19 security property suite
+bun run dev                                        # Next.js app on :3000
+
+cd mini-services/relay-service && bun run dev     # blind relay on :3003
+                                                   # (+ internal presence on :3004)
+bun run test                                       # the security property suite
 bun run lint
 ```
 
 The relay must be restarted manually after edits to
 `mini-services/relay-service/index.ts` (bun --hot does not reliably
 reload socket handlers).
+
+The relay URL is configuration, not code: `NEXT_PUBLIC_RELAY_URL`
+(defaults to same-origin `/relay/`, which a reverse proxy forwards to
+the relay — see `deploy/Caddyfile`). Every variable is documented in
+`.env.example`.
+
+### Production — one plain VPS
+
+```bash
+cd deploy
+cp .env.example .env        # set RELAY_INTERNAL_TOKEN (openssl rand -hex 24)
+                            # and CADDY_SITE (your domain, or localhost for testing)
+docker compose up -d        # app + relay + Caddy with automatic TLS
+```
+
+That is the whole self-host story: `deploy/` contains the web Dockerfile
+(Next.js standalone output + Prisma), the relay Dockerfile, and the
+compose file that wires them behind Caddy. `docker compose down -v`
+removes the database volume too — burn your rooms first if you mean it.
+
+On a machine with only Docker installed, `docker compose up` gives a
+working HTTPS site; verify the golden path with **two devices** (two
+origins, not two tabs — tabs share localStorage): create, join, message,
+rotate-on-leave, rejoin, file, view-once, burn.
+
+### CI
+
+`.github/workflows/ci.yml` runs lint → `tsc --noEmit` → the full property
+suite → `npm audit --audit-level=high` → production build. Red means no
+merge — the property suite is the security contract.
+
+### Performance note
+
+Room unlocking is deliberately slow (argon2id, 64 MB). On a desktop this
+takes ~1 second; on a low-end Android it can take 5–8 seconds — that is
+the cost of grinding resistance, not a bug. The sealing screen says so.
+
+## Legal
+
+- `LICENSE` — MIT
+- `public/legal/terms.md` — Terms of Use (served in-app from the
+  landing footer and Settings → About)
+- `public/legal/privacy.md` — Privacy Policy (same)
 
 ## Documentation
 

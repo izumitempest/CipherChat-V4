@@ -818,15 +818,26 @@ export const useApp = create<AppState>()((set, get) => ({
   leaveRoom: async (roomId) => {
     const session = getSession(roomId);
     if (session) {
-      try {
-        await fetch(`/api/rooms/${roomId}/leave`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ memberId: session.memberId }),
-        });
-      } catch {
-        /* best effort — receivers rotate on the announce regardless */
+      // Proof-of-possession: sign the departure with the room's signing
+      // key so nobody can write us out (and rotate the room out from
+      // under everyone) with just our memberId.
+      const cipher = getCipher(roomId);
+      if (cipher) {
+        const proof = await cipher.signDepartureProof();
+        try {
+          await fetch(`/api/rooms/${roomId}/leave`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ memberId: session.memberId, ts: proof.ts, sig: proof.sig }),
+          });
+        } catch {
+          /* best effort — receivers rotate on the announce regardless */
+        }
       }
+      // No cipher (locked/refreshed tab): skip the REST call entirely —
+      // the server now demands a proof we cannot make without the key.
+      // The relay announce below still tells receivers, who handle a
+      // keyless departure via the silent-eviction grace path.
       getRelay().emit("member:leave", {
         roomId,
         memberId: session.memberId,

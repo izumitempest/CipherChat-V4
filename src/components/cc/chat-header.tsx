@@ -4,7 +4,9 @@
 
 "use client";
 
+import { useState } from "react";
 import { ChevronLeft, Link2, Settings2, Shield } from "lucide-react";
+import { SealMark } from "@/components/cc/mark";
 import { useApp } from "@/store/app";
 import { cn } from "@/lib/utils";
 import type { MemberPublic } from "@/lib/types";
@@ -26,7 +28,20 @@ export function ChatHeader({
   const card = useApp((s) => s.roomCards.find((c) => c.roomId === roomId));
   const members = useApp((s) => s.members[roomId] ?? EMPTY_MEMBERS);
   const relayOnline = useApp((s) => s.relayOnline);
+  const resealing = useApp((s) => !!s.resealing[roomId]);
   const count = Math.max(1, members.length);
+
+  /* The re-seal, announced without words: when the room's keys finish
+   * rotating (resealing[roomId] falling back to false), an intact
+   * seal stamps once beside the name and rests into nothing. Render-
+   * time state adjustment (the sanctioned no-effect pattern); the mark
+   * unmounts itself on animation end, so no timer exists to leak. */
+  const [resealFlash, setResealFlash] = useState(0);
+  const [wasResealing, setWasResealing] = useState(resealing);
+  if (resealing !== wasResealing) {
+    setWasResealing(resealing);
+    if (wasResealing) setResealFlash(Date.now());
+  }
 
   return (
     <header className="sticky top-0 z-20 border-b border-hairline bg-paper pt-[env(safe-area-inset-top)]">
@@ -39,7 +54,19 @@ export function ChatHeader({
         >
           <ChevronLeft className="size-5" />
         </button>
-        <div className="min-w-0 flex-1 pl-1 md:pl-0">
+        <div className="relative min-w-0 flex-1 pl-1 md:pl-0">
+          {/* The re-stamp: absolutely placed so the header never
+              reflows — the seal appears, stamps, and is gone. */}
+          {resealFlash ? (
+            <span
+              key={resealFlash}
+              aria-hidden
+              onAnimationEnd={() => setResealFlash(0)}
+              className="reseal-flash pointer-events-none absolute right-1 top-1/2 -translate-y-1/2"
+            >
+              <SealMark size={16} />
+            </span>
+          ) : null}
           <p
             title={card?.localName ?? "Room"}
             className="truncate font-serif text-[16.5px] font-semibold leading-[22px] tracking-[-0.005em]"

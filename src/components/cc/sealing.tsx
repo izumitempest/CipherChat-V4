@@ -67,7 +67,25 @@ export function Sealing({
           <SealMark size={30} />
         </div>
       </div>
-      <p className="t-title mt-8 text-center">{label}</p>
+      {/* Three wax shards — tiny fragments of the seal, still
+          settling in the whisper cadence while the derivation does
+          its real, deliberately slow work. */}
+      <div className="mt-6 flex items-center justify-center gap-2" aria-hidden>
+        <SealMark variant="ring" size={9} className="typing-dot text-forest/45" />
+        <SealMark
+          variant="ring"
+          size={9}
+          className="typing-dot text-forest/70"
+          style={{ animationDelay: "180ms" }}
+        />
+        <SealMark
+          variant="ring"
+          size={9}
+          className="typing-dot text-forest"
+          style={{ animationDelay: "360ms" }}
+        />
+      </div>
+      <p className="t-title mt-4 text-center">{label}</p>
       <p className="mt-2 max-w-[280px] text-center font-sans text-[13px] leading-[19px] text-mute">
         {sub}
       </p>

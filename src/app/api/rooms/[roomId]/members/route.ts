@@ -1,6 +1,23 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { ROOM_MEMBER_CAP } from "../../route";
+import {
+  IpRateLimiter,
+  MEMBER_FRESH_WINDOW_MS,
+  MEMBER_JOIN_PER_MIN,
+} from "@/lib/rate-limit";
+import { decideAdmission } from "@/lib/admission";
+
+// POST /api/rooms/:roomId/members — join (or re-join after a refresh).
+// Identity is the public key: same key = same alias, same color.
+// Keys are PER-ROOM (derived from the device seed), so the registry
+// cannot be correlated across rooms.
+const joinLimiter = new IpRateLimiter({ limit: MEMBER_JOIN_PER_MIN, windowMs: 60_000 });
+
+function clientIp(request: Request): string {
+  const fwd = request.headers.get("x-forwarded-for");
+  if (fwd) return fwd.split(",")[0].trim();
+  return request.headers.get("x-real-ip") ?? "local";
+}
 
 function isJwk(value: unknown): value is Record<string, unknown> {
   return (
@@ -12,14 +29,13 @@ function isJwk(value: unknown): value is Record<string, unknown> {
   );
 }
 
-// POST /api/rooms/:roomId/members — join (or re-join after a refresh).
-// Identity is the public key: same key = same alias, same color.
-// Keys are PER-ROOM (derived from the device seed), so the registry
-// cannot be correlated across rooms.
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ roomId: string }> },
 ) {
+  if (!joinLimiter.allow(clientIp(request))) {
+    return NextResponse.json({ error: "slow-down" }, { status: 429 });
+  }
   const { roomId } = await params;
   const body = (await request.json().catch(() => null)) as {
     pubkey?: unknown;
@@ -69,8 +85,22 @@ export async function POST(
     });
   }
 
-  const activeCount = await db.member.count({ where: { roomId, active: true } });
-  if (activeCount >= ROOM_MEMBER_CAP) {
+  // Cap trade-off, stated honestly: the cap is a freshness-windowed
+  // SOFT cap — it counts only active members seen within
+  // MEMBER_FRESH_WINDOW_MS, so it exists to stop a code-holder without
+  // the password from permanently locking the room with throwaway
+  // keys. A coordinated attacker with many IPs and keys can still
+  // exceed it (presence noise, not a confidentiality issue — matching
+  // the Task 19 acceptance review's assessment).
+  const recentlySeenCount = await db.member.count({
+    where: {
+      roomId,
+      active: true,
+      lastSeenAt: { gte: new Date(Date.now() - MEMBER_FRESH_WINDOW_MS) },
+    },
+  });
+  const decision = decideAdmission({ recentlySeenCount });
+  if (decision === "full") {
     return NextResponse.json({ error: "room-full" }, { status: 403 });
   }
 

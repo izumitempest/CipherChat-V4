@@ -19,6 +19,7 @@ import { PrimaryAction, SecondaryAction, QuietAction } from "@/components/cc/act
 import { SealMark } from "@/components/cc/mark";
 import { SheetGrabber } from "@/components/cc/sheet-grabber";
 import { ThemeToggle } from "@/components/cc/theme-toggle";
+import { LegalLinks } from "@/components/cc/legal-sheet";
 import { generatePassphrase } from "@/lib/identity";
 import { useApp } from "@/store/app";
 
@@ -37,22 +38,23 @@ export function LandingScreen() {
       </header>
 
       <main className="mx-auto flex w-full max-w-[440px] flex-1 flex-col items-center justify-center px-6 py-16 [@media(max-height:720px)]:py-9">
-        {/* Entrance: the desk wakes in one quiet beat — seal, headline,
-            actions, escape, each a step behind the last. Delays are
-            inline because unlayered keyframe classes outrank
-            utilities-layer animation-delay. */}
-        <div className="settle">
+        {/* Entrance: the seal lands first — pressed into the paper
+            with a hair of over-rotation, one overshoot, a settle —
+            then it breathes. The headline and actions follow, each a
+            step behind. Delays are inline because unlayered keyframe
+            classes outrank utilities-layer animation-delay. */}
+        <div className="seal-stamp">
           <SealMark size={72} breathe />
         </div>
         <h1
           className="t-display settle mt-7 text-center"
-          style={{ animationDelay: "80ms" }}
+          style={{ animationDelay: "140ms" }}
         >
           A conversation that leaves&nbsp;no&nbsp;trace.
         </h1>
         <div
           className="mt-9 flex w-full flex-col gap-3 settle"
-          style={{ animationDelay: "160ms" }}
+          style={{ animationDelay: "220ms" }}
         >
           <PrimaryAction
             full
@@ -72,7 +74,7 @@ export function LandingScreen() {
         {hasRooms ? (
           <QuietAction
             className="mt-5 settle focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-forest/25"
-            style={{ animationDelay: "240ms" }}
+            style={{ animationDelay: "300ms" }}
             onClick={() => navigate("rooms")}
           >
             Back to your rooms
@@ -88,6 +90,9 @@ export function LandingScreen() {
           Messages are encrypted in your browser and destroyed on schedule.
           We can&rsquo;t read them. Neither can anyone else.
         </p>
+        <div className="mt-3 text-center font-sans text-[11.5px] leading-[17px]">
+          <LegalLinks />
+        </div>
       </footer>
 
       <CreateRoomSheet open={createOpen} onOpenChange={setCreateOpen} />

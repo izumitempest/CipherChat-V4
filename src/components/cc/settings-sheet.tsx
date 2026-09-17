@@ -5,7 +5,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check } from "lucide-react";
+import { Check, ChevronRight } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -25,6 +25,7 @@ import { Field, TextField } from "@/components/cc/fields";
 import { DestructiveAction, SecondaryAction } from "@/components/cc/actions";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
 import { SheetGrabber } from "@/components/cc/sheet-grabber";
+import { useLegalSheet } from "@/components/cc/legal-sheet";
 import { loadVerified } from "@/lib/local";
 import { getSession } from "@/lib/session";
 import { useApp } from "@/store/app";
@@ -32,6 +33,25 @@ import { TTL_STEPS, type MemberPublic } from "@/lib/types";
 
 const EMPTY_MEMBERS: MemberPublic[] = [];
 import { cn } from "@/lib/utils";
+
+function AboutRow({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex h-11 w-full items-center justify-between rounded-[8px] px-1 text-left font-sans text-[13.5px] text-charcoal transition-colors duration-150 hover:bg-wash"
+    >
+      {label}
+      <ChevronRight className="size-4 text-mute" aria-hidden />
+    </button>
+  );
+}
 
 export function SettingsSheet({
   roomId,
@@ -49,6 +69,7 @@ export function SettingsSheet({
   const setDefaultTtl = useApp((s) => s.setDefaultTtl);
   const burnRoom = useApp((s) => s.burnRoom);
   const leaveRoom = useApp((s) => s.leaveRoom);
+  const showLegal = useLegalSheet((s) => s.show);
   const session = getSession(roomId);
   const isCreator = !!session?.creatorToken;
 
@@ -171,6 +192,25 @@ export function SettingsSheet({
                   </li>
                 ))}
               </ul>
+            </div>
+
+            <div className="space-y-2">
+              <p className="font-sans text-[13px] font-medium tracking-[0.01em] text-charcoal">
+                About
+              </p>
+              <div className="space-y-0.5">
+                <AboutRow
+                  label="Terms of Use"
+                  onClick={() => showLegal("terms")}
+                />
+                <AboutRow
+                  label="Privacy Policy"
+                  onClick={() => showLegal("privacy")}
+                />
+              </div>
+              <p className="t-meta">
+                What you agree to, and what the server does — and does not — hold.
+              </p>
             </div>
           </div>
 

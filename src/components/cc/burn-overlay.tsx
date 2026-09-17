@@ -7,6 +7,7 @@
 
 import { useEffect, useState } from "react";
 import { useApp } from "@/store/app";
+import { SealMark } from "./mark";
 
 export function BurnOverlay() {
   const burn = useApp((s) => s.burn);
@@ -78,22 +79,41 @@ function BurnSequence({ roomId }: { roomId: string }) {
         }}
         aria-hidden
       />
-      {/* the line */}
+      {/* the line — and above it, the seal itself, cracked in two.
+          The halves part along the fracture while a few ember flecks
+          rise and die: the room's last mark, breaking quietly. */}
       <div className="absolute inset-0 flex items-center justify-center px-8">
-        <p
-          className="text-center font-serif text-[22px] font-semibold leading-[32px] tracking-[-0.005em]"
-          style={{
-            color: "#EDE4D7",
-            textShadow: "0 0 24px rgba(232,168,124,0.28)",
-            opacity: 0,
-            animation:
-              phase === "line" || phase === "out"
-                ? "burn-line-in 400ms cubic-bezier(0.2,0,0,1) forwards"
-                : undefined,
-          }}
-        >
-          This room has been burned.
-        </p>
+        <div className="flex flex-col items-center">
+          <div
+            style={{
+              opacity: 0,
+              animation:
+                phase === "line" || phase === "out"
+                  ? "burn-line-in 400ms cubic-bezier(0.2,0,0,1) forwards"
+                  : undefined,
+            }}
+            aria-hidden
+          >
+            {/* cream, like the line below — the same literal the
+                burn context already uses (the overlay is always its
+                own dark, cinematic palette) */}
+            <SealMark variant="cracked" size={84} ink="#EDE4D7" />
+          </div>
+          <p
+            className="text-center font-serif text-[22px] font-semibold leading-[32px] tracking-[-0.005em]"
+            style={{
+              color: "#EDE4D7",
+              textShadow: "0 0 24px rgba(232,168,124,0.28)",
+              opacity: 0,
+              animation:
+                phase === "line" || phase === "out"
+                  ? "burn-line-in 400ms cubic-bezier(0.2,0,0,1) forwards"
+                  : undefined,
+            }}
+          >
+            This room has been burned.
+          </p>
+        </div>
       </div>
     </div>
   );

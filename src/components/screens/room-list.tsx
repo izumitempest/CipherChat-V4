@@ -66,19 +66,28 @@ function RoomListBody() {
   const [unlocking, setUnlocking] = useState<RoomCard | null>(null);
 
   const body = roomCards.length === 0 ? (
-    <div className="settle flex flex-1 flex-col items-center justify-center px-6 py-12">
-      <SealMark size={44} className="opacity-70" />
-      <p className="t-body mt-6 text-center">No rooms yet.</p>
-      <p className="mt-1 text-center font-sans text-[13px] leading-[19px] text-mute">
-        Create one, or open an invite link.
-      </p>
-      <div className="mt-7 flex w-full max-w-[280px] flex-col gap-3">
-        <PrimaryAction full onClick={() => navigate("landing")}>
-          Create a room
-        </PrimaryAction>
-        <SecondaryAction full onClick={() => navigate("invite")}>
-          Join with a link or code
-        </SecondaryAction>
+    <div className="settle relative flex flex-1 flex-col items-center justify-center px-6 py-12">
+      {/* The watermark — one broken fragment of the seal, pressed
+          into the paper at almost-nothing: the desk, waiting for
+          letters. Sits behind the copy; never intercepts a touch. */}
+      <SealMark
+        variant="ring"
+        size={150}
+        className="pointer-events-none absolute inset-0 m-auto text-forest opacity-[0.06]"
+      />
+      <div className="relative flex w-full flex-col items-center">
+        <p className="t-body text-center">No rooms yet.</p>
+        <p className="mt-1 text-center font-sans text-[13px] leading-[19px] text-mute">
+          Create one, or open an invite link.
+        </p>
+        <div className="mt-7 flex w-full max-w-[280px] flex-col gap-3">
+          <PrimaryAction full onClick={() => navigate("landing")}>
+            Create a room
+          </PrimaryAction>
+          <SecondaryAction full onClick={() => navigate("invite")}>
+            Join with a link or code
+          </SecondaryAction>
+        </div>
       </div>
     </div>
   ) : (

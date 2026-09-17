@@ -19,7 +19,9 @@ function makeToken(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-export const ROOM_MEMBER_CAP = 12;
+// The member cap lives in lib/admission.ts (pure, property-tested).
+// Re-exported here so existing import sites keep working.
+export { ROOM_MEMBER_CAP } from "@/lib/admission";
 
 // Room creation is rate-limited per IP (SQLite bloat / spam guard).
 const createLimiter = new IpRateLimiter({ limit: ROOM_CREATE_PER_MIN, windowMs: 60_000 });
