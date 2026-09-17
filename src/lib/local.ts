@@ -18,10 +18,11 @@ export function loadRoomCards(): RoomCard[] {
   }
 }
 
-/** Page-load sweep: burned rooms showed their ash for the session in
- *  which they burned; on the next load they are gone for good. */
+/** Page-load sweep: burned rooms showed their ash and closed rooms
+ *  showed their quiet clock for the session in which they ended; on
+ *  the next load they are gone for good. */
 export function sweepBurnedRooms(): RoomCard[] {
-  const cards = loadRoomCards().filter((c) => !c.burned);
+  const cards = loadRoomCards().filter((c) => !c.burned && !c.closed);
   saveRoomCards(cards);
   return cards;
 }

@@ -17,6 +17,7 @@ import {
 import { useIsDesktop } from "@/hooks/use-is-desktop";
 import { SheetGrabber } from "@/components/cc/sheet-grabber";
 import { getSession } from "@/lib/session";
+import { fmtTtlRemaining } from "@/lib/format";
 import { useApp } from "@/store/app";
 import { cn } from "@/lib/utils";
 
@@ -89,6 +90,13 @@ export function InviteSheet({
           <SheetDescription className="mt-1 font-sans text-[13px] leading-[19px] text-mute">
             Send the link and the password through different channels —
             whoever holds both can enter.
+            {session?.expiresAt && session.expiresAt > Date.now() ? (
+              <>
+                {" "}
+                This room closes in{" "}
+                {fmtTtlRemaining(session.expiresAt - Date.now())}.
+              </>
+            ) : null}
           </SheetDescription>
         </SheetHeader>
 

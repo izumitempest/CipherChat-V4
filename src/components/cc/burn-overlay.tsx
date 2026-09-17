@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from "react";
 import { useApp } from "@/store/app";
-import { SealMark } from "./mark";
+import { InkMark } from "./mark";
 
 export function BurnOverlay() {
   const burn = useApp((s) => s.burn);
@@ -79,7 +79,7 @@ function BurnSequence({ roomId }: { roomId: string }) {
         }}
         aria-hidden
       />
-      {/* the line — and above it, the seal itself, cracked in two.
+      {/* the line — and above it, the ink itself, lifted clean
           The halves part along the fracture while a few ember flecks
           rise and die: the room's last mark, breaking quietly. */}
       <div className="absolute inset-0 flex items-center justify-center px-8">
@@ -97,7 +97,7 @@ function BurnSequence({ roomId }: { roomId: string }) {
             {/* cream, like the line below — the same literal the
                 burn context already uses (the overlay is always its
                 own dark, cinematic palette) */}
-            <SealMark variant="cracked" size={84} ink="#EDE4D7" />
+            <InkMark variant="scattered" size={84} ink="#EDE4D7" />
           </div>
           <p
             className="text-center font-serif text-[22px] font-semibold leading-[32px] tracking-[-0.005em]"

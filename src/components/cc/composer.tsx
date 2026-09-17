@@ -14,8 +14,12 @@ import { getSession } from "@/lib/session";
 import { ttlHintSeen } from "@/lib/local";
 import { getDraft, setDraft } from "@/lib/drafts";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
-import { TTL_STEPS, type TtlChoice } from "@/lib/types";
-import { fmtBytes } from "@/lib/format";
+import { TTL_STEPS, isCustomTtl, type TtlChoice } from "@/lib/types";
+import { fmtBytes, fmtTtlLong, fmtTtlShort } from "@/lib/format";
+import { TtlPicker } from "@/components/cc/ttl-picker";
+import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { SheetGrabber } from "@/components/cc/sheet-grabber";
 import { cn } from "@/lib/utils";
 
 export interface Attachment {
@@ -85,17 +89,46 @@ export function Composer({ onTtlArmed }: { onTtlArmed?: () => void }) {
   const disabled = !relayOnline || !!resealing;
   const canSend = !disabled && (text.trim().length > 0 || !!attachment);
 
-  function cycleTtl() {
-    const idx = TTL_STEPS.findIndex((s) => s.value === ttl);
-    const next = TTL_STEPS[(idx + 1) % TTL_STEPS.length];
-    setTtl(next.value);
-    if (next.value !== 0) {
-      // The first time the timer is armed, the quiet strip above the
+  // The lifetime chooser: a small anchored popover on the desk,
+  // a bottom sheet in the hand. Either way, the same picker.
+  const [ttlOpen, setTtlOpen] = useState(false);
+
+  function chooseTtl(next: number) {
+    setTtl(next);
+    if (next !== 0) {
+      // The first time a timer is armed, the quiet strip above the
       // composer explains what expiry means — instead of a toast.
       if (!ttlHintSeen() && onTtlArmed) onTtlArmed();
-      else toast(`Messages now expire in ${next.label.toLowerCase()}`);
+      else if (ttl !== next) toast(`Messages now expire in ${fmtTtlLong(next)}`);
     }
   }
+
+  // The hourglass itself — seated bare in the hand, anchored under
+  // a popover at the desk.
+  const ttlTrigger = (
+    <button
+      type="button"
+      onClick={() => setTtlOpen(true)}
+      disabled={disabled}
+      aria-label={
+        ttl === 0
+          ? "Set message expiry: off"
+          : `Message expiry ${fmtTtlLong(ttl)}. Tap to change`
+      }
+      aria-pressed={ttl !== 0}
+      className={cn(
+        "flex h-11 shrink-0 items-center gap-1.5 rounded-[6px] border px-2 font-sans text-[12px] font-medium transition duration-150 active:translate-y-px disabled:pointer-events-none disabled:opacity-50",
+        ttl !== 0
+          ? "border-terracotta/40 text-terracotta hover:border-terracotta/60"
+          : "border-hairline text-mute hover:border-forest/25 hover:text-charcoal",
+      )}
+    >
+      <Hourglass className="size-3.5" aria-hidden />
+      <span className={ttl === 0 ? "sr-only" : undefined}>
+        {isCustomTtl(ttl) ? fmtTtlShort(ttl) : TTL_STEPS.find((s) => s.value === ttl)?.short}
+      </span>
+    </button>
+  );
 
   async function pickFile(file: File | undefined) {
     if (!file) return;
@@ -265,28 +298,38 @@ export function Composer({ onTtlArmed }: { onTtlArmed?: () => void }) {
             )}
           />
 
-          <button
-            type="button"
-            onClick={cycleTtl}
-            disabled={disabled}
-            aria-label={
-              ttl === 0
-                ? "Set message expiry: off"
-                : `Message expiry ${TTL_STEPS.find((s) => s.value === ttl)?.label}. Tap to change`
-            }
-            aria-pressed={ttl !== 0}
-            className={cn(
-              "flex h-11 shrink-0 items-center gap-1.5 rounded-[6px] border px-2 font-sans text-[12px] font-medium transition duration-150 active:translate-y-px disabled:pointer-events-none disabled:opacity-50",
-              ttl !== 0
-                ? "border-terracotta/40 text-terracotta hover:border-terracotta/60"
-                : "border-hairline text-mute hover:border-forest/25 hover:text-charcoal",
-            )}
-          >
-            <Hourglass className="size-3.5" aria-hidden />
-            <span className={ttl === 0 ? "sr-only" : undefined}>
-              {TTL_STEPS.find((s) => s.value === ttl)?.short}
-            </span>
-          </button>
+          {isDesktop ? (
+            <Popover open={ttlOpen} onOpenChange={setTtlOpen}>
+              <PopoverAnchor asChild>
+                {ttlTrigger}
+              </PopoverAnchor>
+              <PopoverContent
+                align="end"
+                className="w-[320px] rounded-[14px] border-hairline bg-paper p-3.5 shadow-float"
+              >
+                <p className="mb-2.5 font-sans text-[13px] font-medium tracking-[0.01em] text-charcoal">
+                  Message expiry
+                </p>
+                <TtlPicker value={ttl} onChange={chooseTtl} />
+              </PopoverContent>
+            </Popover>
+          ) : (
+            <>
+              {ttlTrigger}
+              <Sheet open={ttlOpen} onOpenChange={setTtlOpen}>
+                <SheetContent
+                  side="bottom"
+                  className="rounded-t-[18px] border-t border-hairline bg-paper px-5 pb-8 pt-2"
+                >
+                  <SheetGrabber />
+                  <p className="mb-2.5 font-sans text-[13px] font-medium tracking-[0.01em] text-charcoal">
+                    Message expiry
+                  </p>
+                  <TtlPicker value={ttl} onChange={chooseTtl} />
+                </SheetContent>
+              </Sheet>
+            </>
+          )}
 
           {disabled ? (
             <span

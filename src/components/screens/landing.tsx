@@ -16,11 +16,13 @@ import {
 } from "@/components/ui/sheet";
 import { Field, PasswordField, TextField } from "@/components/cc/fields";
 import { PrimaryAction, SecondaryAction, QuietAction } from "@/components/cc/actions";
-import { SealMark } from "@/components/cc/mark";
+import { InkMark } from "@/components/cc/mark";
 import { SheetGrabber } from "@/components/cc/sheet-grabber";
 import { ThemeToggle } from "@/components/cc/theme-toggle";
 import { LegalLinks } from "@/components/cc/legal-sheet";
+import { RoomTtlPicker } from "@/components/cc/room-ttl-picker";
 import { generatePassphrase } from "@/lib/identity";
+import { ROOM_TTL_DEFAULT_SEC } from "@/lib/room-ttl";
 import { useApp } from "@/store/app";
 
 export function LandingScreen() {
@@ -38,13 +40,13 @@ export function LandingScreen() {
       </header>
 
       <main className="mx-auto flex w-full max-w-[440px] flex-1 flex-col items-center justify-center px-6 py-16 [@media(max-height:720px)]:py-9">
-        {/* Entrance: the seal lands first — pressed into the paper
+        {/* Entrance: the ink lands first — a drop pressed into the
             with a hair of over-rotation, one overshoot, a settle —
             then it breathes. The headline and actions follow, each a
             step behind. Delays are inline because unlayered keyframe
             classes outrank utilities-layer animation-delay. */}
         <div className="seal-stamp">
-          <SealMark size={72} breathe />
+          <InkMark size={72} breathe />
         </div>
         <h1
           className="t-display settle mt-7 text-center"
@@ -110,15 +112,28 @@ function CreateRoomSheet({
   const createRoom = useApp((s) => s.createRoom);
   const [name, setName] = useState("");
   const [password, setPassword] = useState(() => generatePassphrase());
+  const [ttl, setTtl] = useState<number>(ROOM_TTL_DEFAULT_SEC);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Re-seed the fields each time the sheet opens.
+  const [wasOpen, setWasOpen] = useState(false);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setName("");
+      setPassword(generatePassphrase());
+      setTtl(ROOM_TTL_DEFAULT_SEC);
+      setError(null);
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!password.trim() || busy) return;
     setBusy(true);
     setError(null);
-    const res = await createRoom(name.trim(), password.trim());
+    const res = await createRoom(name.trim(), password.trim(), ttl);
     setBusy(false);
     if (!res.ok) {
       setError("The room could not be created. Check your connection and try again.");
@@ -177,6 +192,16 @@ function CreateRoomSheet({
               required
             />
           </Field>
+
+          {/* The room's clock — chosen once here, adjustable later
+              by the creator alone. */}
+          <div className="space-y-2">
+            <p className="font-sans text-[13px] font-medium tracking-[0.01em] text-charcoal">
+              Room lifetime
+            </p>
+            <RoomTtlPicker value={ttl} onChange={setTtl} />
+          </div>
+
           <PrimaryAction type="submit" full busy={busy}>
             {busy ? "Creating room" : "Create room"}
           </PrimaryAction>

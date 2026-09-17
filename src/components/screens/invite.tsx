@@ -8,7 +8,7 @@ import { useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Field, PasswordField, TextField } from "@/components/cc/fields";
 import { PrimaryAction, QuietAction } from "@/components/cc/actions";
-import { SealMark } from "@/components/cc/mark";
+import { InkMark } from "@/components/cc/mark";
 import { parseRoomCode } from "@/lib/identity";
 import { useApp, type JoinResult } from "@/store/app";
 import { cn } from "@/lib/utils";
@@ -22,6 +22,8 @@ function reasonCopy(reason: JoinResult["reason"]): string {
   switch (reason) {
     case "wrong-password":
       return "That password doesn't match this room.";
+    case "expired":
+      return "This room's time ran out. It's gone — ask for a new one.";
     case "not-found":
     case "burned":
       return "This room doesn't exist, or it has been burned.";
@@ -84,7 +86,7 @@ function InviteForm({ prefilledCode }: { prefilledCode: string | null }) {
       </header>
 
       <main className="mx-auto flex w-full max-w-[440px] flex-1 flex-col justify-center px-6 py-12">
-        <SealMark size={48} className="opacity-90" />
+        <InkMark size={48} className="opacity-90" />
         <h1 className="t-title mt-6 text-[22px] leading-[30px]">
           You&rsquo;ve been invited to a private, encrypted conversation.
         </h1>

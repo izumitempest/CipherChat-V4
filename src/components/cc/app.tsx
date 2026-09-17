@@ -6,7 +6,7 @@
 
 import { Suspense, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import { SealMark } from "@/components/cc/mark";
+import { InkMark } from "@/components/cc/mark";
 import { SealingOverlay } from "@/components/cc/sealing";
 import { BurnOverlay } from "@/components/cc/burn-overlay";
 import { LegalSheetHost } from "@/components/cc/legal-sheet";
@@ -49,7 +49,7 @@ export default function CipherChatApp() {
   if (!ready) {
     return (
       <div className="flex min-h-dvh items-center justify-center">
-        <SealMark size={44} className="opacity-60" />
+        <InkMark size={44} className="opacity-60" />
       </div>
     );
   }
@@ -95,7 +95,7 @@ function Screens() {
           <ChatScreen roomId={activeRoomId} />
         ) : (
           <div className="hidden h-full flex-col items-center justify-center px-8 md:flex">
-            <SealMark size={44} className="opacity-50" />
+            <InkMark size={44} className="opacity-50" />
             <p className="mt-6 max-w-[260px] text-center font-serif text-[16px] leading-[24px] text-mute">
               Open a letter, or start a new one.
             </p>

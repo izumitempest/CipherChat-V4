@@ -1,26 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- CipherChat — the Split Seal, the mark alone.
-     A wax seal cracked along one clean diagonal; the halves keep the
-     slight rotation and hair of translation from the moment the wax
-     broke; the ember diamond in the fracture is the heat inside.
+<!-- CipherChat — the Vanishing Ink, the mark alone.
+     A drop of ink seated on the page, its top frayed into three
+     flecks lifting away; the last fleck is still warm (ember) as it
+     goes. Hand-fallen beziers — the bulb wobbles a few percent off
+     a compass circle, the tail leans, the detach edge is ragged.
      Colors carry fallbacks so the file reads identically standalone
      (paper print) and in-app (picks up the live theme tokens). -->
 <svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96" fill="none">
-  <!-- half A (upper-left): rim shard + its share of the disc -->
-  <g transform="translate(-0.4 -0.21) rotate(-1.2 48 48)">
-    <path d="M 61.83 16.94 C 45.77 9.79, 26.25 16.63, 18.07 33.4 C 9.81 50.33, 16.67 69.85, 32.04 78.02"
-          stroke="var(--forest, #3A4F41)" stroke-width="7.5"/>
-    <path d="M 53.29 36.12 C 46.89 33.28, 39.39 36.01, 36.32 42.3 C 33.25 48.6, 35.71 56.19, 41.9 59.48 Z"
+  <g transform="translate(44 61) rotate(21) scale(1.12) translate(-48 -48)">
+    <!-- the drop, drawn upright then seated with its lean -->
+    <path d="M 46.3 29.4 C 45.1 35.2, 39.9 38.6, 36.9 43.6 C 33.7 48.9, 33.2 56.1, 36.4 61.7 C 39.5 67.2, 46.4 70.7, 52.3 68.8 C 58.2 66.9, 62.6 61.4, 62.7 55.5 C 62.8 49.9, 59.5 45.0, 55.9 41.0 C 53.3 38.3, 51.5 35.0, 51.0 31.4 L 49.7 29.5 L 48.1 31.1 Z"
           fill="var(--forest, #3A4F41)"/>
-  </g>
-  <!-- half B (lower-right) -->
-  <g transform="translate(0.44 0.23) rotate(1.4 48 48)">
-    <path d="M 34.17 79.06 C 50.97 86.54, 70.6 80.27, 78.99 64.48 C 87.21 49.02, 82.07 29.2, 66.02 19.17"
-          stroke="var(--forest, #3A4F41)" stroke-width="7.5"/>
-    <path d="M 42.71 59.88 C 48.95 62.65, 56.27 60.13, 59.48 54.1 C 62.68 48.07, 60.68 40.59, 54.89 36.98 Z"
+    <!-- the ink leaving — three flecks on a rising zigzag -->
+    <path d="M 46.0 15.3 Q 48.6 18.9, 52.2 21.5 Q 48.6 24.1, 46.0 27.7 Q 43.4 24.1, 39.8 21.5 Q 43.4 18.9, 46.0 15.3 Z"
           fill="var(--forest, #3A4F41)"/>
+    <path d="M 56.0 6.8 Q 58.0 9.6, 60.7 11.5 Q 58.0 13.4, 56.0 16.2 Q 54.0 13.4, 51.3 11.5 Q 54.0 9.6, 56.0 6.8 Z"
+          fill="var(--forest, #3A4F41)"/>
+    <!-- the last trace is still warm as it goes -->
+    <path d="M 49.0 -0.7 Q 50.6 1.4, 52.9 3.2 Q 50.6 5.0, 49.0 7.1 Q 47.4 5.0, 45.1 3.2 Q 47.4 1.4, 49.0 -0.7 Z"
+          fill="var(--ember, #E8A87C)"/>
   </g>
-  <!-- the ember in the fracture -->
-  <path d="M 57.15 30.78 L 54.36 33.26 L 53.87 36.96 L 56.66 34.48 Z"
-        fill="var(--ember, #E8A87C)"/>
 </svg>

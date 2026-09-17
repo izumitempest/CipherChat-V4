@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { IpRateLimiter, ROOM_INFO_PER_MIN } from "@/lib/rate-limit";
+import { roomExpired } from "@/lib/room-ttl";
 
 // PUT /api/rooms/:roomId/verifier — the creator stores an encrypted
 // known-plaintext blob. Joiners derive their key and try to decrypt it:
@@ -32,7 +33,7 @@ export async function PUT(
     return NextResponse.json({ error: "invalid-verifier" }, { status: 400 });
   }
   const room = await db.room.findUnique({ where: { id: roomId } });
-  if (!room || room.burned) {
+  if (!room || room.burned || roomExpired(room.expiresAt)) {
     return NextResponse.json({ error: "not-found" }, { status: 404 });
   }
   if (room.verifier) {

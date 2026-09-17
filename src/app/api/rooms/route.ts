@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { IpRateLimiter, ROOM_CREATE_PER_MIN } from "@/lib/rate-limit";
+import {
+  parseRoomTtlSec,
+  roomExpired,
+  ROOM_TTL_DEFAULT_SEC,
+} from "@/lib/room-ttl";
 
 // Crockford base32, no I/L/O/U — codes that survive being read aloud
 const ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -34,19 +39,42 @@ function clientIp(request: Request): string {
 
 // POST /api/rooms — create a room. The server never learns the password:
 // the client derives the key locally and later stores only a verifier blob.
+// Body: { ttlSec?: number } — the room's lifetime chosen by its creator
+// (0 = no expiry, "until burned"). Expired rooms are swept here: this is
+// the one write-heavy moment on the calendar, so the janitor rides along.
 export async function POST(request: Request) {
   if (!createLimiter.allow(clientIp(request))) {
     return NextResponse.json({ error: "slow-down" }, { status: 429 });
   }
+  const body = (await request.json().catch(() => null)) as { ttlSec?: unknown } | null;
+  const parsed = body?.ttlSec === undefined ? { ok: true, ttlSec: ROOM_TTL_DEFAULT_SEC } : parseRoomTtlSec(body.ttlSec);
+  if (!parsed.ok) {
+    return NextResponse.json({ error: "invalid-ttl" }, { status: 400 });
+  }
+  // The janitor: rooms whose time ran out leave now (members cascade).
+  // Cheap and idempotent — no cron, no timer, just tidiness on the way in.
+  await db.room.deleteMany({ where: { expiresAt: { lt: new Date() } } });
   for (let attempt = 0; attempt < 5; attempt++) {
     const id = makeRoomId();
     const existing = await db.room.findUnique({ where: { id } });
-    if (existing) continue;
+    if (existing && !roomExpired(existing.expiresAt)) continue;
     const room = await db.room.create({
-      data: { id, creatorToken: makeToken(), epoch: 1 },
+      data: {
+        id,
+        creatorToken: makeToken(),
+        epoch: 1,
+        expiresAt: parsed.ttlSec
+          ? new Date(Date.now() + parsed.ttlSec * 1000)
+          : null,
+      },
     });
     return NextResponse.json(
-      { roomId: room.id, creatorToken: room.creatorToken, epoch: room.epoch },
+      {
+        roomId: room.id,
+        creatorToken: room.creatorToken,
+        epoch: room.epoch,
+        expiresAt: room.expiresAt?.toISOString() ?? null,
+      },
       { status: 201 },
     );
   }

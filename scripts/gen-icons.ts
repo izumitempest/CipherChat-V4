@@ -1,7 +1,7 @@
-// One-off brand asset generator — renders the Split Seal to the PWA
-// icons, the apple-touch icon and the OG card, using sharp (already
-// in node_modules). No AI image generation anywhere: every pixel is
-// the same crisp SVG geometry the app renders.
+// One-off brand asset generator — renders the Vanishing Ink to the
+// PWA icons, the apple-touch icon and the OG card, using sharp
+// (already in node_modules). No AI image generation anywhere: every
+// pixel is the same crisp SVG geometry the app renders.
 //
 //   bun scripts/gen-icons.ts
 //
@@ -11,9 +11,9 @@
 //   public/icons/icon-maskable-512.png   (full-bleed, mark inside the
 //                                         80% maskable safe zone)
 //   public/icons/apple-touch-icon.png    (180×180, opaque paper)
-//   public/og.png                        (1200×630 — seal + wordmark)
+//   public/og.png                        (1200×630 — mark + wordmark)
 //
-// The two brand hexes are hardcoded here on purpose: these files are
+// The brand hexes are hardcoded here on purpose: these files are
 // standalone assets consumed outside the app's CSS variable system.
 
 import { mkdir, stat } from "node:fs/promises";
@@ -24,107 +24,92 @@ import sharp from "sharp";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ICONS_DIR = path.join(ROOT, "public", "icons");
 
-/* ---- The Split Seal geometry (mirrors src/components/cc/mark.tsx;
+/* ---- The Vanishing Ink geometry (mirrors src/components/cc/mark.tsx;
    keep the two in sync — this is the same 96×96 hand-tuned set) ---- */
 
-const RING_A =
-  "M 61.83 16.94 C 45.77 9.79, 26.25 16.63, 18.07 33.4 C 9.81 50.33, 16.67 69.85, 32.04 78.02";
-const RING_B =
-  "M 34.17 79.06 C 50.97 86.54, 70.6 80.27, 78.99 64.48 C 87.21 49.02, 82.07 29.2, 66.02 19.17";
-const DISC_A =
-  "M 53.29 36.12 C 46.89 33.28, 39.39 36.01, 36.32 42.3 C 33.25 48.6, 35.71 56.19, 41.9 59.48 Z";
-const DISC_B =
-  "M 42.71 59.88 C 48.95 62.65, 56.27 60.13, 59.48 54.1 C 62.68 48.07, 60.68 40.59, 54.89 36.98 Z";
-const GLINT = "M 57.15 30.78 L 54.36 33.26 L 53.87 36.96 L 56.66 34.48 Z";
+const FOREST = "#3A4F41";
+const EMBER = "#E8A87C";
+const PAPER = "#F4F1EB";
 
-const INK = "#3A4F41"; // forest
-const EMBER = "#E8A87C"; // the heat in the fracture
-const PAPER = "#F4F1EB"; // the tile
-const CHARCOAL = "#2C2A28"; // wordmark
+/** The drop — a closed teardrop, the top edge ragged where it parts. */
+const DROP =
+  "M 46.3 29.4 C 45.1 35.2, 39.9 38.6, 36.9 43.6 C 33.7 48.9, 33.2 56.1, 36.4 61.7 " +
+  "C 39.5 67.2, 46.4 70.7, 52.3 68.8 C 58.2 66.9, 62.6 61.4, 62.7 55.5 " +
+  "C 62.8 49.9, 59.5 45.0, 55.9 41.0 C 53.3 38.3, 51.5 35.0, 51.0 31.4 " +
+  "L 49.7 29.5 L 48.1 31.1 Z";
 
-/** The seated (intact) seal as a single group, its 96×96 box scaled
- *  to `box` px and translated so its centre sits at (cx, cy). */
-function sealGroup(cx: number, cy: number, box: number): string {
-  const x = cx - box / 2;
-  const y = cy - box / 2;
-  return `<g transform="translate(${x.toFixed(2)} ${y.toFixed(2)}) scale(${(box / 96).toFixed(4)})">
-  <g transform="translate(-0.4 -0.21) rotate(-1.2 48 48)">
-    <path d="${RING_A}" fill="none" stroke="${INK}" stroke-width="7.5"/>
-    <path d="${DISC_A}" fill="${INK}"/>
-  </g>
-  <g transform="translate(0.44 0.23) rotate(1.4 48 48)">
-    <path d="${RING_B}" fill="none" stroke="${INK}" stroke-width="7.5"/>
-    <path d="${DISC_B}" fill="${INK}"/>
-  </g>
-  <path d="${GLINT}" fill="${EMBER}"/>
-</g>`;
+/** A four-pointed fleck — quadratics pulled toward the centre. */
+function fleck(cx: number, cy: number, r: number, lean = 0): string {
+  const k = r * 0.42;
+  return (
+    `M ${cx} ${cy - r} Q ${cx + k} ${cy - k}, ${cx + r} ${cy + lean} ` +
+    `Q ${cx + k} ${cy + k}, ${cx} ${cy + r} ` +
+    `Q ${cx - k} ${cy + k}, ${cx - r} ${cy - lean} ` +
+    `Q ${cx - k} ${cy - k}, ${cx} ${cy - r} Z`
+  );
 }
 
-/** Paper rounded-square tile with the seal centred — the "any" icons.
- *  markBox is the fraction of the edge the 96×96 box occupies (the
- *  seal's visual diameter is ~79% of its box). */
-function tileSvg(edge: number, markBox: number): string {
-  const rx = Math.round(edge * 0.1875); // same 96/512 corner as icon.svg
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${edge}" height="${edge}" viewBox="0 0 ${edge} ${edge}">
-  <rect width="${edge}" height="${edge}" rx="${rx}" fill="${PAPER}"/>
-  ${sealGroup(edge / 2, edge / 2, edge * markBox)}
-</svg>`;
+const FLECK_1 = fleck(46.0, 21.5, 6.2);
+const FLECK_2 = fleck(56.0, 11.5, 4.7);
+const FLECK_3 = fleck(49.0, 3.2, 3.9);
+
+/** The seated assembly (mirrors SEAT in mark.tsx). */
+function markGroup(ink = FOREST, ember = EMBER): string {
+  return (
+    `<g transform="translate(44 61) rotate(21) scale(1.12) translate(-48 -48)">` +
+    `<path d="${DROP}" fill="${ink}"/>` +
+    `<path d="${FLECK_1}" fill="${ink}"/>` +
+    `<path d="${FLECK_2}" fill="${ink}"/>` +
+    `<path d="${FLECK_3}" fill="${ember}"/>` +
+    `</g>`
+  );
 }
 
-/** Full-bleed paper square (the launcher crops its own shape) with
- *  the mark well inside the 80% maskable safe zone. */
-function maskableSvg(edge: number): string {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${edge}" height="${edge}" viewBox="0 0 ${edge} ${edge}">
-  <rect width="${edge}" height="${edge}" fill="${PAPER}"/>
-  ${sealGroup(edge / 2, edge / 2, edge * 0.72)}
-</svg>`;
-}
-
-/** The OG card: paper, the seal large and centred-left, the wordmark
- *  in a system serif (Georgia where it exists, Liberation Serif — a
- *  Times-metric transitional — everywhere else; next/font is not
- *  available to sharp, and a raster Lora is not worth the weight). */
-function ogSvg(): string {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
-  <rect width="1200" height="630" fill="${PAPER}"/>
-  ${sealGroup(280, 315, 340)}
-  <text x="520" y="348" font-family="Georgia, 'Liberation Serif', 'Times New Roman', serif"
-        font-size="96" font-weight="600" letter-spacing="-1" fill="${CHARCOAL}">CipherChat</text>
-  <text x="524" y="400" font-family="Georgia, 'Liberation Serif', 'Times New Roman', serif"
-        font-size="30" font-style="italic" letter-spacing="0.5" fill="${CHARCOAL}" opacity="0.62">A conversation that leaves no trace.</text>
-</svg>`;
-}
-
-/* ---- render + verify ---- */
-
-async function render(file: string, svg: string, w: number, h: number): Promise<void> {
-  await sharp(Buffer.from(svg)).resize(w, h).png().toFile(file);
-  const meta = await sharp(file).metadata();
-  const size = (await stat(file)).size;
-  if (meta.width !== w || meta.height !== h || !size) {
-    throw new Error(`${file}: expected ${w}×${h}, got ${meta.width}×${meta.height}`);
-  }
-  const kb = (size / 1024).toFixed(1);
-  console.log(`✓ ${path.relative(ROOT, file)}  ${meta.width}×${meta.height}  ${kb} KB`);
-}
-
-async function main(): Promise<void> {
+async function main() {
   await mkdir(ICONS_DIR, { recursive: true });
 
-  // "any" icons — mark box ≈ 80% of the tile edge (visual ≈ 63%).
-  await render(path.join(ICONS_DIR, "icon-192.png"), tileSvg(512, 0.806), 192, 192);
-  await render(path.join(ICONS_DIR, "icon-512.png"), tileSvg(512, 0.806), 512, 512);
-  // maskable — full-bleed, mark box 72% (visual ≈ 57%) < 80% safe zone.
-  await render(path.join(ICONS_DIR, "icon-maskable-512.png"), maskableSvg(512), 512, 512);
-  // apple touch — opaque paper, iOS applies its own corner mask.
-  await render(path.join(ICONS_DIR, "apple-touch-icon.png"), tileSvg(512, 0.806), 180, 180);
-  // OG card.
-  await render(path.join(ROOT, "public", "og.png"), ogSvg(), 1200, 630);
+  // Rounded paper tile, the drop's mass seated at ~(46%, 52%) so the
+  // rising flecks balance it toward the upper right.
+  const iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="${PAPER}"/>
+  <g transform="translate(94.7 71.9) scale(3.35)">${markGroup()}</g>
+</svg>`;
 
-  console.log("\nAll brand assets rendered from the Split Seal geometry.");
+  await sharp(Buffer.from(iconSvg)).resize(512, 512).png().toFile(path.join(ICONS_DIR, "icon-512.png"));
+  await sharp(Buffer.from(iconSvg)).resize(192, 192).png().toFile(path.join(ICONS_DIR, "icon-192.png"));
+
+  const appleSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 180 180">
+  <rect width="180" height="180" fill="${PAPER}"/>
+  <g transform="translate(26 13.2) scale(1.18)">${markGroup()}</g>
+</svg>`;
+  await sharp(Buffer.from(appleSvg)).resize(180, 180).png().toFile(path.join(ICONS_DIR, "apple-touch-icon.png"));
+
+  const maskSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="${PAPER}"/>
+  <g transform="translate(151 111) scale(2.5)">${markGroup()}</g>
+</svg>`;
+  await sharp(Buffer.from(maskSvg)).resize(512, 512).png().toFile(path.join(ICONS_DIR, "icon-maskable-512.png"));
+
+  const ogSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="${PAPER}"/>
+  <rect x="24" y="24" width="1152" height="582" rx="18" fill="none" stroke="#3A4F41" stroke-opacity="0.18" stroke-width="2"/>
+  <g transform="translate(117.8 92.2) scale(4.1)">${markGroup()}</g>
+  <text x="560" y="316" font-family="Georgia, 'Times New Roman', serif" font-size="64" font-weight="600" fill="#33342E" letter-spacing="-1">CipherChat</text>
+  <text x="562" y="372" font-family="Georgia, 'Times New Roman', serif" font-size="26" font-style="italic" fill="#6B6455">a conversation that leaves no trace</text>
+</svg>`;
+  await sharp(Buffer.from(ogSvg)).png().toFile(path.join(ROOT, "public", "og.png"));
+
+  for (const f of [
+    "icon-192.png",
+    "icon-512.png",
+    "icon-maskable-512.png",
+    "apple-touch-icon.png",
+    "../og.png",
+  ]) {
+    const s = await stat(path.join(ICONS_DIR, f));
+    console.log(`  ${f.padEnd(24)} ${s.size} bytes`);
+  }
+  console.log("The Vanishing Ink seated on every tile.");
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main();

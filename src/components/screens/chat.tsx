@@ -16,7 +16,7 @@ import { SettingsSheet } from "@/components/cc/settings-sheet";
 import { FileViewer } from "@/components/cc/file-viewer";
 import { Field, PasswordField } from "@/components/cc/fields";
 import { PrimaryAction, QuietAction } from "@/components/cc/actions";
-import { SealMark } from "@/components/cc/mark";
+import { InkMark } from "@/components/cc/mark";
 import { getSession } from "@/lib/session";
 import { markTtlHintSeen, ttlHintSeen } from "@/lib/local";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
@@ -120,6 +120,30 @@ function ActiveRoom({ roomId }: { roomId: string }) {
     el.addEventListener("scroll", readScroll, { passive: true });
     return () => el.removeEventListener("scroll", readScroll);
   }, [readScroll]);
+
+  /* The room's clock, watched while you sit in it: when the time
+   * runs out, the room closes itself — a quiet word, then the desk.
+   * (The server refuses re-entry on its own; this is the in-room
+   * courtesy, so nobody types into a room that's already gone.) */
+  const closeExpiredRoom = useApp((s) => s.closeExpiredRoom);
+  const expiresAt = session?.expiresAt;
+  useEffect(() => {
+    if (!expiresAt) return;
+    if (expiresAt <= Date.now()) {
+      closeExpiredRoom(roomId);
+      return;
+    }
+    const t = setInterval(() => {
+      if (expiresAt <= Date.now()) {
+        clearInterval(t);
+        toast(`This room's time ran out`, {
+          description: "It's closed for everyone — the letters went with it.",
+        });
+        closeExpiredRoom(roomId);
+      }
+    }, 1000);
+    return () => clearInterval(t);
+  }, [roomId, expiresAt, closeExpiredRoom]);
 
   const jumpToLatest = useCallback(() => {
     const el = scrollRef.current;
@@ -253,11 +277,11 @@ function ActiveRoom({ roomId }: { roomId: string }) {
             {empty ? (
               solo && isCreator ? (
                 /* The creator's empty room: the verb is the invite.
-                   Behind the copy, one broken fragment of the seal —
+                   Behind the copy, the ghost of the drop —
                    the mark the room will carry, waiting. */
                 <div className="settle relative flex flex-col items-center px-6 pb-16 pt-[16vh] text-center">
-                  <SealMark
-                    variant="ring"
+                  <InkMark
+                    variant="ghost"
                     size={150}
                     className="pointer-events-none absolute inset-0 m-auto text-forest opacity-[0.06]"
                   />
@@ -282,8 +306,8 @@ function ActiveRoom({ roomId }: { roomId: string }) {
                 /* S8 — the joiner's empty room: the product statement,
                    over the same quiet watermark. */
                 <div className="settle relative flex flex-col items-center px-6 pb-16 pt-[16vh] text-center">
-                  <SealMark
-                    variant="ring"
+                  <InkMark
+                    variant="ghost"
                     size={150}
                     className="pointer-events-none absolute inset-0 m-auto text-forest opacity-[0.06]"
                   />

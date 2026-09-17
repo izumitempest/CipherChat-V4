@@ -6,6 +6,7 @@ import {
   MEMBER_JOIN_PER_MIN,
 } from "@/lib/rate-limit";
 import { decideAdmission } from "@/lib/admission";
+import { roomExpired } from "@/lib/room-ttl";
 
 // POST /api/rooms/:roomId/members — join (or re-join after a refresh).
 // Identity is the public key: same key = same alias, same color.
@@ -60,6 +61,9 @@ export async function POST(
   const room = await db.room.findUnique({ where: { id: roomId } });
   if (!room || room.burned) {
     return NextResponse.json({ error: "not-found", burned: !!room?.burned }, { status: 404 });
+  }
+  if (roomExpired(room.expiresAt)) {
+    return NextResponse.json({ error: "room-expired" }, { status: 404 });
   }
 
   const pubkey = JSON.stringify(body.pubkey);
@@ -125,7 +129,7 @@ export async function GET(
 ) {
   const { roomId } = await params;
   const room = await db.room.findUnique({ where: { id: roomId } });
-  if (!room || room.burned) {
+  if (!room || room.burned || roomExpired(room.expiresAt)) {
     return NextResponse.json({ error: "not-found" }, { status: 404 });
   }
   const members = await db.member.findMany({

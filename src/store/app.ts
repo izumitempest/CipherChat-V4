@@ -66,7 +66,9 @@ import {
 } from "@/lib/local";
 import { getRelay } from "@/lib/relay";
 import { SILENT_GRACE_MS, stillSilentAtExpiry } from "@/lib/silent-grace";
+import { ROOM_TTL_DEFAULT_SEC } from "@/lib/room-ttl";
 import { dropDraft } from "@/lib/drafts";
+import { fmtTtlRemaining } from "@/lib/format";
 
 export const FILE_LIMIT = 2 * 1024 * 1024; // 2 MB — nothing is stored anywhere
 
@@ -77,7 +79,13 @@ export interface SealingState {
 
 export interface JoinResult {
   ok: boolean;
-  reason?: "wrong-password" | "not-found" | "burned" | "room-full" | "error";
+  reason?:
+    | "wrong-password"
+    | "not-found"
+    | "burned"
+    | "expired"
+    | "room-full"
+    | "error";
 }
 
 /** Someone is writing — transient, expires by its own clock. */
@@ -106,9 +114,17 @@ interface AppState {
   init: () => Promise<void>;
   navigate: (screen: Screen, roomId?: string | null) => void;
   syncHash: () => void;
-  createRoom: (localName: string, password: string) => Promise<JoinResult>;
+  createRoom: (
+    localName: string,
+    password: string,
+    ttlSec?: number,
+  ) => Promise<JoinResult>;
   joinRoom: (code: string, password: string, localName?: string) => Promise<JoinResult>;
   enterRoom: (session: RoomSession, localName: string, rejoined: boolean) => Promise<void>;
+  /** Creator-only: change the room's lifetime while it lives. */
+  adjustRoomTtl: (roomId: string, ttlSec: number) => Promise<{ ok: boolean; reason?: string }>;
+  /** The room's time ran out while we were in it — mark and step out. */
+  closeExpiredRoom: (roomId: string) => void;
   sendMessage: (
     text: string,
     file?: Omit<FilePayload, "sha"> & { viewOnce?: boolean },
@@ -324,13 +340,17 @@ export const useApp = create<AppState>()((set, get) => ({
 
   /* ----------------------------------------------- create ---- */
 
-  createRoom: async (localName, password) => {
+  createRoom: async (localName, password, ttlSec) => {
     const seed = get().seed;
     if (!seed) return { ok: false, reason: "error" };
 
-    const res = await fetch("/api/rooms", { method: "POST" });
+    const res = await fetch("/api/rooms", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ttlSec: ttlSec ?? ROOM_TTL_DEFAULT_SEC }),
+    });
     if (!res.ok) return { ok: false, reason: "error" };
-    const { roomId, creatorToken } = await res.json();
+    const { roomId, creatorToken, expiresAt } = await res.json();
     saveCreatorToken(roomId, creatorToken);
 
     set({ sealing: { roomId, label: "Sealing the room" } });
@@ -389,6 +409,7 @@ export const useApp = create<AppState>()((set, get) => ({
       kv: 1,
       password,
       creatorToken,
+      expiresAt: expiresAt ? Date.parse(expiresAt) : undefined,
       defaultTtl: loadRoomSettings(roomId).defaultTtl,
       legacy: false,
     };
@@ -409,7 +430,7 @@ export const useApp = create<AppState>()((set, get) => ({
       const info = await infoRes.json().catch(() => ({}));
       return {
         ok: false,
-        reason: info?.burned ? "burned" : "not-found",
+        reason: info?.burned ? "burned" : info?.expired ? "expired" : "not-found",
       };
     }
     const info = await infoRes.json();
@@ -481,6 +502,7 @@ export const useApp = create<AppState>()((set, get) => ({
       kv: 1, // the current key arrives via ECDH offers if the room has rotated
       password,
       creatorToken: loadCreatorToken(code),
+      expiresAt: info.expiresAt ? Date.parse(info.expiresAt) : undefined,
       defaultTtl: loadRoomSettings(code).defaultTtl,
       legacy: legacyRoom,
     };
@@ -561,11 +583,21 @@ export const useApp = create<AppState>()((set, get) => ({
       unreadCount: 0,
       burned: false,
       locked: false,
+      expiresAt: session.expiresAt,
     });
     set({ roomCards: loadRoomCards() });
 
     // Fresh message memory — there is no backlog, ever.
     set((s) => ({ messages: { ...s.messages, [session.roomId]: [] } }));
+
+    // A room with a clock announces it once, on entry — everyone
+    // deserves to know when the door closes.
+    if (session.expiresAt && session.expiresAt > Date.now()) {
+      addSystemLine(
+        session.roomId,
+        `This room closes in ${fmtTtlRemaining(session.expiresAt - Date.now())} — then it's gone for everyone.`,
+      );
+    }
 
     await get().refreshMembers(session.roomId);
 
@@ -870,6 +902,53 @@ export const useApp = create<AppState>()((set, get) => ({
     const session = getSession(roomId);
     if (session) session.defaultTtl = ttl;
     saveRoomSettings(roomId, { defaultTtl: ttl });
+  },
+
+  /* ------------------------------------------ room lifetime --- */
+
+  adjustRoomTtl: async (roomId, ttlSec) => {
+    const session = getSession(roomId);
+    const token = session?.creatorToken ?? loadCreatorToken(roomId);
+    if (!token) return { ok: false, reason: "not-creator" };
+    try {
+      const res = await fetch(`/api/rooms/${roomId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ creatorToken: token, ttlSec }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        return { ok: false, reason: body?.error ?? "error" };
+      }
+      const { expiresAt } = await res.json();
+      const ms = expiresAt ? Date.parse(expiresAt) : undefined;
+      if (session) session.expiresAt = ms;
+      patchRoomCard(roomId, { expiresAt: ms });
+      set({ roomCards: loadRoomCards() });
+      return { ok: true };
+    } catch {
+      return { ok: false, reason: "error" };
+    }
+  },
+
+  closeExpiredRoom: (roomId) => {
+    // The desk remembers it as closed for this session, like ash.
+    patchRoomCard(roomId, { closed: true, locked: true });
+    set((s) => ({
+      roomCards: loadRoomCards(),
+      activeRoomId: s.activeRoomId === roomId ? null : s.activeRoomId,
+      screen: s.activeRoomId === roomId ? "rooms" : s.screen,
+    }));
+    // Tell the room we've gone (they'll each hit the closed door on
+    // their own clock or their next re-entry attempt).
+    const session = getSession(roomId);
+    if (session) {
+      getRelay().emit("member:leave", {
+        roomId,
+        memberId: session.memberId,
+        alias: session.alias,
+      });
+    }
   },
 
   markVerified: (roomId, memberId, verified) => {

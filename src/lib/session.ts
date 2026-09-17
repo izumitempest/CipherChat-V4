@@ -17,6 +17,10 @@ export interface RoomSession {
   /** in-memory only — the shared secret that gates join delivery */
   password: string;
   creatorToken?: string;
+  /** when this room's time runs out (ms epoch) — undefined = until
+   *  burned. Learned from the server at create/join; adjusted by
+   *  the creator through adjustRoomTtl. */
+  expiresAt?: number;
   defaultTtl: TtlChoice;
   /** true only for rooms whose key bundle predates protocol v2 —
    *  gates the legacy (unpadded, unguarded) envelope receive path */

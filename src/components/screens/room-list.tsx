@@ -8,7 +8,7 @@
 "use client";
 
 import { useState } from "react";
-import { Lock, Mail, Plus } from "lucide-react";
+import { Clock3, Lock, Mail, Plus } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -18,11 +18,11 @@ import {
 } from "@/components/ui/sheet";
 import { Field, PasswordField } from "@/components/cc/fields";
 import { PrimaryAction, SecondaryAction } from "@/components/cc/actions";
-import { SealMark } from "@/components/cc/mark";
+import { InkMark } from "@/components/cc/mark";
 import { ThemeToggle } from "@/components/cc/theme-toggle";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
 import { SheetGrabber } from "@/components/cc/sheet-grabber";
-import { fmtAgo } from "@/lib/format";
+import { fmtAgo, fmtTtlRemaining } from "@/lib/format";
 import { getSession } from "@/lib/session";
 import { useApp } from "@/store/app";
 import type { RoomCard } from "@/lib/types";
@@ -67,11 +67,11 @@ function RoomListBody() {
 
   const body = roomCards.length === 0 ? (
     <div className="settle relative flex flex-1 flex-col items-center justify-center px-6 py-12">
-      {/* The watermark — one broken fragment of the seal, pressed
+      {/* The watermark — the ghost of the drop, pressed
           into the paper at almost-nothing: the desk, waiting for
           letters. Sits behind the copy; never intercepts a touch. */}
-      <SealMark
-        variant="ring"
+      <InkMark
+        variant="ghost"
         size={150}
         className="pointer-events-none absolute inset-0 m-auto text-forest opacity-[0.06]"
       />
@@ -99,7 +99,7 @@ function RoomListBody() {
           index={i}
           locked={!getSession(card.roomId)}
           onOpen={() => {
-            if (card.burned) return;
+            if (card.burned || card.closed) return;
             if (getSession(card.roomId)) {
               navigate("chat", card.roomId);
             } else {
@@ -141,6 +141,31 @@ function RoomCardRow({
   /* The letters settle onto the desk, one behind the next —
      a 30ms step, capped, so a long desk never drags. */
   const settleDelay = { animationDelay: `${Math.min(index, 8) * 30}ms` };
+
+  if (card.closed || (card.expiresAt && card.expiresAt <= Date.now())) {
+    // The clock ran out — same quiet register as ash, honest about
+    // why: time, not fire.
+    return (
+      <li className="settle" style={settleDelay}>
+        <div
+          aria-disabled
+          className="flex items-center justify-between gap-3 rounded-[12px] border border-dashed border-ash/45 bg-paper px-4 py-3"
+        >
+          <div className="min-w-0">
+            <p className="t-body relative truncate text-ash">
+              {card.localName}
+              <span
+                aria-hidden
+                className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 -rotate-2 bg-ash/50"
+              />
+            </p>
+            <p className="t-meta mt-0.5 text-ash/70">Closed — its time ran out</p>
+          </div>
+          <Clock3 className="size-4 shrink-0 text-ash/50" aria-hidden />
+        </div>
+      </li>
+    );
+  }
 
   if (card.burned) {
     // The one-session ash state: quiet, gray, gone after reload.
@@ -220,6 +245,19 @@ function RoomCardRow({
             </span>
             <span aria-hidden>·</span>
             <span>{fmtAgo(card.lastActivity)}</span>
+            {card.expiresAt && card.expiresAt > Date.now() ? (
+              <>
+                <span aria-hidden>·</span>
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1",
+                    card.expiresAt - Date.now() < 60 * 60 * 1000 && "text-terracotta/80",
+                  )}
+                >
+                  closes {fmtTtlRemaining(card.expiresAt - Date.now())}
+                </span>
+              </>
+            ) : null}
           </p>
         </div>
       </button>
@@ -259,6 +297,8 @@ export function UnlockSheet({
       setError(
         res.reason === "wrong-password"
           ? "That password doesn't match this room."
+          : res.reason === "expired"
+            ? "This room's time ran out — it's gone."
           : res.reason === "not-found" || res.reason === "burned"
             ? "This room doesn't exist, or it has been burned."
             : "Something went wrong. Try again.",

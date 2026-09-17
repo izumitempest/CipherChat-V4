@@ -6,7 +6,7 @@
 "use client";
 
 import { useApp } from "@/store/app";
-import { SealMark } from "./mark";
+import { InkMark } from "./mark";
 
 const R = 34;
 const C = 2 * Math.PI * R; // ~213.6
@@ -64,22 +64,22 @@ export function Sealing({
           />
         </svg>
         <div className="absolute inset-0 flex items-center justify-center">
-          <SealMark size={30} />
+          <InkMark size={30} />
         </div>
       </div>
       {/* Three wax shards — tiny fragments of the seal, still
           settling in the whisper cadence while the derivation does
           its real, deliberately slow work. */}
       <div className="mt-6 flex items-center justify-center gap-2" aria-hidden>
-        <SealMark variant="ring" size={9} className="typing-dot text-forest/45" />
-        <SealMark
-          variant="ring"
+        <InkMark variant="fleck" size={9} className="typing-dot text-forest/45" />
+        <InkMark
+          variant="fleck"
           size={9}
           className="typing-dot text-forest/70"
           style={{ animationDelay: "180ms" }}
         />
-        <SealMark
-          variant="ring"
+        <InkMark
+          variant="fleck"
           size={9}
           className="typing-dot text-forest"
           style={{ animationDelay: "360ms" }}

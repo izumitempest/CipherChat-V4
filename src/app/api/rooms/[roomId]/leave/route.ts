@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { IpRateLimiter } from "@/lib/rate-limit";
 import { verifyLeaveProof } from "@/lib/leave-proof";
+import { roomExpired } from "@/lib/room-ttl";
 
 // POST /api/rooms/:roomId/leave — a member leaves, PROVING POSSESSION of
 // the room signing key: the request carries {memberId, ts, sig}, and we
@@ -36,7 +37,7 @@ export async function POST(
     return NextResponse.json({ error: "invalid-proof" }, { status: 400 });
   }
   const room = await db.room.findUnique({ where: { id: roomId } });
-  if (!room || room.burned) {
+  if (!room || room.burned || roomExpired(room.expiresAt)) {
     return NextResponse.json({ ok: true, epoch: room?.epoch ?? 0 });
   }
   const member = await db.member.findFirst({

@@ -4,10 +4,12 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronLeft, Link2, Settings2, Shield } from "lucide-react";
-import { SealMark } from "@/components/cc/mark";
+import { InkMark } from "@/components/cc/mark";
 import { useApp } from "@/store/app";
+import { getSession } from "@/lib/session";
+import { fmtTtlRemaining } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { MemberPublic } from "@/lib/types";
 
@@ -33,7 +35,7 @@ export function ChatHeader({
 
   /* The re-seal, announced without words: when the room's keys finish
    * rotating (resealing[roomId] falling back to false), an intact
-   * seal stamps once beside the name and rests into nothing. Render-
+   * drop stamps once beside the name and rests into nothing. Render-
    * time state adjustment (the sanctioned no-effect pattern); the mark
    * unmounts itself on animation end, so no timer exists to leak. */
   const [resealFlash, setResealFlash] = useState(0);
@@ -42,6 +44,27 @@ export function ChatHeader({
     setWasResealing(resealing);
     if (wasResealing) setResealFlash(Date.now());
   }
+
+  /* The room's clock, ticking in the machine's voice. Only mounted
+   * when a clock exists; a minute out, it warms to terracotta. */
+  const expiresAt = getSession(roomId)?.expiresAt ?? card?.expiresAt;
+  const [clock, setClock] = useState(() =>
+    expiresAt ? fmtTtlRemaining(expiresAt - Date.now()) : null,
+  );
+  const [prevExpires, setPrevExpires] = useState(expiresAt);
+  if (prevExpires !== expiresAt) {
+    setPrevExpires(expiresAt);
+    setClock(expiresAt ? fmtTtlRemaining(expiresAt - Date.now()) : null);
+  }
+  useEffect(() => {
+    if (!expiresAt) return;
+    const t = setInterval(
+      () => setClock(fmtTtlRemaining(expiresAt - Date.now())),
+      1000,
+    );
+    return () => clearInterval(t);
+  }, [expiresAt]);
+  const closingSoon = !!expiresAt && expiresAt - Date.now() < 60_000;
 
   return (
     <header className="sticky top-0 z-20 border-b border-hairline bg-paper pt-[env(safe-area-inset-top)]">
@@ -56,7 +79,7 @@ export function ChatHeader({
         </button>
         <div className="relative min-w-0 flex-1 pl-1 md:pl-0">
           {/* The re-stamp: absolutely placed so the header never
-              reflows — the seal appears, stamps, and is gone. */}
+              reflows — the drop appears, stamps, and is gone. */}
           {resealFlash ? (
             <span
               key={resealFlash}
@@ -64,7 +87,7 @@ export function ChatHeader({
               onAnimationEnd={() => setResealFlash(0)}
               className="reseal-flash pointer-events-none absolute right-1 top-1/2 -translate-y-1/2"
             >
-              <SealMark size={16} />
+              <InkMark size={16} />
             </span>
           ) : null}
           <p
@@ -95,6 +118,20 @@ export function ChatHeader({
             <span className="truncate">
               {count} {count === 1 ? "member" : "members"}
             </span>
+            {clock ? (
+              <>
+                <span aria-hidden>·</span>
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1 tabular-nums",
+                    closingSoon && "text-terracotta/80",
+                  )}
+                >
+                  closes {clock}
+                  <span className="sr-only"> from now</span>
+                </span>
+              </>
+            ) : null}
             {!relayOnline ? (
               <>
                 <span aria-hidden>·</span>

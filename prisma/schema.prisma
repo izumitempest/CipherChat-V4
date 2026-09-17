@@ -15,10 +15,11 @@ datasource db {
 model Room {
   id           String    @id // public room code used in invite links
   verifier     String? // encrypted known-plaintext set by the creator (JSON {iv, ct})
-  creatorToken String // secret held only by the creator, authorizes burn
+  creatorToken String // secret held only by the creator, authorizes burn + lifetime changes
   epoch        Int       @default(1) // key-derivation epoch; bumped on member leave (key rotation)
   burned       Boolean   @default(false)
   burnedAt     DateTime?
+  expiresAt    DateTime? // chosen by the creator at creation; null = until burned. Expired rooms are refused and swept.
   createdAt    DateTime  @default(now())
   members      Member[]
 }

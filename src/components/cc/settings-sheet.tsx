@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import { Check, ChevronRight } from "lucide-react";
+import { toast } from "sonner";
 import {
   Sheet,
   SheetContent,
@@ -25,14 +26,16 @@ import { Field, TextField } from "@/components/cc/fields";
 import { DestructiveAction, SecondaryAction } from "@/components/cc/actions";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
 import { SheetGrabber } from "@/components/cc/sheet-grabber";
+import { TtlPicker } from "@/components/cc/ttl-picker";
+import { RoomTtlPicker } from "@/components/cc/room-ttl-picker";
 import { useLegalSheet } from "@/components/cc/legal-sheet";
 import { loadVerified } from "@/lib/local";
 import { getSession } from "@/lib/session";
+import { fmtTtlRemaining } from "@/lib/format";
 import { useApp } from "@/store/app";
-import { TTL_STEPS, type MemberPublic } from "@/lib/types";
+import type { MemberPublic } from "@/lib/types";
 
 const EMPTY_MEMBERS: MemberPublic[] = [];
-import { cn } from "@/lib/utils";
 
 function AboutRow({
   label,
@@ -67,6 +70,7 @@ export function SettingsSheet({
   const members = useApp((s) => s.members[roomId] ?? EMPTY_MEMBERS);
   const renameRoom = useApp((s) => s.renameRoom);
   const setDefaultTtl = useApp((s) => s.setDefaultTtl);
+  const adjustRoomTtl = useApp((s) => s.adjustRoomTtl);
   const burnRoom = useApp((s) => s.burnRoom);
   const leaveRoom = useApp((s) => s.leaveRoom);
   const showLegal = useLegalSheet((s) => s.show);
@@ -75,6 +79,12 @@ export function SettingsSheet({
 
   const [name, setName] = useState(card?.localName ?? "");
   const [ttl, setTtl] = useState(session?.defaultTtl ?? 0);
+  const [roomTtl, setRoomTtl] = useState<number>(
+    session?.expiresAt
+      ? Math.max(0, Math.round((session.expiresAt - Date.now()) / 1000))
+      : 0,
+  );
+  const [roomTtlBusy, setRoomTtlBusy] = useState(false);
   const [confirmBurn, setConfirmBurn] = useState(false);
   const [burning, setBurning] = useState(false);
 
@@ -86,6 +96,11 @@ export function SettingsSheet({
     if (open) {
       setName(card?.localName ?? "");
       setTtl(session?.defaultTtl ?? 0);
+      setRoomTtl(
+        session?.expiresAt
+          ? Math.max(0, Math.round((session.expiresAt - Date.now()) / 1000))
+          : 0,
+      );
     }
   }
 
@@ -127,35 +142,56 @@ export function SettingsSheet({
               <p className="font-sans text-[13px] font-medium tracking-[0.01em] text-charcoal">
                 Default message lifetime
               </p>
-              <div
-                role="radiogroup"
-                aria-label="Default message lifetime"
-                className="grid grid-cols-4 gap-1.5"
-              >
-                {TTL_STEPS.map((step) => (
-                  <button
-                    key={step.value}
-                    type="button"
-                    role="radio"
-                    aria-checked={ttl === step.value}
-                    onClick={() => {
-                      setTtl(step.value);
-                      setDefaultTtl(roomId, step.value);
-                    }}
-                    className={cn(
-                      "h-11 rounded-[8px] border font-sans text-[12.5px] font-medium transition-colors duration-150",
-                      ttl === step.value
-                        ? "border-forest bg-forest text-paper"
-                        : "border-hairline bg-side text-mute hover:border-forest/25 hover:bg-wash hover:text-charcoal",
-                    )}
-                  >
-                    {step.short}
-                  </button>
-                ))}
-              </div>
-              <p className="t-meta">
-                New messages you send will destroy themselves after this long.
+              <TtlPicker
+                value={ttl}
+                onChange={(v) => {
+                  setTtl(v);
+                  setDefaultTtl(roomId, v);
+                }}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <p className="font-sans text-[13px] font-medium tracking-[0.01em] text-charcoal">
+                Room lifetime
               </p>
+              {isCreator ? (
+                <RoomTtlPicker
+                  value={roomTtl}
+                  onChange={(v) => {
+                    setRoomTtl(v);
+                    setRoomTtlBusy(true);
+                    void adjustRoomTtl(roomId, v).then((res) => {
+                      setRoomTtlBusy(false);
+                      if (res.ok) {
+                        toast(v === 0 ? "The room now lives until burned" : "Room lifetime changed", {
+                          description:
+                            v === 0
+                              ? "The clock is off — only the match remains."
+                              : `Everyone will see it close in ${fmtTtlRemaining(v * 1000)}.`,
+                        });
+                      } else {
+                        toast("The lifetime couldn't be changed", {
+                          description:
+                            res.reason === "room-expired"
+                              ? "The room's time already ran out."
+                              : "Check your connection and try again.",
+                        });
+                      }
+                    });
+                  }}
+                />
+              ) : (
+                <p className="t-meta" role="status">
+                  {roomTtl > 0
+                    ? `This room closes in ${fmtTtlRemaining(roomTtl * 1000)}.`
+                    : "This room lives until it's burned."}
+                  {roomTtlBusy ? " Saving…" : ""}
+                </p>
+              )}
+              {isCreator ? (
+                <p className="t-meta">Only you can change this — the clock belongs to the room's creator.</p>
+              ) : null}
             </div>
 
             <div className="space-y-2">

@@ -319,41 +319,32 @@
   animation: reseal-stamp 900ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
-/* The Split Seal gives way (burn overlay): each half jars loose about
-   its own centre and drifts apart along the fracture. transform-box
-   view-box + px origins keep the pivots in viewBox units, matching
-   the baked attribute transforms in mark.tsx. */
-@keyframes seal-break-a {
-  from {
-    transform: translate(-0.4px, -0.21px) rotate(-1.2deg);
+/* The Vanishing Ink gives way (burn overlay): the flecks flee and
+   vanish, the ember flares and dies — but the drop's outline rests
+   where the ink was, a ghost of what burned. transform-box
+   view-box keeps the units in viewBox space, matching the baked
+   attribute transform in mark.tsx. */
+@keyframes ink-lift-off {
+  0% {
+    opacity: 0.95;
+    transform: translateY(0) scale(1);
   }
-  to {
-    transform: translate(-2.7px, -1.45px) rotate(-8deg);
+  55% {
+    opacity: 0.55;
+    transform: translateY(-6px) scale(0.84);
+  }
+  100% {
+    opacity: 0.42;
+    transform: translateY(-7px) scale(0.8);
   }
 }
-@keyframes seal-break-b {
-  from {
-    transform: translate(0.44px, 0.23px) rotate(1.4deg);
-  }
-  to {
-    transform: translate(3px, 1.6px) rotate(9deg);
-  }
-}
-.seal-half-a,
-.seal-half-b {
+.ink-lift-off {
   transform-box: view-box;
-}
-.seal-half-a {
-  transform-origin: 30.9px 39.7px;
-  animation: seal-break-a 1100ms cubic-bezier(0.2, 0, 0, 1) 250ms both;
-}
-.seal-half-b {
-  transform-origin: 64.8px 56.9px;
-  animation: seal-break-b 1100ms cubic-bezier(0.2, 0, 0, 1) 250ms both;
+  animation: ink-lift-off 1050ms cubic-bezier(0.2, 0, 0, 1) 200ms both;
 }
 
-/* The ember in the wound flares once as the halves part, then dies. */
-@keyframes seal-glint-flare {
+/* The ember flares once as the ink departs, then dies. */
+@keyframes ember-flare {
   0% {
     opacity: 0.9;
     transform: scale(1);
@@ -367,15 +358,15 @@
     transform: scale(1.8);
   }
 }
-.seal-glint {
+.ember-flare {
   transform-box: fill-box;
   transform-origin: center;
-  animation: seal-glint-flare 950ms cubic-bezier(0.2, 0, 0, 1) 250ms both;
+  animation: ember-flare 950ms cubic-bezier(0.2, 0, 0, 1) 250ms both;
 }
 
-/* Ember flecks: quiet sparks on short fade paths — drift set per
+/* Fleeing flecks: quiet sparks on short fade paths — drift set per
    fleck via --fx / --fy (see mark.tsx). */
-@keyframes ember-fleck {
+@keyframes fleck-flee {
   0% {
     opacity: 0;
     transform: none;
@@ -388,8 +379,36 @@
     transform: translate(var(--fx, 0px), var(--fy, -3px));
   }
 }
-.seal-fleck {
-  animation: ember-fleck 850ms cubic-bezier(0.2, 0, 0, 1) both;
+.fleck-flee {
+  animation: fleck-flee 850ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+/* The intact mark breathes: its flecks quietly rise and fade on a
+   staggered loop — the mark is always evaporating. Scoped to
+   .mark-breathe (the landing hero) so seated marks hold still. */
+@keyframes ink-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(1.5px);
+  }
+  25% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-3.5px);
+  }
+}
+.mark-breathe .ink-fleck {
+  transform-box: fill-box;
+  animation: ink-rise 2.7s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+/* …except the last fleck keeps its ember warmth through the loop */
+.mark-breathe .ink-fleck-ember {
+  animation-duration: 2.7s;
 }
 
 
@@ -645,6 +664,10 @@
     transform: none !important;
   }
   .mark-breathe {
+    animation: none !important;
+  }
+  /* The rising flecks hold still too — the mark keeps its shape */
+  .mark-breathe .ink-fleck {
     animation: none !important;
   }
 }

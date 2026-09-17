@@ -1,63 +1,90 @@
-// The Split Seal — CipherChat's mark.
+// The Vanishing Ink — CipherChat's mark.
 //
-// A wax seal struck once, then cracked along a single clean diagonal.
-// The encryption is the seal, the ephemerality is the fracture, and
-// the small ember lying in the gap is the heat still inside. The two
-// halves never sit perfectly back together: each keeps the few
-// degrees of rotation and the hair of translation it was dealt when
-// the wax broke, which is what makes the mark read as pressed by a
-// hand rather than drawn with a compass.
+// A drop of ink, seated on the page, its top fraying into three
+// flecks that lift away. The writing is the drop; the ephemerality
+// is the flecks; and the last fleck — the smallest, almost gone —
+// is still warm (ember): the heat of the conversation leaving, not
+// the paper burning. The silhouette is deliberately hand-fallen:
+// the bulb's sides wobble a few percent off a compass circle, the
+// tail leans a hair, and the detach edge is ragged, the way real
+// ink parts when it lifts.
 //
 // Variants:
-//   intact (default) — seated, whole silhouette, the seam quiet and
-//                      tapered (a hairline at the heart, open at the
-//                      rim). Brand, landing, desk, centrepieces.
-//   cracked           — the halves jarred apart with ember flecks in
-//                      the wound; breaks apart once on mount. Burn
-//                      and destruction contexts only.
-//   ring              — one broken fragment of the outer ring alone,
-//                      stroked in currentColor so it can carry any
-//                      member ink (--ink-0..7) or a watermark tone.
+//   intact (default) — the seated drop with its flecks rising.
+//                      Brand, landing, desk, centrepieces. With
+//                      `breathe`, the flecks quietly rise and fade
+//                      on a loop: the mark is always evaporating.
+//   scattered         — the drop has lifted off: only its outline
+//                      remains, rising away, while seven flecks
+//                      flee outward and the ember flares once.
+//                      Burn and destruction contexts only.
+//   fleck             — one four-pointed fleck alone, filled with
+//                      currentColor so it can carry any member ink
+//                      (--ink-0..7) or a watermark tone. Typing
+//                      dots, sender shards, quiet accents.
+//   ghost             — the drop's outline stroked in currentColor,
+//                      flecks filled. Watermarks at whisper
+//                      opacity; never intercepts a touch.
 //
-// Geometry: hand-tuned beziers on a 96×96 grid, centre (48,48). The
-// outer contour is deliberately not a circle — joint radii wobble
-// (33.3 / 35.1 against a nominal 34) and handle lengths are perturbed
-// a few percent: letterpressed wax, not a compass drawing. The
-// fracture runs along the −62° diagonal; both halves (and both disc
-// faces) are pulled back 4° from it, so the crack is nearly closed at
-// the heart and opens toward the rim, the way real wax splits.
+// Geometry: hand-tuned beziers on a 96×96 grid. The drop is drawn
+// upright (bulb centre ~(48,55), tail fraying at y≈25) and the
+// whole assembly is rotated 21° and scaled about (48,48), so the
+// flecks rise up-and-right — off the line of text, the direction
+// writing leaves in.
 
 import { cn } from "@/lib/utils";
 
-/* Half A (upper-left) of the outer ring — an open arc, butt ends. */
-const RING_A =
-  "M 61.83 16.94 C 45.77 9.79, 26.25 16.63, 18.07 33.4 C 9.81 50.33, 16.67 69.85, 32.04 78.02";
-/* Half B (lower-right). */
-const RING_B =
-  "M 34.17 79.06 C 50.97 86.54, 70.6 80.27, 78.99 64.48 C 87.21 49.02, 82.07 29.2, 66.02 19.17";
-/* The inner disc, split along the same diagonal (r = 13). */
-const DISC_A =
-  "M 53.29 36.12 C 46.89 33.28, 39.39 36.01, 36.32 42.3 C 33.25 48.6, 35.71 56.19, 41.9 59.48 Z";
-const DISC_B =
-  "M 42.71 59.88 C 48.95 62.65, 56.27 60.13, 59.48 54.1 C 62.68 48.07, 60.68 40.59, 54.89 36.98 Z";
-/* The lone fragment the ring variant carries — half A's arc with the
-   ends pulled back further, so the break still reads at 13px. */
-const RING_FRAGMENT =
-  "M 59.63 16.05 C 43.93 10.34, 25.84 17.47, 18.07 33.4 C 10.83 48.24, 15.05 65.4, 27.07 74.79";
-/* The ember — a slim diamond lying in the fracture just above the
-   disc: the heat inside the seal. */
-const GLINT = "M 57.15 30.78 L 54.36 33.26 L 53.87 36.96 L 56.66 34.48 Z";
+/* The drop — a closed teardrop, joint radii wobbling (33.4 / 36.4 /
+ * 62.8 against nominal bulbs), the top edge ragged where it parts. */
+const DROP =
+  "M 46.3 29.4 C 45.1 35.2, 39.9 38.6, 36.9 43.6 C 33.7 48.9, 33.2 56.1, 36.4 61.7 " +
+  "C 39.5 67.2, 46.4 70.7, 52.3 68.8 C 58.2 66.9, 62.6 61.4, 62.7 55.5 " +
+  "C 62.8 49.9, 59.5 45.0, 55.9 41.0 C 53.3 38.3, 51.5 35.0, 51.0 31.4 " +
+  "L 49.7 29.5 L 48.1 31.1 Z";
 
-/* Seated pose (intact): the offsets the halves took when the wax
-   cracked — the seam opens a touch wider toward the upper right. */
-const SEAT_A = "translate(-0.4 -0.21) rotate(-1.2 48 48)";
-const SEAT_B = "translate(0.44 0.23) rotate(1.4 48 48)";
-/* Broken pose (cracked): jarred loose about each half's own centre,
-   then drifted apart along the fracture's perpendicular. */
-const BREAK_A = "translate(-2.7 -1.45) rotate(-8 30.9 39.7)";
-const BREAK_B = "translate(3 1.6) rotate(9 64.8 56.9)";
+/* A four-pointed fleck — quadratics pulled toward the centre make
+ * the edges kiss in, a glint rather than a square. */
+function fleckPath(cx: number, cy: number, r: number, lean = 0): string {
+  const k = r * 0.42; // control pull
+  return (
+    `M ${cx} ${cy - r} Q ${cx + k} ${cy - k}, ${cx + r} ${cy + lean} ` +
+    `Q ${cx + k} ${cy + k}, ${cx} ${cy + r} ` +
+    `Q ${cx - k} ${cy + k}, ${cx - r} ${cy - lean} ` +
+    `Q ${cx - k} ${cy - k}, ${cx} ${cy - r} Z`
+  );
+}
 
-export function SealMark({
+/* The three rising flecks — the ink leaving, scattered on a zigzag
+ * as flecks are when they catch the air: up, up-right, up. Sizes
+ * fall as they climb; the last is the ember (see intact render). */
+const FLECK_1 = fleckPath(46.0, 21.5, 6.2);
+const FLECK_2 = fleckPath(56.0, 11.5, 4.7);
+const FLECK_3 = fleckPath(49.0, 3.2, 3.9);
+
+/* The lone fleck the `fleck` variant carries — big enough to hold
+ * a member ink at 9px, tilted the way the drop leans. */
+const LONE_FLECK = fleckPath(48, 48, 27, 2.5);
+
+/* Scatter positions for the `scattered` variant: where the flecks
+ * flee to once the drop has left (drawn in the upright frame). */
+const SCATTER: { d: string; ember?: boolean; fx: string; fy: string; delay: string }[] = [
+  { d: fleckPath(31.0, 33.0, 2.5), fx: "-4.2px", fy: "-3.4px", delay: "300ms" },
+  { d: fleckPath(64.5, 33.5, 2.1), fx: "4.6px", fy: "-2.8px", delay: "420ms", ember: true },
+  { d: fleckPath(26.5, 51.0, 1.7), fx: "-3.4px", fy: "1.8px", delay: "500ms" },
+  { d: fleckPath(68.0, 55.5, 2.3), fx: "3.8px", fy: "3.0px", delay: "360ms" },
+  { d: fleckPath(37.0, 15.0, 1.8), fx: "-2.6px", fy: "-4.4px", delay: "580ms" },
+  { d: fleckPath(58.5, 9.0, 2.0), fx: "2.4px", fy: "-4.6px", delay: "640ms", ember: true },
+  { d: fleckPath(46.5, 78.5, 1.5), fx: "0.6px", fy: "4.2px", delay: "460ms" },
+];
+
+/* The seated assembly: rotate + a breath of scale + a nudge, all
+ * baked into one attribute transform (px origins, viewBox
+ * units — see the CSS notes in globals.css). Hand-checked: the
+ * flecks land at (51.6,27.5) (67.0,26.1) (63.0,14.5) final —
+ * each with 2.5–3 units of clear air between edges. */
+const SEAT = "translate(44 61) rotate(21) scale(1.12) translate(-48 -48)";
+
+export function InkMark({
   size = 64,
   breathe = false,
   variant = "intact",
@@ -67,16 +94,17 @@ export function SealMark({
 }: {
   size?: number;
   breathe?: boolean;
-  variant?: "intact" | "cracked" | "ring";
-  /** Seal body colour (ring + disc). The ring variant ignores it and
-   *  takes currentColor, so member inks can drive it from outside. */
+  variant?: "intact" | "scattered" | "fleck" | "ghost";
+  /** Drop body colour (drop + ink flecks). The fleck and ghost
+   *  variants ignore it and take currentColor, so member inks can
+   *  drive them from outside. */
   ink?: string;
   className?: string;
   style?: React.CSSProperties;
 }) {
-  // The fragment: one broken shard of the rim, in whatever ink the
+  // The fleck: one rising shard of ink, in whatever colour the
   // surrounding text already carries.
-  if (variant === "ring") {
+  if (variant === "fleck") {
     return (
       <svg
         width={size}
@@ -87,12 +115,13 @@ export function SealMark({
         className={cn(breathe && "mark-breathe", className)}
         style={style}
       >
-        <path d={RING_FRAGMENT} stroke="currentColor" strokeWidth={7.5} />
+        <path d={LONE_FLECK} fill="currentColor" />
       </svg>
     );
   }
 
-  const cracked = variant === "cracked";
+  const ghost = variant === "ghost";
+  const scattered = variant === "scattered";
   return (
     <svg
       width={size}
@@ -103,58 +132,85 @@ export function SealMark({
       className={cn(breathe && "mark-breathe", className)}
       style={style}
     >
-      {/* half A — rim shard + its share of the disc */}
-      <g
-        transform={cracked ? BREAK_A : SEAT_A}
-        className={cracked ? "seal-half-a" : undefined}
-      >
-        <path d={RING_A} stroke={ink} strokeWidth={7.5} />
-        <path d={DISC_A} fill={ink} />
+      <g transform={SEAT}>
+        {ghost ? (
+          /* the whisper: outline drop, filled flecks */
+          <>
+            <path d={DROP} stroke="currentColor" strokeWidth={4.5} fill="none" />
+            <path d={FLECK_1} fill="currentColor" />
+            <path d={FLECK_2} fill="currentColor" />
+            <path d={FLECK_3} fill="currentColor" />
+          </>
+        ) : scattered ? (
+          /* the drop has left — its outline rises after it */
+          <>
+            <path
+              d={DROP}
+              stroke={ink}
+              strokeWidth={4.5}
+              fill="none"
+              className="ink-lift-off"
+            />
+            <path
+              d={FLECK_1}
+              fill={ink}
+              className="ink-lift-off"
+              style={{ animationDelay: "140ms" } as React.CSSProperties}
+            />
+            <path
+              d={FLECK_2}
+              fill={ink}
+              className="ink-lift-off"
+              style={{ animationDelay: "260ms" } as React.CSSProperties}
+            />
+            {/* the ember flares once as the ink departs, then dies */}
+            <path
+              d={FLECK_3}
+              fill="var(--ember)"
+              className="ember-flare"
+            />
+            {/* fleeing flecks — drift set per fleck via --fx/--fy */}
+            {SCATTER.map((f, i) => (
+              <path
+                key={i}
+                d={f.d}
+                fill={f.ember ? "var(--terracotta)" : ink}
+                className="fleck-flee"
+                style={
+                  {
+                    "--fx": f.fx,
+                    "--fy": f.fy,
+                    animationDelay: f.delay,
+                  } as React.CSSProperties
+                }
+              />
+            ))}
+          </>
+        ) : (
+          /* intact — the seated drop, its flecks rising */
+          <>
+            <path d={DROP} fill={ink} />
+            <path d={FLECK_1} fill={ink} className="ink-fleck" />
+            <path
+              d={FLECK_2}
+              fill={ink}
+              className="ink-fleck"
+              style={{ animationDelay: "900ms" } as React.CSSProperties}
+            />
+            {/* the last trace is still warm as it goes */}
+            <path
+              d={FLECK_3}
+              fill="var(--ember)"
+              className="ink-fleck ink-fleck-ember"
+              style={{ animationDelay: "1800ms" } as React.CSSProperties}
+            />
+          </>
+        )}
       </g>
-      {/* half B */}
-      <g
-        transform={cracked ? BREAK_B : SEAT_B}
-        className={cracked ? "seal-half-b" : undefined}
-      >
-        <path d={RING_B} stroke={ink} strokeWidth={7.5} />
-        <path d={DISC_B} fill={ink} />
-      </g>
-      {/* the heat in the wound — flares and dies when the seal breaks */}
-      <path
-        d={GLINT}
-        fill="var(--ember)"
-        className={cracked ? "seal-glint" : undefined}
-      />
-      {/* ember flecks, cracked only: quiet sparks on short fade paths
-          (drift set per fleck via --fx/--fy custom properties) */}
-      {cracked ? (
-        <>
-          <circle
-            cx="50.58"
-            cy="41.44"
-            r="1.1"
-            fill="var(--ember)"
-            className="seal-fleck"
-            style={{ "--fx": "1.6px", "--fy": "-2.6px", animationDelay: "380ms" } as React.CSSProperties}
-          />
-          <circle
-            cx="59.33"
-            cy="27.97"
-            r="1.4"
-            fill="var(--terracotta)"
-            className="seal-fleck"
-            style={{ "--fx": "3.4px", "--fy": "-1.4px", animationDelay: "520ms" } as React.CSSProperties}
-          />
-          <circle
-            cx="61.17"
-            cy="22.16"
-            r="1"
-            fill="var(--ember)"
-            className="seal-fleck"
-            style={{ "--fx": "2.2px", "--fy": "-3.8px", animationDelay: "640ms" } as React.CSSProperties}
-          />
-        </>
-      ) : null}
     </svg>
   );
 }
+
+/* Backwards-compatible alias: the mark's name changed with its
+ * design; call sites that still say SealMark keep compiling. */
+export const SealMark = InkMark;
