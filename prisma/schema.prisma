@@ -19,6 +19,7 @@ model Room {
   epoch        Int       @default(1) // key-derivation epoch; bumped on member leave (key rotation)
   burned       Boolean   @default(false)
   burnedAt     DateTime?
+  reportReason String?   // set when terminated via the abuse endpoint — operator forensics, capped at the route
   expiresAt    DateTime? // chosen by the creator at creation; null = until burned. Expired rooms are refused and swept.
   createdAt    DateTime  @default(now())
   members      Member[]

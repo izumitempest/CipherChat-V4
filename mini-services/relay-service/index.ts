@@ -322,8 +322,39 @@ httpServer.listen(PORT, () => {
 const INTERNAL_PORT = 3004;
 const INTERNAL_TOKEN = process.env.RELAY_INTERNAL_TOKEN ?? "";
 
+function terminateRoom(roomId: string) {
+  for (const s of memberSockets(roomId)) {
+    s.emit("room:burned", { roomId });
+  }
+  rooms.delete(roomId);
+  for (const key of [...wentOfflineAt.keys()]) {
+    if (key.startsWith(`${roomId}:`)) wentOfflineAt.delete(key);
+  }
+  console.log(`[relay] room ${roomId} terminated (internal)`);
+}
+
 createServer((req, res) => {
   const url = req.url ?? "";
+
+  // POST /terminate/:roomId — the abuse path's relay half. The REST
+  // /report route calls this after it has burned the room in the
+  // registry, so connected members hear "room:burned" (the event
+  // every client already runs its burn sequence on) instead of
+  // typing into a dead room until their next poll. Same token guard
+  // as presence; never routed through the gateway.
+  if (url.startsWith("/terminate/") && req.method === "POST") {
+    if (req.headers["x-internal-token"] !== INTERNAL_TOKEN) {
+      res.writeHead(403, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "forbidden" }));
+      return;
+    }
+    const roomId = url.slice("/terminate/".length).split("?")[0];
+    terminateRoom(roomId);
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
   if (!url.startsWith("/presence/")) {
     res.writeHead(404, { "content-type": "application/json" });
     res.end(JSON.stringify({ error: "not-found" }));

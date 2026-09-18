@@ -229,7 +229,7 @@ The writing surface, and the most stateful leaf component. A sticky,
 | Element | Behavior |
 |---|---|
 | Textarea | Auto-grows 1→3 lines (24–66px), Lora 15.5px, Enter sends / Shift+Enter newlines, `maxLength 4000` |
-| Attach (paperclip) | Hidden `<input type=file>`; ≤2MB (`FILE_LIMIT`), base64-encoded in 8KB chunks |
+| Attach (paperclip) | Hidden `<input type=file>`; ≤2MB (`FILE_LIMIT`), base64-encoded in 8KB chunks. **Images are scanned first** (`lib/media.ts`): a byte-level detector looks for EXIF/XMP/comment segments (JPEG APP1/COM, PNG eXIf/text chunks, WebP EXIF/XMP); clean files pass through untouched, files that carry metadata are re-encoded through a canvas (JPEG/WebP q0.92, PNG lossless) and it is the re-encoded bytes that attach — the slip shows the new size. **Fail-closed**: a metadata-carrying image that cannot be re-encoded is refused with a notice, never attached as-is. SVG and GIF pass through by scope (see DESIGN.md §5) |
 | Drag & drop | Dashed forest "Release to attach" overlay while hovering |
 | Paste | Clipboard files into the textarea attach instead of inserting |
 | TTL chip | Cycles OFF → 5m → 1h → 8h; armed state is terracotta; the first-ever arming raises the hint strip instead of a toast |
@@ -673,6 +673,11 @@ settings), unsupported (in-app banners still work). The Install
 section is platform-aware via `useInstallPrompt`: `beforeinstallprompt`
 captured → "Install app" (our UI asks, never the browser's mini-infobar);
 iOS → the three-tap Share walkthrough; standalone → a check and silence.
+Since Task 31 the About section also carries the abuse contact: a
+Flag glyph + one quiet paragraph naming `abuse@cipherchat.app` (a
+button that copies the address, "Address copied" toast) and stating
+plainly what reporting does — "Reporting ends the room — it cannot
+unsend anything, because nothing is kept."
 
 ### `apple-splash.tsx`
 
@@ -866,7 +871,8 @@ that once let handlers register twice). Composer drafts live in
 | `rate-limit.ts` | Token bucket (20 frames/s per socket), IP limiter (5 rooms/min), frame-size cap — shared by relay and API |
 | `silent-grace.ts` | **Round 21**: the silent-departure decision logic — `SILENT_GRACE_MS` (120s client clock), `EVICT_MIN_OFFLINE_MS` (60s server floor), `authorizeEviction` (pure; the /evict route obeys), `stillSilentAtExpiry` (pure; the client's gate at timer expiry) |
 | `drafts.ts` | Per-room composer drafts — memory-only, like the keys |
-| `identity.ts` | Deterministic aliases ("Quiet Heron") and ink indexes from fingerprints; 8-hex fingerprints + `3F2A · 91BC` grouping; passphrase generator (CSPRNG, 256-word list, 5 words = 40 bits — see DESIGN.md §5); room-code parser |
+| `identity.ts` | Deterministic aliases ("Quiet Heron") and ink indexes from fingerprints; 8-hex fingerprints + `3F2A · 91BC` grouping; passphrase generator (CSPRNG, 256-word list, 6 words = 48 bits — see DESIGN.md §5); room-code parser |
+| `media.ts` | Image-metadata gate for the attach path: `imageNeedsScan` (scope: jpeg/png/webp — SVG and GIF pass by policy), `imageHasMetadata` (pure byte-level detector: JPEG APP1-Exif/APP1-XMP/COM incl. FF-fill tolerance, PNG eXIf/tEXt/iTXt/zTXt/tIME, WebP EXIF/XMP; unparseable image bytes flag suspect), `reencodeImage` (browser canvas decode→draw→encode, q0.92 for lossy formats, null on failure) |
 | `session.ts` | **Memory-only** room sessions (member ids, kv, the password — kept while the room is open so the invite sheet can re-share it; never on disk; refresh = locked rooms, by design) |
 | `local.ts` | localStorage: room cards, creator tokens, verify marks, replay watermarks, TTL-hint flag, per-room settings |
 | `relay.ts` | The single socket.io client (`io("/?XTransformPort=3003")`) |

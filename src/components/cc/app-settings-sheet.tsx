@@ -7,7 +7,7 @@
 "use client";
 
 import { useState } from "react";
-import { Bell, Check, ChevronRight, Plus, Share, Smartphone } from "lucide-react";
+import { Bell, Check, ChevronRight, Flag, Plus, Share, Smartphone } from "lucide-react";
 import { toast } from "sonner";
 import {
   Sheet,
@@ -316,6 +316,26 @@ export function AppSettingsSheet({
             <div className="space-y-0.5">
               <AboutRow label="Terms of Use" onClick={() => showLegal("terms")} />
               <AboutRow label="Privacy Policy" onClick={() => showLegal("privacy")} />
+            </div>
+            <div className="flex items-start gap-2.5 px-1 pt-1">
+              <Flag className="mt-0.5 size-4 shrink-0 text-mute" aria-hidden />
+              <p className="t-meta">
+                A room being misused can be reported to{" "}
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard?.writeText("abuse@cipherchat.app").then(
+                      () => toast("Address copied"),
+                      () => undefined,
+                    );
+                  }}
+                  className="font-medium text-charcoal underline decoration-hairline underline-offset-2 hover:decoration-forest"
+                >
+                  abuse@cipherchat.app
+                </button>
+                . Reporting ends the room — it cannot unsend anything,
+                because nothing is kept.
+              </p>
             </div>
           </div>
         </div>

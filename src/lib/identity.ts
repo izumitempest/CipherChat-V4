@@ -16,13 +16,15 @@ const ANIMALS = [
 
 // For room passwords — words meant to be read aloud and typed on a
 // phone. EXACTLY 256 of them, so one random byte picks one word with
-// zero bias, and five words carry 40 bits of entropy. The list is the
+// zero bias, and six words carry 48 bits of entropy. The list is the
 // whole defense: the room's verifier bundle is a public offline
 // oracle (see kdf.ts), so the password itself must be big enough that
-// grinding argon2id over every possible passphrase costs years, not
-// afternoons. The old 24-word list held 18 bits — under 7 hours of
-// single-CPU guessing — which is why it is gone.
-const PASS_WORDS = [
+// grinding argon2id over every possible passphrase outlives any
+// attacker's budget. The old 24-word list held 18 bits — under 7
+// hours of single-CPU guessing — which is why it is gone; the 5-word
+// interim (40 bits) survived a laptop but not a ~100-GPU cluster
+// (months, not years) — 48 bits multiplies that grind by 256×.
+export const PASS_WORDS = [
   "acorn", "almanac", "amber", "anchor", "apple", "apricot", "arrow",
   "aspen", "badger", "basil", "basket", "birch",
   "bison", "blanket", "blossom", "bonfire", "bookmark",
@@ -103,10 +105,11 @@ export function inkFromFingerprint(hex: string): number {
  * Each byte selects one of the 256 words exactly (no modulo bias at
  * this list size; the rejection guard below keeps the function honest
  * if the list ever changes), duplicates are skipped so the words stay
- * distinct, and the 5-word default holds 2^40 candidates — grinding
+ * distinct, and the 6-word default holds 2^48 candidates — grinding
  * the public verifier through argon2id over all of them is a
- * multi-year, multi-machine project instead of an afternoon. */
-export function generatePassphrase(words = 5): string {
+ * multi-century single-machine project, and a multi-year one for a
+ * large cluster, instead of an afternoon. */
+export function generatePassphrase(words = 6): string {
   const n = Math.min(words, PASS_WORDS.length);
   const limit = Math.floor(256 / PASS_WORDS.length) * PASS_WORDS.length;
   const picks: string[] = [];

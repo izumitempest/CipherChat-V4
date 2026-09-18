@@ -9,9 +9,6 @@ const nextConfig: NextConfig = {
   // The dev-tools indicator overlaps the composer on small screens —
   // and it never exists in production. Off in dev too.
   devIndicators: false,
-  typescript: {
-    ignoreBuildErrors: true,
-  },
   reactStrictMode: false,
 };
 

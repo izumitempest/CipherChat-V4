@@ -2,7 +2,7 @@
 
 A detailed, chronological record of every change and addition made to the
 project, cross-referenced against the internal task IDs used in
-`worklog.md`. Final state at time of writing: **124/124 property tests
+`worklog.md`. Final state at time of writing: **139/139 property tests
 green, lint clean (0 errors, 0 warnings), tsc clean, all services
 healthy.**
 
@@ -727,39 +727,233 @@ verification. `MessageView` gained `replyTo?: ReplySnapshot`.
 
 ---
 
-## 14. Current state inventory
+## 14. Round 31 — the last mile (deploy-gate work)
 
-**Tests:** 124/124 across 14 files (replay, rotation, kdf, identity,
+The round the analysis asked for: every claim becomes true of the
+artifact users will actually touch. Four of the six items are shipped
+and verified; the two that require leaving the sandbox (a real CI run
+on GitHub, a Docker-host compose E2E) are prepared and honestly
+stated as the remaining distance.
+
+### 14.1 CI gate (31.1)
+
+- **`next.config.ts`**: `typescript.ignoreBuildErrors` **removed** — the
+  Docker image's `next build` can no longer carry what CI's explicit
+  `tsc --noEmit` exists to catch. The artifact and the gate can no
+  longer diverge.
+- **Cold-runner simulation** of `.github/workflows/ci.yml` in the
+  sandbox: `bun install --frozen-lockfile` class ✓, `prisma generate` ✓,
+  lint ✓ (0/0), `tsc --noEmit` ✓, the property suite ✓ (139/139). The
+  build step is the one thing the sandbox cannot run (the dev server
+  owns `.next`); the first real Actions run is the proof that remains.
+- **The audit gate fired for the first time — and it is RED.** The
+  simulated `npm audit --audit-level=high` (the CI step) found
+  **32 vulnerabilities (2 critical, 17 high)** in the tree. `bun
+  update` (semver-range fixes only, 171 packages) cleared both
+  criticals and 7 highs → **25 remaining (0 critical, 14 high)**, with
+  the suite staying green throughout. The remainder needs deliberate
+  work, not `--force`: npm's suggested prisma "fix" is a *downgrade*
+  (6.19.2 → 6.12.0 — backwards), `@mdxeditor` needs a major bump, and
+  the rest are dev-chain transitives (lodash/brace-expansion/minimatch/
+  js-yaml/picomatch class) that never ship in the standalone build.
+  This is the debt a never-fired gate was hiding, now named.
+- **A real bug the update surfaced and fixed**: `bun update` desynced
+  React (19.2.3) from react-dom (19.3.0) — the dev server served a
+  blank page with "Incompatible React versions". Both pinned to
+  **19.3.0**; dev server restarted; full golden path re-verified
+  (create room, six-word passphrase, send, deliver, zero page
+  errors).
+
+### 14.2 Compose stack audit (31.2)
+
+- **The suspected deploy-completeness bug is a false alarm — and the
+  record's own wording was the culprit.** The compose stack DOES carry
+  the presence service: the relay container `expose`s both `3003`
+  (socket.io) and `3004` (internal presence), and the web tier's
+  `RELAY_PRESENCE_URL: http://relay:3004` points at it. The presence
+  snapshot is **the same relay process on a second port**, not a
+  missing third service — but CHANGES.md's inventory line ("relay
+  :3003 · presence snapshot :3004") read like two services and misled
+  the analysis. The inventory and DESIGN.md now say it plainly.
+- `grep src/` for `XTransformPort` / `localhost:81` / `127.0.0.1:81`:
+  **nothing** — no gateway hardcodes in the shipped code.
+- **Docker is not available in this sandbox** — the compose E2E
+  (deferred Task 20 acceptance) still requires a Docker host and is
+  the honest remaining distance, stated in the residuals.
+
+### 14.3 EXIF stripping — the privacy obligation (31.3)
+
+- **`src/lib/media.ts` (new)** — `imageNeedsScan(mime)` scopes the
+  pipeline to jpeg/png/webp (SVG and GIF pass through by policy: SVG
+  has no EXIF and is never rasterised — its scripts die in the img
+  context; GIF's surface is comment-only and a re-encode would kill
+  animation). `imageHasMetadata(bytes, mime)` is a **pure, byte-level
+  detector**: JPEG walks its marker segments (APP1 Exif, APP1 XMP,
+  COM free-text, with FF-fill-byte tolerance; SOS ends the scan), PNG
+  walks its chunk table (eXIf/tEXt/iTXt/zTXt/tIME), WebP walks RIFF
+  chunk fourccs (EXIF/XMP); unparseable image bytes flag **suspect** —
+  the detector fails toward the strip. `reencodeImage(file)` is the
+  browser half: decode (createImageBitmap, `<img>`+object-URL
+  fallback) → canvas → encode (JPEG/WebP q0.92, PNG lossless), null on
+  any failure.
+- **`composer.tsx` `pickFile`** — images are scanned before attaching:
+  clean files pass through untouched (no cost, no quality loss);
+  metadata-carrying files are re-encoded and it is the **re-encoded
+  bytes that seal** — the attachment slip shows the new size, so what
+  you see is what you seal. **Fail-closed**: a metadata-carrying image
+  that cannot be re-encoded (or outgrows the limit) is refused with
+  "This image carries hidden metadata we couldn't strip — it wasn't
+  attached." — never a silent send of location data.
+- **Verified end-to-end** (gateway, room EMH0P11JA2): a GPS-tagged
+  JPEG (a real ffmpeg JPEG with a hand-built EXIF APP1: TIFF IFD0 →
+  GPS IFD, lat 6°30'30.5"N lon 3°12'15.2"W) attached at 739 B → the
+  slip showed the re-encoded 1 KB → sent → the viewer's blob fetched
+  and byte-inspected: **JPEG with no "Exif" APP1, no XMP, no comment,
+  decoding at full 280px width**. A clean PNG passed through
+  byte-identical (264 B → 264 B) and displayed. Even the ffmpeg base
+  JPEG's "Lavc61.19.101" COM comment was correctly flagged — the
+  detector catches encoder fingerprints, not just GPS.
+- DESIGN.md §5 carries the full policy + the cost note (one-time
+  decode+encode at attach, imperceptible for photos).
+
+### 14.4 Passphrase default: six words, 2^48 (31.4)
+
+- **`identity.ts`**: `generatePassphrase(words = 6)` — the 256-word
+  CSPRNG generator's default raised from 5 to 6 words. Arithmetic,
+  stated honestly in DESIGN.md §5: 5 words (2^40) survived a laptop
+  but a ~100-GPU cluster grinds it in *months*; 6 words (2^48)
+  multiplies the grind by 256× — multi-year even for a large cluster.
+  Same UX class: still typeable, still stationery-voiced.
+- **Tests** (`task-31-last-mile.test.ts`): default = 6 distinct
+  in-list words; explicit counts honoured; **the CSPRNG-source proof**
+  (a deterministic `getRandomValues` stub makes the output predictable
+  to the byte — the words derive from CSPRNG bytes and from nothing
+  else, with `Math.random` spied to zero calls); `PASS_WORDS` exactly
+  256 unique (the invariant unbiased sampling stands on); 50-sample
+  distribution sanity. `PASS_WORDS` is now exported for exactly this.
+- **Verified in the browser**: the create sheet seeded
+  "pillow-bison-topaz-vellum-peony-lichen" (and later
+  "teak-ravine-indigo-canvas-radish-magnet") — six words, unlock
+  round-trips through argon2id on the new format.
+
+### 14.5 Canonical versioning — the proof, and the fix it forced (31.5)
+
+- **The unasked question had the bad answer.** Round 29's
+  `canonicalV2` **always** joined twelve fields — `replyCanonical(
+  undefined)` returns `""`, so every plain frame's canonical ended with
+  a trailing `|` the Task-19 eleven-field form never had. A pre-reply
+  frame would **not** have verified under the shipped verifier: every
+  deploy would have silently dropped messages from not-yet-reloaded
+  tabs, in both directions, for the whole mixed-version window.
+- **The fix — made free by the fact that nothing has ever deployed**:
+  the reply slot is now appended **only when a quote exists**
+  (`return reply ? base + "|" + reply : base`). A plain frame's
+  canonical is byte-identical to the pre-reply form; a valid snapshot
+  never serialises to `""`, so "no reply" and "shape-guard-failed
+  reply" remain the same string, and a tampered reply still changes
+  the canonical (which is what breaks the signature).
+- **The proof** (`task-31-last-mile.test.ts`): the test builds the
+  Task-19 eleven-field string by hand, signs it, and verifies it
+  under the current `canonicalV2` — **and the mirror direction too**
+  (a new plain signature verifies under the old canonical). The
+  rollout is now clean both ways: only a letter that actually carries
+  a quote needs both ends current, and an old tab drops exactly those
+  (documented since Round 29). DESIGN.md's Quoted-replies entry
+  records the refinement.
+
+### 14.6 The abuse surface (31.6)
+
+- **`POST /api/rooms/:roomId/report`** (`src/app/api/rooms/[roomId]/
+  report/route.ts`) — the one act of moderation the architecture
+  permits: terminate the room. Burns it in the registry (members
+  deleted, verifier withdrawn, `burnedAt` set), stores a capped
+  (500-char) `reportReason` for operator forensics, then tells the
+  relay. **5/min/IP** rate limit; unknown and already-burned rooms
+  answer `{ok: true}` exactly like success — existence is never
+  confirmed to strangers, same as `/evict` and `/burn`.
+- **Relay `POST /terminate/:roomId`** on the internal :3004 port
+  (token-guarded, never gateway-routed): emits `room:burned` to every
+  connected member and drops the room — the event every client
+  already runs its burn sequence on. `terminateRoom()` extracted so
+  the socket `room:burn` path and the internal path share one body.
+- **Schema**: `Room.reportReason String?` (pushed).
+- **The contact**: `abuse@cipherchat.app` in README (new "Reporting
+  abuse" section with the same ceiling honesty) and in Settings →
+  About (Flag glyph, click-to-copy with "Address copied" toast, and
+  the quiet line "Reporting ends the room — it cannot unsend anything,
+  because nothing is kept."). DESIGN.md §6 states the ceiling as a
+  threat-model line: anyone who knows a room ID can end it — the same
+  griefing ceiling a leaked creator token already had.
+- **Verified end-to-end** (room EMH0P11JA2, member connected through
+  the gateway): report via curl → `{ok: true}`; relay logged "room
+  EMH0P11JA2 terminated (internal)"; the connected member's client ran
+  the full burn sequence (navigated to `#/rooms`, room gone from the
+  list); DB: `burned: true`, reason stored, 0 members, verifier null;
+  unknown room → `{ok: true}`; already-burned → `{ok: true}`; the
+  5/min window edge → **429** on the sixth call. (The sandbox `.env`
+  gained a real `RELAY_INTERNAL_TOKEN` + `RELAY_PRESENCE_URL` for
+  this — the same vars compose already wires.)
+
+### 14.7 Round 31 tests + verification
+
+- `src/lib/__tests__/task-31-last-mile.test.ts` — 15 cases: the
+  canonical versioning proof (3), the passphrase generator (4), the
+  metadata detector (8: JPEG EXIF/XMP/COM/clean + FF-fill, PNG
+  eXIf/text/clean, WebP EXIF/clean, suspect-on-garbage, scope). Suite
+  **124 → 139**, all green.
+- lint 0 errors 0 warnings; tsc clean; browser E2E green through the
+  gateway (EXIF strip, clean passthrough, six-word passphrase,
+  Settings About copy, report + burn propagation + rate limit);
+  dev.log all 200/201/429-as-designed; zero page errors.
+
+---
+
+## 15. Current state inventory
+
+**Tests:** 139/139 across 15 files (replay, rotation, kdf, identity,
 padding, hardening, captions, reactions, silent-grace, leave-proof,
-identity-range, admission, notifications, replies + viewer/CSV parsing).
+identity-range, admission, notifications, replies + viewer/CSV
+parsing, last-mile: canonical versioning proof + passphrase
+generator + image-metadata detector).
 Lint clean (0 errors, 0 warnings); tsc clean in src/.
 
 **Services:** Next.js dev `:3000` · relay `:3003` (socket.io,
-in-memory, supervised) · presence snapshot `:3004` (token-guarded) ·
+in-memory, supervised) — **the same relay process also serves the
+internal presence snapshot on `:3004`** (token-guarded, plus
+`POST /terminate/:roomId` since Task 31; never gateway-routed) ·
 gateway `:81` (Caddy, `XTransformPort` routing).
 
 **Docs:** `README.md` (product + honest NOT-protect list + running
-it) · `DESIGN.md` (tokens, motion vocabulary, architecture §5,
-threat model §6) · `COMPONENTS.md` (full component/behavior
-reference) · `MOBILE.md` (PWA + Capacitor + honest limits) ·
-`LICENSE` + `public/legal/` (MIT, Terms, Privacy) · `worklog.md`
-(this history's raw source).
+it + reporting abuse) · `DESIGN.md` (tokens, motion vocabulary,
+architecture §5, threat model §6) · `COMPONENTS.md` (full
+component/behavior reference) · `MOBILE.md` (PWA + Capacitor +
+honest limits) · `LICENSE` + `public/legal/` (MIT, Terms, Privacy) ·
+`worklog.md` (this history's raw source).
 
-**Deploy:** `deploy/` (docker-compose: web + relay + Caddy TLS,
-`.env.example` contract) · `.github/workflows/ci.yml`.
+**Deploy:** `deploy/` (docker-compose: web + relay — both ports —
++ Caddy TLS, `.env.example` contract) · `.github/workflows/ci.yml`.
 
-**Known residuals (documented, not hidden):** compose-build E2E needs
-a Docker host; first real CI run pending; `next.config.ts`
-`typescript.ignoreBuildErrors` still true (CI's explicit tsc is the
-real gate); no web push by architecture (VAPID sketched in MOBILE.md
-with its privacy price); evict trusts the relay's in-memory clock;
-nuisance-eviction residual; replay-to-fresh-device within 10 min;
-5-word passphrase could grow to 6–7 for paranoid rooms. From Round 29:
-a reply's quote deliberately survives its original burning (the words
-were already shown; burning quotes with their original is a one-line
-policy flip if that ever feels wrong); video and audio cards are icon
-cards, not frame previews (canvas frame-capture is possible but adds
-decode cost); the vendored pdf.js worker is ~1.3 MB (accepted,
-documented, lazy-loaded); image EXIF is not stripped on send — browsers
-strip it only on canvas re-encode, so a future round could re-encode
-images through a canvas before sealing.
+**Known residuals (documented, not hidden):** the last mile itself —
+**a real CI run on GitHub Actions has still never fired** (the
+sandbox simulated every step it can: lint/tsc/tests green, but the
+push and the build step need the repo), and **the audit gate is
+red**: 25 advisories remain (0 critical, 14 high) after the semver
+`bun update`; the fix paths are deliberate work, not `--force`
+(prisma's listed fix is a downgrade, @mdxeditor needs a major bump,
+the rest are dev-chain transitives that never ship in the standalone
+build). Compose E2E still needs a Docker host. No web push by
+architecture (VAPID sketched in MOBILE.md with its privacy price);
+evict trusts the relay's in-memory clock; nuisance-eviction residual
+(and its sibling: anyone who knows a room ID can report-terminate it
+— stated as a threat-model ceiling, Task 31); replay-to-fresh-device
+within 10 min. From Round 29: a reply's quote deliberately survives
+its original burning (the words were already shown; burning quotes
+with their original is a one-line policy flip if that ever feels
+wrong); video and audio cards are icon cards, not frame previews
+(canvas frame-capture is possible but adds decode cost); the vendored
+pdf.js worker is ~1.3 MB (accepted, documented, lazy-loaded). Closed
+in Round 31: EXIF (scan + canvas re-encode at attach, fail-closed),
+the 5-word passphrase (now 6, 2^48), the canonical versioning gap
+(plain frames are byte-identical to the pre-reply form — proven both
+directions), and the abuse surface (report endpoint + relay
+terminate + abuse@ contact).

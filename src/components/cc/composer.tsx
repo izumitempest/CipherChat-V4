@@ -13,6 +13,7 @@ import { FILE_LIMIT, useApp } from "@/store/app";
 import { getSession } from "@/lib/session";
 import { ttlHintSeen } from "@/lib/local";
 import { getDraft, setDraft } from "@/lib/drafts";
+import { imageHasMetadata, imageNeedsScan, reencodeImage } from "@/lib/media";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
 import { TTL_STEPS, isCustomTtl, makeReplySnapshot, type MessageView, type TtlChoice } from "@/lib/types";
 import { fmtBytes, fmtTtlLong, fmtTtlShort } from "@/lib/format";
@@ -157,16 +158,33 @@ export function Composer({
       toast(`Files can be up to ${fmtBytes(FILE_LIMIT)}`);
       return;
     }
-    const buf = new Uint8Array(await file.arrayBuffer());
+    // A photo must not carry its own return address: images with
+    // EXIF/XMP metadata are re-encoded through a canvas (pixels only)
+    // before they are attached, and a file whose metadata cannot be
+    // stripped is not attached at all — the honest failure is a
+    // notice, never a silent send of location data.
+    let bytes = new Uint8Array(await file.arrayBuffer());
+    let mime = file.type || "application/octet-stream";
+    let size = file.size;
+    if (imageNeedsScan(mime) && imageHasMetadata(bytes, mime)) {
+      const clean = await reencodeImage(file);
+      if (!clean || clean.size > FILE_LIMIT) {
+        toast("This image carries hidden metadata we couldn't strip — it wasn't attached.");
+        return;
+      }
+      bytes = new Uint8Array(await clean.arrayBuffer());
+      mime = clean.type || mime;
+      size = clean.size;
+    }
     let s = "";
     const CHUNK = 8192;
-    for (let i = 0; i < buf.length; i += CHUNK) {
-      s += String.fromCharCode(...buf.subarray(i, i + CHUNK));
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      s += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
     }
     setAttachment({
       name: file.name,
-      mime: file.type || "application/octet-stream",
-      size: file.size,
+      mime,
+      size,
       dataB64: btoa(s),
     });
   }

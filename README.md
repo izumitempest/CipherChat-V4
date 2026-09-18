@@ -136,6 +136,19 @@ the cost of grinding resistance, not a bug. The sealing screen says so.
   landing footer and Settings → About)
 - `public/legal/privacy.md` — Privacy Policy (same)
 
+## Reporting abuse
+
+The architecture permits exactly one act of moderation: ending a
+room. There is no content to review (the server is blind), no member
+to suspend (identity is per-room and derived), no history to scrub
+(none is stored). Rooms being misused can be reported to
+**abuse@cipherchat.app** (also listed in Settings → About) or
+terminated directly with the rate-limited
+`POST /api/rooms/:roomId/report` endpoint, which destroys the
+registry, withdraws the verifier, and tells every connected member
+the room is gone. Self-hosters should publish their own contact and
+expect the same ceiling: anyone who knows a room's ID can end it.
+
 ## Documentation
 
 - `DESIGN.md` — tokens, motion, architecture, and the full threat model

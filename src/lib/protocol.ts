@@ -278,7 +278,7 @@ export function canonicalV2(f: {
   messageId?: string;
   reply?: ReplySnapshot;
 }): string {
-  return [
+  const base = [
     "v2",
     f.roomId,
     f.kv,
@@ -290,8 +290,19 @@ export function canonicalV2(f: {
     f.text ?? "",
     f.fileSha ?? "",
     f.messageId ?? "",
-    replyCanonical(f.reply),
   ].join("|");
+  // The reply slot is appended ONLY when a quote exists — so a plain
+  // frame's canonical is byte-identical to the pre-reply eleven-field
+  // form. That is the rollout proof: a tab running old code verifies
+  // new plain letters, and a new tab verifies old ones; only a letter
+  // that actually carries a quote needs both ends current (an old tab
+  // drops it rather than accept a quote it cannot check). A valid
+  // snapshot never serialises to "" (it has content and separators),
+  // so "no reply" and "reply that failed the shape guard" are the
+  // same string — and a tampered reply changes the canonical, which
+  // is exactly what breaks the signature.
+  const reply = replyCanonical(f.reply);
+  return reply ? `${base}|${reply}` : base;
 }
 
 /* ---------------- seal / open ---------------- */
