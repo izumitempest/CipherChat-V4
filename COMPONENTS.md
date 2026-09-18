@@ -343,7 +343,12 @@ svg, …) → text · everything else → binary.
 **Blob lifecycle** — the base64 decodes once to a `Uint8Array` in memory; a
 single object URL is minted in an effect keyed on the message id and revoked
 in its cleanup (`URL.revokeObjectURL`) on switch or unmount. Nothing is
-fetched, nothing is written. The viewing copy was taken at open time, so a
+fetched, nothing is written. When the viewed message changes (or the viewer
+closes), zoom, wrap and the decoded bytes reset through a guarded
+render-time adjustment on a `viewingId` state — the sanctioned no-effect
+pattern — so a departing file's plaintext leaves React state the instant it
+is no longer the file on screen; the effect itself only mints and revokes.
+The viewing copy was taken at open time, so a
 message burning behind the viewer doesn't yank the bytes — the chat screen
 closes the viewer when its message goes.
 

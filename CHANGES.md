@@ -3,7 +3,8 @@
 A detailed, chronological record of every change and addition made to the
 project, cross-referenced against the internal task IDs used in
 `worklog.md`. Final state at time of writing: **124/124 property tests
-green, lint clean, tsc clean, all services healthy.**
+green, lint clean (0 errors, 0 warnings), tsc clean, all services
+healthy.**
 
 **What the product is:** an end-to-end-encrypted, ephemeral group chat.
 All cryptography runs in the browser; the server is a blind relay that
@@ -607,7 +608,12 @@ verification. `MessageView` gained `replyTo?: ReplySnapshot`.
   load: regular files fall back to an `<iframe>` with the blob URL
   (honest), but **view-once files STAY SEALED** — falling back would expose
   the browser PDF toolbar's save button, and the notice says so. Corrupt
-  PDFs set a failed state rather than showing a blank canvas. Text files
+  PDFs set a failed state rather than showing a blank canvas. Teardown is
+  hardened the same way: a `destroy()` that races an in-flight load
+  rejects its own promise, and both the cancelled branch and the effect
+  cleanup swallow that expected refusal (`.catch(() => undefined)`) —
+  closing the viewer mid-load raises nothing, not even an unhandled
+  rejection. Text files
   render as escaped plain text in a monospace `pre` (React escaping — never
   innerHTML) with a wrap toggle and a 100 KB display cap
   (`TEXT_SHOW_MAX = 100_000`; "copy takes the whole file"); HTML is labelled
@@ -657,15 +663,76 @@ verification. `MessageView` gained `replyTo?: ReplySnapshot`.
   Consoles clean (in-page error listeners: zero errors), dev.log all
   200/201. VLM review of the desktop room, video viewer and mobile PDF
   screenshots: clean. tsc clean, eslint 0 errors, 124/124 tests.
+  (Operational note for anyone re-verifying: every session must run on
+  the **gateway origin** — `127.0.0.1:81` — because the dev relay URL
+  routes through `XTransformPort`; a tab opened on `localhost:3000`
+  has no relay route and sits permanently offline.)
 
 ---
 
-## 13. Current state inventory
+## 13. Round 30 — documentation sync + viewer state hygiene
+
+### 13.1 The lint investigation
+
+- Verifying this document's "lint clean" claim surfaced **one warning**
+  the Round 29 ship had left behind: an unused `eslint-disable-next-line
+  react-hooks/exhaustive-deps` in `file-viewer.tsx`. The forensic
+  surprise: the directive was **dead weight for the rule it names**
+  (`exhaustive-deps` is `"off"` in `eslint.config.mjs`, so it suppressed
+  nothing) yet **load-bearing for a different one** — Next 16 ships the
+  compiler-era `react-hooks/set-state-in-effect`, and the react-hooks
+  plugin treats `exhaustive-deps` disable comments as the sanctioned
+  escape hatch for those rules as well. Remove the comment and two very
+  real errors appear (one per effect: the zoom/wrap reset and the blob
+  effect's clear-branch); keep it and eslint reports the directive as
+  unused. A directive that silently suppresses a rule it doesn't name
+  is a trap for every future reader — including the one who "cleans it
+  up".
+
+### 13.2 The fix — sanctioned patterns, precisely
+
+- **`src/components/cc/file-viewer.tsx`** — the two reset-on-message-
+  change effects (the zoom/wrap reset; the bytes/blobUrl clear) became
+  a single **guarded render-time adjustment** keyed on a new `viewingId`
+  state — the same pattern `chat.tsx` already uses for reply/viewing
+  release: no effect, no cascading render, and a departing file's
+  plaintext is dropped from state the instant it is no longer the file
+  on screen (a small memory-hygiene win: the clear now happens at
+  render, not after). The blob effect keeps purely external-system
+  work — mint the object URL, revoke it in cleanup — plus the one
+  synchronous setState that stores the created handle, which carries a
+  single-line `eslint-disable-next-line
+  react-hooks/set-state-in-effect` with the reason written in the
+  comment above it: the rule's heuristic has no shape for "an effect
+  creates an external resource and remembers the handle". The disable
+  names the rule it actually silences, so eslint counts it as used and
+  stays quiet — nothing is suppressed by accident any more.
+- **`COMPONENTS.md`** — the FileViewer "Blob lifecycle" paragraph gained
+  the render-time-adjustment sentence, so the reference matches the
+  code exactly.
+
+### 13.3 Verification
+
+- lint **0 errors, 0 warnings** — the first fully clean run since the
+  compiler-era rule arrived; tsc clean; the suite untouched at 124/124.
+- E2E re-verification of the whole viewer matrix through the gateway
+  (room NQ2A98B4CA): the text file renders its contents; the CSV parses
+  into a 3-row sticky-header table; the image viewer feeds from a
+  `blob:` URL and zoom toggles (`cursor-zoom-in` ↔ `cursor-zoom-out`);
+  a zoomed image, closed and replaced by the text file, re-derives
+  everything with defaults restored (the adjustment reset, the effect
+  rebuilt); a view-once file opens with content, **zero download
+  buttons**, the by-design note, and the spent state propagates. Zero
+  page errors, console clean, dev.log all 200/201.
+
+---
+
+## 14. Current state inventory
 
 **Tests:** 124/124 across 14 files (replay, rotation, kdf, identity,
 padding, hardening, captions, reactions, silent-grace, leave-proof,
 identity-range, admission, notifications, replies + viewer/CSV parsing).
-Lint clean; tsc clean in src/.
+Lint clean (0 errors, 0 warnings); tsc clean in src/.
 
 **Services:** Next.js dev `:3000` · relay `:3003` (socket.io,
 in-memory, supervised) · presence snapshot `:3004` (token-guarded) ·
@@ -687,4 +754,12 @@ a Docker host; first real CI run pending; `next.config.ts`
 real gate); no web push by architecture (VAPID sketched in MOBILE.md
 with its privacy price); evict trusts the relay's in-memory clock;
 nuisance-eviction residual; replay-to-fresh-device within 10 min;
-5-word passphrase could grow to 6–7 for paranoid rooms.
+5-word passphrase could grow to 6–7 for paranoid rooms. From Round 29:
+a reply's quote deliberately survives its original burning (the words
+were already shown; burning quotes with their original is a one-line
+policy flip if that ever feels wrong); video and audio cards are icon
+cards, not frame previews (canvas frame-capture is possible but adds
+decode cost); the vendored pdf.js worker is ~1.3 MB (accepted,
+documented, lazy-loaded); image EXIF is not stripped on send — browsers
+strip it only on canvas re-encode, so a future round could re-encode
+images through a canvas before sealing.

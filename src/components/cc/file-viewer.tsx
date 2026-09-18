@@ -148,6 +148,11 @@ export function FileViewer({
 }) {
   const [zoomFor, setZoomFor] = useState<string | null>(null);
   const [wrap, setWrap] = useState(true);
+  // The bytes live once, in memory, behind a revocable blob URL.
+  // Opening a different file (or closing) revokes the previous URL —
+  // the blob is released and the bytes are left to the GC.
+  const [bytes, setBytes] = useState<Uint8Array | null>(null);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const category = message?.file
     ? classifyFile(message.file.mime, message.file.name)
     : null;
@@ -156,10 +161,23 @@ export function FileViewer({
   // Derived: zoom belongs to the file being viewed — a new file
   // starts at arm's length, no effect needed.
   const zoomed = !!message && message.id === zoomFor;
-  useEffect(() => {
+  const msgId = message?.id;
+  const dataB64 = message?.file?.dataB64;
+  const mime = message?.file?.mime ?? "application/octet-stream";
+
+  // State follows the file being viewed — when the message changes
+  // (or the viewer closes), zoom, wrap and the decoded bytes adjust
+  // during render: the sanctioned pattern, no effect and no cascading
+  // renders, and a departing file's plaintext is dropped the instant
+  // it is no longer this one.
+  const [viewingId, setViewingId] = useState(msgId);
+  if (msgId !== viewingId) {
+    setViewingId(msgId);
     setZoomFor(null);
     setWrap(true);
-  }, [message?.id]);
+    setBytes(null);
+    setBlobUrl(null);
+  }
 
   // A view-once file is spent the moment it opens.
   useEffect(() => {
@@ -173,28 +191,21 @@ export function FileViewer({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // The bytes live once, in memory, behind a revocable blob URL.
-  // Opening a different file (or closing) revokes the previous URL —
-  // the blob is released and the bytes are left to the GC.
-  const [bytes, setBytes] = useState<Uint8Array | null>(null);
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const msgId = message?.id;
-  const dataB64 = message?.file?.dataB64;
-  const mime = message?.file?.mime ?? "application/octet-stream";
+  // The blob is born here and dies with this message — an effect
+  // for the external system (the URL registry), never for state
+  // the render itself can adjust. Storing the created handle in
+  // state is the one synchronous setState this component needs;
+  // the rule's heuristic has no shape for "effect creates an
+  // external resource and remembers it", so it is disabled here,
+  // precisely, with the reason.
   useEffect(() => {
-    if (!msgId || !dataB64) {
-      setBytes(null);
-      setBlobUrl(null);
-      return;
-    }
+    if (!msgId || !dataB64) return;
     const b = b64ToBytes(dataB64);
     const url = URL.createObjectURL(new Blob([b as unknown as BlobPart], { type: mime }));
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setBytes(b);
     setBlobUrl(url);
     return () => URL.revokeObjectURL(url);
-    // mime rides the message's own identity; re-deriving on it would
-    // churn the blob for no reason.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [msgId]);
 
   const decodedText = useMemo(() => {
