@@ -2,7 +2,7 @@
 
 A detailed, chronological record of every change and addition made to the
 project, cross-referenced against the internal task IDs used in
-`worklog.md`. Final state at time of writing: **108/108 property tests
+`worklog.md`. Final state at time of writing: **124/124 property tests
 green, lint clean, tsc clean, all services healthy.**
 
 **What the product is:** an end-to-end-encrypted, ephemeral group chat.
@@ -524,12 +524,148 @@ hidden or removed?"*
 
 ---
 
-## 12. Current state inventory
+## 12. Round 29 — quoted replies + in-app media viewers
 
-**Tests:** 108/108 across 13 files (replay, rotation, kdf, identity,
+Two features landed together because they touch the same seam: what
+a message can point at, and what opening a message means.
+
+### 12.1 Quoted replies to specific messages
+
+- **`src/lib/types.ts`** — new `ReplySnapshot` interface
+  `{id, senderId, snippet, file?}`; `REPLY_SNIPPET_MAX = 120`;
+  `makeReplySnapshot()` builds the quote at reply-compose time — **view-once
+targets are quoted as "Sealed message"**, never by their contents (the
+sealed card's own rule: nothing shows before opening); file targets quote
+the file's name and carry `file: true`; text targets are
+whitespace-collapsed and capped at the first 120 characters.
+  `sanitizeReplySnapshot()` is the post-verification UI gate (id/senderId
+capped at 64 chars, snippet at 160, malformed shapes dropped — a failing
+snapshot renders the message unquoted, never broken);
+  `isReplySnapshot()` is the shape guard used on both sealing and
+verification. `MessageView` gained `replyTo?: ReplySnapshot`.
+- **`src/lib/protocol.ts`** — `FrameBody.reply?: ReplySnapshot`; new exported
+  `replyCanonical()` serialises the snapshot deterministically
+  (unit-separator-joined slots — the separator is cosmetic, slot order is
+  what binds); **`canonicalV2` now appends the replyCanonical component as a
+  12th field** — the quote is signature-covered, so a quote is exactly as
+  unforgeable as the words it carries; a tampered quote breaks the ECDSA
+  signature. `sealFrame` extracts and includes it.
+- **`src/lib/room-protocol.ts`** — `sealText`/`sealFile` accept `reply`; the
+  file-assembly map stores it; the completed-file OpenResult carries it;
+  and `open()` verifies with the **raw** reply before any sanitising —
+  verification must recompute the sender's exact canonical string, not a
+  cleaned-up one.
+- **`src/store/app.ts`** — `sendMessage(text, file?, ttlOverride?, reply?)`;
+  the optimistic view carries `replyTo`; both receive paths (text frames and
+  file-assembly completion) sanitise for the view, after verification.
+- **UI, `src/components/cc/bubble.tsx`** — `QuoteBlock`: ink-coloured left
+  border in the **quoted** sender's ink (`var(--ink-N)`, "Someone" in mute
+  once they leave), alias + snippet, a `FileText` glyph for file quotes;
+  click → jump to the original (`scrollIntoView` center) with a
+  `quote-flash` soft forest pulse in `globals.css` (1300ms, once;
+  reduced-motion: static 8% tint); the honest toast "That message is no
+  longer in this session" when the original burned or expired. Reply
+  affordances, three roads to one verb: the context menu's "Reply" item
+  (press-and-hold on touch), a hover-only reply icon button beside the
+  bubble on desktop (`group/row` opacity transition, `-left-10` for self /
+  `-right-10` for others), and double-click on the bubble. Every message row
+  carries `data-mid` for jump targeting.
+- **UI, `src/components/cc/composer.tsx`** — the reply slip above the input
+  (quote + X to cancel); the input is focused when a reply begins (touch
+  included — the reply IS an intent to write); submit seals the snapshot
+  into the message; **Escape while replying cancels the quote first**, with
+  `stopPropagation` so the window-level escape-to-rooms handler doesn't
+  fire.
+- **UI, `src/components/screens/chat.tsx`** — `replyTarget` state (cleared on
+  room switch and when the target burns — render-time adjustment pattern);
+  `jumpToMessage` with `CSS.escape` + flash restart (class remove → reflow →
+  add, so repeated jumps re-announce); viewer and reply both follow their
+  message out when it burns.
+- **Honest failure mode, chosen deliberately**: a mixed-version session — an
+  old tab running pre-reply code beside a new one — will **drop** new reply
+  frames rather than accept a quote it cannot verify. The letter is lost
+  for that tab, never forged.
+
+### 12.2 In-app viewers for ALL media (no forced downloads)
+
+- **`src/components/cc/file-viewer.tsx` REWRITTEN** — exported
+  `classifyFile(mime, name)` routes by mime + extension to
+  image | video | audio | pdf | text | csv | binary. All bytes decode once
+  to memory and render through **revocable blob: URLs** — created in an
+  effect keyed on the message id, revoked on switch/unmount. Nothing is
+  fetched; nothing is written.
+- **Viewers per type**: images with click-zoom (unchanged behaviour, now fed
+  from the blob); `<video controls playsInline
+  controlsList="nodownload noremoteplayback">` (PiP disabled and contextmenu
+  suppressed for view-once); a styled `<audio>` card with the same
+  controlsList; **PDFs render via pdfjs-dist v6 onto a `<canvas>`**
+  (`bun add pdfjs-dist`; worker copied to `public/pdf.worker.min.mjs`,
+  served from `/pdf.worker.min.mjs`) with devicePixelRatio scaling (capped
+  2×), fit-width, Back/Next page nav and "Page x of y" — canvas rendering
+  means **no browser PDF toolbar, no save button**. pdf.js transfers
+  buffers, so it is handed `bytes.slice()` — a copy. If pdf.js fails to
+  load: regular files fall back to an `<iframe>` with the blob URL
+  (honest), but **view-once files STAY SEALED** — falling back would expose
+  the browser PDF toolbar's save button, and the notice says so. Corrupt
+  PDFs set a failed state rather than showing a blank canvas. Text files
+  render as escaped plain text in a monospace `pre` (React escaping — never
+  innerHTML) with a wrap toggle and a 100 KB display cap
+  (`TEXT_SHOW_MAX = 100_000`; "copy takes the whole file"); HTML is labelled
+  "Shown as source — HTML is never executed here"; **SVG only ever rides an
+  `<img>`**, the context where its scripts cannot run. CSV parses via a
+  quote-aware RFC-4180-style `parseCsv()` (pure, exported, tested) into a
+  sticky-header table capped at 500 rows × 32 cols (`CSV_MAX_ROWS` /
+  `CSV_MAX_COLS`). Unknown binaries get a metadata card + a hex dump of the
+  first 512 bytes.
+- **Header & buttons** — name · size · mime; Copy contents (text-ish — the
+  whole file); Download, present ONLY for non-view-once files; Close.
+  **View-once files have NO download anywhere** — the explicit note reads
+  "View once — it lives on screen only. There is no download for this file,
+  from anyone, by design."
+- **`src/components/cc/bubble.tsx` FileContent** — ALL non-view-once file
+  cards now OPEN THE VIEWER (Eye glyph) instead of downloading directly;
+  video cards (Film icon) and audio cards (Music icon) carry kind labels;
+  download is a choice inside the viewer, never the card's whole job.
+- **`src/components/screens/chat.tsx`** — the viewer closes when the message
+  burns while open (render-time adjustment).
+- **`eslint.config.mjs`** — `"public/**"` added to ignores (the pdf worker
+  is a vendored minified asset, not our code to lint).
+
+### 12.3 Tests and QA
+
+- **Tests** (`src/lib/__tests__/task-29-replies.test.ts`, 16 new cases;
+  suite now **124**): reply round-trip on text and through file assembly;
+  a relabeled frame is rejected; a reply frame is size-indistinguishable
+  from plain text (uniform `CONTROL_FRAME_BYTES`); replay refusal;
+  `replyCanonical` determinism and shape-guarding; a direct ECDSA proof
+  that changing the quote breaks the signature; `makeReplySnapshot`
+  (truncation, file label, sealed-for-view-once); `sanitizeReplySnapshot`
+  caps/drops; `classifyFile` routing; `parseCsv` (quotes, commas,
+  newlines, CRLF, single-column).
+- **E2E QA (verified, two browser sessions through the gateway
+  127.0.0.1:81, room CMJ1NT8144)**: reply sent via the hover button — quote
+  block rendered on both sides with the correct alias/snippet; quote click
+  jumped + flashed; context-menu Reply worked; Escape cancelled the reply
+  without leaving the room; a reply to a spent sealed message quoted
+  "Sealed message". Viewers: text (pre + copy + download), CSV table
+  (header + 3 rows), audio (blob src + nodownload controlsList), video (a
+  real 2s mp4 played, readyState 4), PDF rendered on canvas at desktop and
+  390px mobile ("Page 1 of 1", ~563 text pixels painted), and a
+  deliberately corrupt PDF fell back to the iframe (non-view-once path
+  verified). View-once file: opened with content, NO download button, the
+  by-design note present, and the spent card propagated to both sessions.
+  Consoles clean (in-page error listeners: zero errors), dev.log all
+  200/201. VLM review of the desktop room, video viewer and mobile PDF
+  screenshots: clean. tsc clean, eslint 0 errors, 124/124 tests.
+
+---
+
+## 13. Current state inventory
+
+**Tests:** 124/124 across 14 files (replay, rotation, kdf, identity,
 padding, hardening, captions, reactions, silent-grace, leave-proof,
-identity-range, admission, notifications). Lint clean; tsc clean in
-src/.
+identity-range, admission, notifications, replies + viewer/CSV parsing).
+Lint clean; tsc clean in src/.
 
 **Services:** Next.js dev `:3000` · relay `:3003` (socket.io,
 in-memory, supervised) · presence snapshot `:3004` (token-guarded) ·

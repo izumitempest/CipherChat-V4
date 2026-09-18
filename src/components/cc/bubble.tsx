@@ -8,14 +8,17 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Copy,
-  Download,
+  Eye,
   FileText,
+  Film,
   Flame,
   Hourglass,
   Image as ImageIcon,
   Mail,
   MailOpen,
+  Music,
   PenLine,
+  Reply,
 } from "lucide-react";
 import { toast } from "sonner";
 import { InkMark } from "@/components/cc/mark";
@@ -30,24 +33,33 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { fmtBytes, fmtTime, fmtTtlRemaining } from "@/lib/format";
-import { REACTION_LABELS, REACTION_MARKS, type MessageView } from "@/lib/types";
+import {
+  REACTION_LABELS,
+  REACTION_MARKS,
+  type MemberPublic,
+  type MessageView,
+  type ReplySnapshot,
+} from "@/lib/types";
 import { getSession } from "@/lib/session";
 import { useApp } from "@/store/app";
 import { cn } from "@/lib/utils";
 
 /* Right-click (desktop) or press-and-hold (touch) — the quiet
- * affordances a letter needs: taking the words with you, or burning
- * the page you wrote. Only your own messages can burn. */
+ * affordances a letter needs: answering it, taking the words with
+ * you, or burning the page you wrote. Only your own messages can
+ * burn. */
 function CopyMenu({
   message,
   onBurn,
   onReact,
+  onReply,
   myMark,
   children,
 }: {
   message: MessageView;
   onBurn?: () => void;
   onReact?: (mark: string) => void;
+  onReply?: () => void;
   myMark?: string;
   children: React.ReactNode;
 }) {
@@ -71,6 +83,15 @@ function CopyMenu({
     <ContextMenu onOpenChange={(open) => !open && setArmed(false)}>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent className="min-w-[10rem] rounded-[12px] border-hairline bg-paper p-1 shadow-[0_1px_2px_rgba(28,24,20,0.08)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.3)]">
+        {onReply ? (
+          <ContextMenuItem
+            onSelect={onReply}
+            className="gap-2 rounded-[8px] px-2.5 py-2 font-sans text-[13px] text-charcoal focus:bg-wash focus:text-charcoal data-highlighted:bg-wash"
+          >
+            <Reply className="size-3.5 text-mute" aria-hidden />
+            Reply
+          </ContextMenuItem>
+        ) : null}
         {caption ? (
           <ContextMenuItem
             onSelect={() => copyValue(caption, "Caption copied")}
@@ -181,6 +202,7 @@ function TtlRemaining({ expiresAt }: { expiresAt: number }) {
 /* ---------------- ink marks ---------------- */
 
 const EMPTY_MEMBERS_LIST: { memberId: string; alias: string }[] = [];
+const EMPTY_QUOTABLE: MemberPublic[] = [];
 
 /** The readers' margin notes: one quiet chip per mark, serif glyph and
  *  a count, held under the bubble it annotates. Pressing a chip toggles
@@ -248,16 +270,76 @@ export interface BubblePosition {
   showTime: boolean;
 }
 
+/* ---------------- quoted replies ---------------- */
+
+/** The strip of the message being answered — a small letter inside
+ *  the letter. The quoted sender's own ink colours its edge; the
+ *  snippet is a copy carried by the reply itself (already shown to
+ *  the room), so the quote survives the original burning. Tapping
+ *  it jumps to the original when it is still in this session's
+ *  memory. */
+function QuoteBlock({
+  replyTo,
+  onJump,
+}: {
+  replyTo: ReplySnapshot;
+  onJump?: (id: string) => void;
+}) {
+  const roomId = useApp((s) => s.activeRoomId);
+  const meId = roomId ? getSession(roomId)?.memberId : undefined;
+  const members =
+    useApp((s) => (roomId ? s.members[roomId] : undefined)) ?? EMPTY_QUOTABLE;
+  const quoted = members.find((m) => m.memberId === replyTo.senderId);
+  const alias = quoted?.alias ?? (replyTo.senderId === meId ? "You" : "Someone");
+  const ink = quoted ? `var(--ink-${quoted.colorIdx})` : undefined;
+
+  return (
+    <button
+      type="button"
+      onClick={() => onJump?.(replyTo.id)}
+      aria-label={`Quoted message from ${alias}. ${
+        onJump ? "Jump to the original" : "The original is no longer in this session"
+      }`}
+      className={cn(
+        "mb-1.5 flex w-full max-w-full items-start gap-2 rounded-[8px] border-l-2 py-1.5 pl-2.5 pr-2 text-left transition duration-150",
+        onJump
+          ? "cursor-pointer hover:bg-wash/70 active:bg-wash"
+          : "cursor-default",
+      )}
+      style={{ borderColor: ink ?? "var(--hairline)" }}
+    >
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span
+          className="truncate font-sans text-[11.5px] font-semibold leading-[15px]"
+          style={{ color: ink ?? "var(--mute)" }}
+        >
+          {alias}
+        </span>
+        <span className="flex min-w-0 items-center gap-1.5 font-sans text-[12px] leading-[17px] text-mute">
+          {replyTo.file ? (
+            <FileText className="size-3 shrink-0" aria-hidden />
+          ) : null}
+          <span className="truncate">{replyTo.snippet}</span>
+        </span>
+      </span>
+    </button>
+  );
+}
+
 export function MessageBubble({
   message,
   position,
   onOpenFile,
   onBurn,
+  onReply,
+  onJumpToMessage,
 }: {
   message: MessageView;
   position: BubblePosition;
   onOpenFile: (message: MessageView) => void;
   onBurn?: () => void;
+  onReply?: () => void;
+  onJumpToMessage?: (id: string) => void;
 }) {
   const self = message.self;
   const burning = message.status === "burning";
@@ -282,13 +364,14 @@ export function MessageBubble({
 
   return (
     <div
+      data-mid={message.id}
       className={cn(
-        "flex w-full",
+        "group/row flex w-full",
         self ? "justify-end" : "justify-start",
         position.first ? "mt-3" : "mt-1",
       )}
     >
-      <div className={cn("flex max-w-[75%] flex-col", self ? "items-end" : "items-start")}>
+      <div className={cn("relative flex max-w-[75%] flex-col", self ? "items-end" : "items-start")}>
         {/* sender identity — first of a group only. The mark is a
             fleck of the same vanishing ink in the sender's own colour:
             everyone's identity is a fleck of the same leaving. */}
@@ -306,13 +389,32 @@ export function MessageBubble({
           </p>
         ) : null}
 
+        {/* the reply affordance that lives beside the bubble — a
+            mouse thing (touch uses press-and-hold); it only breathes
+            when the row is visited */}
+        {onReply ? (
+          <button
+            type="button"
+            aria-label="Reply to this message"
+            onClick={onReply}
+            className={cn(
+              "absolute top-0 z-10 flex size-8 items-center justify-center rounded-[8px] text-mute opacity-0 transition duration-150 hover:bg-wash hover:text-charcoal focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest/45 group-hover/row:opacity-100",
+              self ? "-left-10" : "-right-10",
+            )}
+          >
+            <Reply className="size-4" aria-hidden />
+          </button>
+        ) : null}
+
         <CopyMenu
           message={message}
           onBurn={self && message.status === "sent" ? onBurn : undefined}
           onReact={onReact}
+          onReply={onReply}
           myMark={myMark}
         >
           <div
+            onDoubleClick={onReply}
             className={cn(
               "px-3.5 py-2",
               self ? "msg-in-self" : "msg-in-other",
@@ -323,6 +425,9 @@ export function MessageBubble({
               burning && "msg-burning",
             )}
           >
+            {message.replyTo ? (
+              <QuoteBlock replyTo={message.replyTo} onJump={onJumpToMessage} />
+            ) : null}
             {message.kind === "file" && message.file ? (
               <>
                 {message.text ? (
@@ -415,6 +520,8 @@ function FileContent({
   }
 
   const isImage = file.mime.startsWith("image/");
+  const isVideo = file.mime.startsWith("video/");
+  const isAudio = file.mime.startsWith("audio/");
   if (isImage) {
     return (
       <button
@@ -435,23 +542,36 @@ function FileContent({
     );
   }
 
+  // Every remaining file opens IN THE APP — the viewer decides what
+  // "opening" means per type (play, read, inspect bytes). Downloading
+  // is a choice the viewer offers, never the card's whole job.
+  const Icon = isVideo ? Film : isAudio ? Music : FileText;
+  const kindLabel = isVideo ? "Video" : isAudio ? "Audio" : "File";
   return (
     <button
       type="button"
-      onClick={() => downloadFile(file.name, file.mime, file.dataB64 ?? "")}
+      onClick={() => onOpenFile(message)}
       className="group flex w-[230px] max-w-full items-center gap-3 rounded-[10px] border border-hairline bg-paper p-2.5 text-left transition duration-150 hover:border-forest/30 hover:bg-wash active:translate-y-px"
-      aria-label={`Download ${file.name}`}
+      aria-label={`Open ${kindLabel.toLowerCase()} ${file.name} in the viewer`}
     >
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-[8px] bg-wash text-forest transition-colors duration-150 group-hover:bg-forest/10">
-        <FileText className="size-4" aria-hidden />
+      <span
+        className={cn(
+          "flex size-9 shrink-0 items-center justify-center rounded-[8px] text-forest transition-colors duration-150",
+          isVideo || isAudio ? "bg-forest/10" : "bg-wash group-hover:bg-forest/10",
+        )}
+        aria-hidden
+      >
+        <Icon className="size-4" />
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate font-sans text-[13px] font-medium text-charcoal">
           {file.name}
         </span>
-        <span className="t-meta mt-0.5 block">{fmtBytes(file.size)}</span>
+        <span className="t-meta mt-0.5 block">
+          {kindLabel} · {fmtBytes(file.size)}
+        </span>
       </span>
-      <Download
+      <Eye
         className="size-4 shrink-0 text-mute transition-colors duration-150 group-hover:text-forest"
         aria-hidden
       />

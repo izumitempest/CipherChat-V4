@@ -1,0 +1,822 @@
+     1→# CipherChat — Component Reference
+     2→
+     3→Every component in the app, what it does, how it works, and the rules it obeys.
+     4→Companion to `DESIGN.md` (tokens, rationale) and `worklog.md` (development history).
+     5→
+     6→**How to read this document:** sections follow the layer cake of the app —
+     7→shell → screens → chat surface → sheets → ceremony overlays → primitives →
+     8→hooks → styling system → shadcn inventory → data layer. Each component entry
+     9→lists its file, its spec screen (S1–S9 from the product brief), its props/API,
+    10→its states, and the internal mechanics that make it interesting.
+    11→
+    12→---
+    13→
+    14→## 1. Architecture at a glance
+    15→
+    16→```
+    17→src/
+    18→├── app/
+    19→│   ├── page.tsx              # The ONLY route ("/") → <CipherChatApp/>
+    20→│   ├── layout.tsx            # Fonts (Lora/Inter/Plex Mono), ThemeProvider, Toaster,
+    21→│   │                         #   grain overlay, SW registration, viewport meta
+    22→│   └── globals.css           # Token sheet, typography classes, keyframes, keyboard CSS
+    23→├── components/
+    24→│   ├── cc/                   # CipherChat product components (this app's real library)
+    25→│   ├── screens/              # Page-level screens (S1, S2, S4, S5/S8)
+    26→│   └── ui/                   # shadcn/ui primitives (mostly untouched stock)
+    27→├── hooks/                    # useIsDesktop, useKeyboardInset
+    28→├── lib/                      # crypto, identity, session, local, relay, format, types
+    29→└── store/app.ts              # Zustand orchestrator — the app's brain
+    30→```
+    31→
+    32→**One route, four screens.** There is no Next.js routing beyond `/`. Navigation
+    33→is a hash router driven by the store: `#/` (landing), `#/join/:code` (invite),
+    34→`#/rooms` (desk), `#/r/:roomId` (chat). Invite links land as `/?join=CODE` and
+    35→are rewritten to `#/join/…` on boot.
+    36→
+    37→**Three layers of components:**
+    38→
+    39→| Layer | Directory | Role |
+    40→|---|---|---|
+    41→| Screens | `components/screens/` | Own a whole viewport, map 1:1 to spec screens S1–S8 |
+    42→| Product components | `components/cc/` | Reusable surfaces inside screens (composer, bubbles, sheets…) |
+    43→| Primitives | `components/ui/` | shadcn/ui. Only **Sheet, Dialog, ContextMenu, Sonner** are used; the rest is stock scaffolding |
+    44→
+    45→**Data flow.** Everything user-visible flows from one Zustand store
+    46→(`store/app.ts`). Components subscribe with atomic selectors
+    47→(`useApp((s) => s.messages[roomId])`), never hold server state locally, and
+    48→call store actions for every mutation. Secrets (room keys, passwords) never
+    49→enter the store — they live in the module-memory `lib/session.ts`, wiped by
+    50→refresh.
+    51→
+    52→**Server model.** REST (`app/api/rooms/*`) manages room lifecycle only.
+    53→A socket.io mini-service on port 3003 (`lib/relay.ts` → `io("/?XTransformPort=3003")`)
+    54→relays encrypted envelopes and presence in memory. Neither ever sees plaintext.
+    55→
+    56→---
+    57→
+    58→## 2. App shell
+    59→
+    60→### `CipherChatApp` — `components/cc/app.tsx`
+    61→
+    62→The root client component. Responsibilities:
+    63→
+    64→1. **Boot** — calls `init()` (loads device identity, room cards, hash route).
+    65→2. **Keyboard awareness** — mounts `useKeyboardInset()` once, publishing
+    66→   `--kb-inset` for every sheet and the shell (see §8).
+    67→3. **Invite deep-link** — reads `?join=CODE`, rewrites to `#/join/:code`.
+    68→4. **Screen routing** — `<Screens/>` picks the active screen by store state.
+    69→5. **Global overlays** — `<SealingOverlay/>` and `<BurnOverlay/>` render above
+    70→   everything when the store says so.
+    71→
+    72→The desk+room layout (non-landing screens) is a `flex h-dvh` shell:
+    73→
+    74→- `pb-[var(--kb-inset,0px)]` — the whole shell rises above the mobile keyboard.
+    75→- Sidebar: `w-full` on mobile, `w-[320px]` + hairline border on `md:`; hidden on
+    76→  mobile while a room is open (`hidden md:block`), iMessage-style.
+    77→- Desktop with no room open shows the quiet placeholder (seal + "Open a letter,
+    78→  or start a new one.").
+    79→
+    80→### `page.tsx` / `layout.tsx` — `src/app/`
+    81→
+    82→`page.tsx` is 14 lines: Suspense (for `useSearchParams`) + `<CipherChatApp/>`.
+    83→`layout.tsx` loads the three typefaces via `next/font` (CSS variables
+    84→`--font-lora`, `--font-inter`, `--font-plex-mono`), mounts `ThemeProvider`
+    85→(next-themes, class strategy, light default), the Sonner toaster (top-center),
+    86→the full-viewport paper grain `<div className="grain"/>`, and `SwRegister`.
+    87→The viewport export sets `viewportFit: cover` (safe areas) and
+    88→`interactive-widget: resizes-content` (Android keyboard behavior).
+    89→
+    90→---
+    91→
+    92→## 3. Screens
+    93→
+    94→### `LandingScreen` — `screens/landing.tsx` · **S1**
+    95→
+    96→The five-second decision surface. Seal breathing (the app's single intentional
+    97→idle loop), one display headline ("A conversation that leaves no trace."), two
+    98→actions — **Create a room** (forest primary) and **Join with a link or code**
+    99→(secondary) — plus a quiet "Back to your rooms" escape that only exists when
+   100→rooms exist. Footer carries the trust line: "Messages are encrypted in your
+   101→browser and destroyed on schedule."
+   102→
+   103→- `[@media(max-height:720px)]` compaction keeps the fold honest on short screens.
+   104→- `ThemeToggle` lives in the header.
+   105→
+   106→**`CreateRoomSheet`** (internal): bottom sheet (mobile) / plain sheet (it is
+   107→always `side="bottom"`; the grabber shows on touch) with two fields — room name
+   108→(private label, maxLength 60) and password **pre-seeded with a generated
+   109→passphrase** (`generatePassphrase()` — five CSPRNG-picked words from a
+   110→256-entry list, 40 bits), refreshable via a "New password" quiet
+   111→action. The field masks by default (`PasswordField`, eye toggle to
+   112→reveal). **The passphrase is never React state** — it is seeded straight
+   113→into the field's DOM *property* when the sheet opens (and re-seeded via
+   114→the refresh action), read once at submit, wiped on success, and dies
+   115→with the input node when the sheet unmounts. The DOM `value` *attribute*
+   116→is never written, so the Elements panel shows no value on this field
+   117→for its entire life. Submits `createRoom(name, password)`; on
+   118→success closes and toasts the standing advice ("Share the link — and
+   119→the password through a different channel."). Error state is neutral
+   120→charcoal, never terracotta.
+   121→
+   122→### `InviteScreen` — `screens/invite.tsx` · **S2**
+   123→
+   124→Where a stranger lands from a shared link. Order of information is fixed by
+   125→spec: reassurance headline → room code (prefilled when arriving via
+   126→`?join=`, formatted `ABCDE-FGHIJ`, hidden input when prefilled) → password →
+   127→Enter. Below, a collapsed **"What happens next"** disclosure (grid-rows
+   128→0fr→1fr animation) with the three facts: encrypted in browser, nothing stored,
+   129→creator can burn.
+   130→
+   131→States: default · busy ("Entering") · wrong password (inline, neutral:
+   132→"That password doesn't match this room.") · room gone ("This room doesn't
+   133→exist, or it has been burned." — also marks the local card as ash) · room full.
+   134→`reasonCopy()` maps every `JoinResult.reason` to calm copy; there are no
+   135→exclamation marks anywhere in the product.
+   136→
+   137→### `RoomListColumn` — `screens/room-list.tsx` · **S4**
+   138→
+   139→"The desk." One component serves both breakpoints — full screen on mobile,
+   140→320px sidebar on desktop. Header: title, quiet `+` New room icon button,
+   141→ThemeToggle. Footer: underlined "Have an invite link? Join a room".
+   142→
+   143→**`RoomListBody`** renders one of four states:
+   144→
+   145→| State | Render |
+   146→|---|---|
+   147→| Empty desk | Seal + "No rooms yet." + Create/Join actions (empty state as product statement) |
+   148→| All locked | Hint line: "Rooms lock when you refresh — re-enter each password to return." |
+   149→| Mixed | Same hint (shown when ≥1 locked) |
+   150→| Burned | Ash cards (below) — swept from storage on next full reload |
+   151→
+   152→**`RoomCardRow`** — one letter on the desk. Shows local name (never corrected
+   153→across members), member count, `fmtAgo` last activity, and a forest unread dot
+   154→seated on the name's x-height. Hover = paper lift (`-translate-y-px` + forest
+   155→border). Open room = forest/30 border + wash. **Locked** cards sleep: no lift,
+   156→lock glyph, muted meta (lock = locked state, distinct from the security badge).
+   157→**Burned** cards render as dashed ash with a −2° strikethrough and mail glyph,
+   158→`aria-disabled`, gone after reload.
+   159→
+   160→**`UnlockSheet`** — exported. Re-enters a locked room: password → `joinRoom` →
+   161→S3 sealing → chat. Same neutral error mapping as S2.
+   162→
+   163→### `ChatScreen` — `screens/chat.tsx` · **S5/S8 + locked state**
+   164→
+   165→The room. First render checks `getSession(roomId)` — no session means **locked**
+   166→(a first-class state, never an error):
+   167→
+   168→- **`LockedRoomView`** — centered card: lock tile, room name, the key-truth copy
+   169→  ("Keys live only in memory — re-enter the password to return."), password
+   170→  field, Unlock, back action. Header buttons toast "Unlock the room first".
+   171→
+   172→With a live session, **`ActiveRoom`** assembles the room:
+   173→
+   174→- `ChatHeader` (below)
+   175→- Message scroll area: `role="log"` + `aria-live="polite"`, quiet scrollbar,
+   176→  `max-w-[720px]` column. Auto-scrolls to newest on arrival **unless** the user
+   177→  is scrolled up >220px — then the jump pill counts what arrived below the fold
+   178→  ("3 new messages" with forest dot, or "Latest" with chevron). Self and system
+   179→  messages always auto-scroll.
+   180→- **Empty states (S8):** creator-solo gets the invitation moment (Copy invite
+   181→  link / Show the password); a joiner gets the product statement —
+   182→  *"You won't see messages from before you joined. That's how this works."*
+   183→- **`TimeAwareMessages`** — walks grouped messages and inserts a quiet
+   184→  timestamp divider when the gap exceeds 30 minutes ("17:04" / "Wed · 17:04",
+   185→  `role="separator"`).
+   186→- **`TypingLine`** — a reserved 26px strip above the composer (space is always
+   187→  there, so nothing jumps). Renders the whisper: "Velvet Owl is writing…" /
+   188→  "A and B are writing…" / "Several people are writing…" with aliases in their
+   189→  ink colors, `aria-live="polite"`.
+   190→- **TTL hint strip** — one-time, 10s, dismissible explanation of expiry
+   191→  ("Messages set to expire burn themselves when the clock runs out — for
+   192→  everyone.") shown the first time a TTL is armed in a room whose default is 0.
+   193→- `Composer` (below), then the three sheets and `FileViewer`.
+   194→
+   195→State handling note: room-prop changes (switching rooms) use the sanctioned
+   196→render-time adjustment pattern (`if (roomId !== hintRoomChecked) setState…`) —
+   197→no effects for derived state.
+   198→
+   199→---
+   200→
+   201→## 4. Chat surface
+   202→
+   203→### `ChatHeader` — `cc/chat-header.tsx`
+   204→
+   205→Room name in Lora (native `title` tooltip reveals the full name), member count
+   206→and offline pulse in Inter meta. Exactly **three icon buttons, all 44px** with
+   207→press-in active states: Share invite (Link2), **Verify participants (Shield —
+   208→the only security glyph in the app)**, Room settings (Settings2). Back chevron
+   209→is mobile-only. Sticky, safe-area aware (`pt-[env(safe-area-inset-top)]`).
+   210→
+   211→### `Composer` — `cc/composer.tsx`
+   212→
+   213→The writing surface, and the most stateful leaf component. A sticky,
+   214→`composer-blur` (backdrop-blur — one of exactly two blurred surfaces) strip.
+   215→
+   216→| Element | Behavior |
+   217→|---|---|
+   218→| Textarea | Auto-grows 1→3 lines (24–66px), Lora 15.5px, Enter sends / Shift+Enter newlines, `maxLength 4000` |
+   219→| Attach (paperclip) | Hidden `<input type=file>`; ≤2MB (`FILE_LIMIT`), base64-encoded in 8KB chunks |
+   220→| Drag & drop | Dashed forest "Release to attach" overlay while hovering |
+   221→| Paste | Clipboard files into the textarea attach instead of inserting |
+   222→| TTL chip | Cycles OFF → 5m → 1h → 8h; armed state is terracotta; the first-ever arming raises the hint strip instead of a toast |
+   223→| Attachment slip | Paper tile + name/size + **View once** toggle + remove; expanded hit areas on the small chips |
+   224→| Send | Forest circle with arrow; disabled unless text or attachment exists |
+   225→| Offline | Send button is replaced by a status chip: "Reconnecting" (relay down) or "Re-sealing" (key rotation after someone left) — you never type into a void silently |
+   226→| Near limit | "N characters left" appears under 200 remaining; at zero, calm terracotta copy ("…as long as a letter can be") |
+   227→
+   228→State is keyed per room (`<Composer key={roomId}>`), TTL seeded from the room's
+   229→local default. Sending is optimistic: text clears instantly, focus is kept, the
+   230→store handles sign→encrypt→relay and the bubble shows "Sending" (60% opacity,
+   231→pulsing dot) until the ack.
+   232→
+   233→### `bubble.tsx` — messages
+   234→
+   235→**`useMessageGroups(messages)`** — pure hook that computes `BubblePosition`
+   236→(`first`/`last`/`showTime`) for every message: consecutive messages from the
+   237→same sender within **3 minutes** collapse into a group; alias shows on `first`,
+   238→timestamp on `last`. System lines break groups.
+   239→
+   240→**`MessageBubble`** — self right-aligned (`.bubble-self`, forest-tinted paper),
+   241→others left (`.bubble-other`) with the sender's ink dot + alias in
+   242→`var(--ink-N)`. Corner language: 18px radius, collapsing to 6px on the corners
+   243→nearest the sender (group-internal edges). Max width 75%. Entrance is the
+   244→`rise` keyframe. States: sending (60% opacity) → sent; `burning`
+   245→(`msg-burning` — ember-rim glow into the 600ms dissolve, handled by the store's
+   246→burn choreography). File messages render the caption (`message.text`) as
+   247→`t-body` above the file card — the caption rides the meta frame's canonical-
+   248→signed text field, so it is exactly as authentic as a text message.
+   249→
+   250→**`CopyMenu`** — Radix ContextMenu wrapping every bubble (right-click desktop,
+   251→press-and-hold touch): "Copy text" / "Copy caption" (file messages with a
+   252→caption) / "Copy file name" → toast; **"Mark this message"** — a submenu with
+   253→the four ink marks (✓ Acknowledged · ✦ Noted · ♥ Warmly received · ☾ Later,
+   254→`REACTION_MARKS` in `lib/types.ts`), the one you currently hold flagged with a
+   255→forest dot; and for **your own sent messages only**, "Burn message" — a
+   256→ two-step arm inside the menu (first press turns the item terracotta and
+   257→ re-labels "Burn for everyone",
+   258→second press executes). Styled as paper: 12px radius, hairline, single soft
+   259→shadow via arbitrary value (beats shadcn's layered `shadow-md`).
+   260→
+   261→**`MarksBar`** — the ink-mark chips under a bubble: one pill per mark
+   262→(serif glyph + tabular count, `.mark-chip` entrance + `.mark-count` beat).
+   263→Pressed state when YOU hold the mark (forest-tinted). Clicking a chip toggles
+   264→your own mark on/off; `title`/`aria-label` name who marked. Marks resolve
+   265→memberIds → live aliases at render time ("Someone who left" fallback). The
+   266→wire side: `sealReact` frames — mark glyph rides the canonical-signed `text`
+   267→field, target rides `messageId` (see `room-protocol.ts`); one mark per sender
+   268→per message; the toggle transition is applied identically by the optimistic
+   269→local update and every receiver.
+   270→
+   271→**`TtlRemaining`** — ticking countdown (1s interval) with terracotta hourglass
+   272→glyph, `tabular-nums` so the meta row never jitters. Label from
+   273→`fmtTtlRemaining` ("4:59" → "moments").
+   274→
+   275→**`FileContent`** — three file presentations:
+   276→- **View-once sealed** — a paper card with mail glyph: "Sealed — View once —
+   277→  opening destroys it"; opens `FileViewer`.
+   278→- **View-once spent** — `.spent-card` with ember rim: "Opened — the contents
+   279→  are gone". Never re-opens (enforced server-side too: spent IDs are
+   280→  broadcast).
+   281→- **Images** — inline base64 `img` (max-h-56), click to open viewer.
+   282→- **Other files** — download card: file tile, name, size, hover-brightening
+   283→  download glyph; `downloadFile()` (below).
+   284→
+   285→**`downloadFile(name, mime, dataB64)`** — exported helper: base64 → Blob →
+   286→object URL → synthetic anchor click → revoke after 4s. Toast on success/fail.
+   287→
+   288→**`SystemLine`** — quiet centered meta text ("Quiet Heron joined.", "A message
+   289→claiming to be from X was rejected — signature invalid."). System lines are
+   290→`kind: "system"` messages; they never carry identity.
+   291→
+   292→### `FileViewer` — `cc/file-viewer.tsx`
+   293→
+   294→A **full surface, not a modal** — centered modals are reserved for irreversible
+   295→moments. Fixed overlay of `bg-paper/95` + 16px blur (the second blurred
+   296→surface), `role="dialog"` (not modal — the room stays alive behind it).
+   297→
+   298→- Images: contained by default; click/Enter/Space toggles 220% zoom
+   299→  (`cursor-zoom-in/out`, focus ring, keyboard-operable `role="button"` img).
+   300→- Other files: paper card with name, size, and Download.
+   301→- **View-once spending happens the instant the viewer opens** — `onSpent`
+   302→  fires on `message.id` change; the bubble becomes the spent card behind the
+   303→  viewer simultaneously for everyone in the room.
+   304→- Escape closes; body scroll lock is not needed (fixed overlay).
+   305→
+   306→**Chat keyboard layer** (`screens/chat.tsx`) — Escape with an empty composer
+   307→returns to the room list. Sheets, menus, dialogs and the file viewer own the
+   308→key first (they prevent it, and `[data-state="open"]` / `[role="dialog"]` is
+   309→checked besides); a composer holding words never loses them to a stray
+   310→Escape. **`TypingLine`** carries three `.typing-dot` ink dots (aria-hidden,
+   311→staggered 180ms) before the aria-live sentence. **`ChatHeader`** renders per-
+   312→member presence dots in each member's own ink (`.dot-in` entrance, away
+   313→members rest at 35% opacity) before the member count.
+   314→
+   315→---
+   316→
+   317→## 5. Sheets
+   318→
+   319→All sheets share one skeleton: shadcn `Sheet` (Radix Dialog underneath) with
+   320→`side={isDesktop ? "right" : "bottom"}`, `SheetGrabber` on mobile, and the
+   321→keyboard-aware geometry from §8 (`bottom-[var(--kb-inset)]`, `max-h` capped,
+   322→internal `scroll-quiet` scrolling). Desktop sheets are right-side, 440px,
+   323→rounded-left 18px.
+   324→
+   325→| Sheet | File | Spec | Opens from |
+   326→|---|---|---|---|
+   327→| `CreateRoomSheet` | `screens/landing.tsx` | S1 | Landing "Create a room" |
+   328→| `UnlockSheet` | `screens/room-list.tsx` | S4 | Locked room card |
+   329→| `InviteSheet` | `cc/invite-sheet.tsx` | S5 | Header link icon; auto-opens once after room creation |
+   330→| `VerificationSheet` | `cc/verification-sheet.tsx` | S7 | Header shield |
+   331→| `SettingsSheet` | `cc/settings-sheet.tsx` | S9 | Header settings icon |
+   332→
+   333→### `InviteSheet`
+   334→
+   335→The link + the password, with the standing advice. Layout: label rows carry
+   336→their actions (Copy on the link; Show/Hide + Copy on the password) so value
+   337→boxes stay full-width `break-all` mono — long passphrases never wrap the
+   338→layout. Password reveals with `select-all` for manual copying. Below, the
+   339→**in-person block**: a 108px QR of the invite link (generated client-side via
+   340→`qrcode`, charcoal-on-daylight-paper **always light in both themes** — a code
+   341→is a physical object, scanners agree), with the reminder that the password
+   342→still travels separately.
+   343→
+   344→Auto-open rule: after creating a room, the invite opens once per room
+   345→(`sessionStorage cc.inviteShown.<roomId>`) — the natural next verb.
+   346→
+   347→### `VerificationSheet` · **S7**
+   348→
+   349→The hardest security-UX problem, made one-tap. One row per member:
+   350→ink dot + alias (their ink) + **8-hex fingerprint in mono, grouped
+   351→`3F2A · 91BC`** + copy button (expanded hit area) + a manual verify switch
+   352→(`role="switch"`). Self is marked "· you" with no switch. Fingerprints are
+   353→computed async from each member's public key (`keyFingerprint` — deterministic,
+   354→identical for every viewer) with a `···· ····` placeholder while pending.
+   355→Verified marks persist per room in localStorage (`lib/local.ts`) and also show
+   356→as forest checks in Settings.
+   357→
+   358→Footer: the "What is a fingerprint?" glossary (grid-rows disclosure) — the
+   359→one-tap explanation of MITM checking without the word MITM.
+   360→
+   361→### `SettingsSheet` · **S9**
+   362→
+   363→Local-only settings, ordered by weight: **Room name** (private label, "Others
+   364→may label this room differently. CipherChat never corrects this.") ·
+   365→**Default message lifetime** (4-cell segmented radio group: Off/5m/1h/8h —
+   366→forest when selected) · **People here** (ink dot + alias + verified checks +
+   367→"· you"). Then whitespace — not a header — and the exit: **Burn this room**
+   368→(creator, terracotta) or **Leave room** (member, secondary), each with its
+   369→consequence line ("Burning destroys the room for everyone, unrecoverably." /
+   370→"Leaving rotates the room key for those who stay.").
+   371→
+   372→Burning opens the app's **only centered modal** (shadcn Dialog):
+   373→"**Burn this room?** This destroys the room and its messages for everyone.
+   374→This cannot be undone." → Burn the room (terracotta, busy state) / Cancel.
+   375→The creator token lives in localStorage (`lib/local.ts`) so a creator can
+   376→still burn after a refresh.
+   377→
+   378→Fields re-seed via the render-time pattern whenever the sheet re-opens.
+   379→
+   380→---
+   381→
+   382→## 6. Ceremony overlays
+   383→
+   384→These are the two moments the product is named for. Both are full-viewport,
+   385→z-70/z-80, driven entirely by store state.
+   386→
+   387→### `SealingOverlay` / `Sealing` — `cc/sealing.tsx` · **S3**
+   388→
+   389→The key-derivation moment, staged as a vault press, not a spinner. A 96px
+   390→circular SVG: hairline track + forest arc that fills over **1700ms** with
+   391→`cubic-bezier(0.2,0,0,1)` (`seal-arc`), a `seal-press` scale-weight on the
+   392→whole dial, the SealMark centered inside. Copy: "Sealing the room" /
+   393→"Deriving your encryption keys. This takes a moment on purpose." — the
+   394→deliberate slowness is honest: argon2id with 64 MB of memory hardness
+   395→genuinely takes a moment, and the store enforces `MIN_SEAL_MS = 1700` so
+   396→the theater never finishes before the crypto does. `role="status"` +
+   397→`aria-live="polite"`.
+   398→
+   399→The inner `Sealing` component is reusable with custom label/sub; the store's
+   400→`sealing: SealingState | null` drives the wired version (also used while a
+   401→rejoined member awaits key delivery: the composer's "Re-sealing" chip).
+   402→
+   403→### `BurnOverlay` — `cc/burn-overlay.tsx` · **S6 (room)**
+   404→
+   405→The signature two seconds, phase-driven by a timer chain:
+   406→
+   407→1. **char** (0–2000ms): a 340% radial gradient chars inward from the screen
+   408→   edges (`char-close` — transparent center, terracotta whisper, warm blacks),
+   409→   the page warms and darkens (`char-veil`), an ember rim breathes at the
+   410→   edges (`ember-rim`, inset box-shadows), charred grain fades in
+   411→   (`char-grain`, feTurbulence noise, multiply blend).
+   412→2. **line** (2000ms): Lora 22px in warm parchment with a soft ember
+   413→   text-shadow — *"This room has been burned."* (`burn-line-in`).
+   414→3. **out** (3400ms): whole overlay fades (`burn-out`), and at 3800ms
+   415→   `finishRoomBurn(roomId)` navigates to the desk where the ash card waits
+   416→   for exactly one session.
+   417→
+   418→`role="alert"` + `aria-live="assertive"` — this one is allowed to interrupt.
+   419→Single-message burns are quieter: the bubble's `msg-burning` (ember rim →
+   420→dissolve upward) handled in the store's message pipeline.
+   421→
+   422→---
+   423→
+   424→## 7. Shared primitives
+   425→
+   426→### `actions.tsx` — the verb system
+   427→
+   428→One primary verb per screen; **forest = trust/action, terracotta =
+   429→destruction/impermanence only**. All share a base: 48px height, 12px radius,
+   430→Inter 14px medium, 150ms transitions, press-in `active:scale-[0.99]`,
+   431→disabled = 50% opacity + no pointer events.
+   432→
+   433→| Export | Look | Use |
+   434→|---|---|---|
+   435→| `PrimaryAction` | Forest fill, paper text | The screen's main verb |
+   436→| `SecondaryAction` | Side surface, hairline border | The alternate path |
+   437→| `DestructiveAction` | Terracotta fill | Burn / leave (consequence-modaled) |
+   438→| `CompactAction` | Forest, 44px | Header-placed primary |
+   439→| `QuietAction` | Text-only, mute → charcoal hover | Escapes and tertiary links |
+   440→
+   441→All accept `busy` (spinner + disabled) and `full` (block width). Forwarded refs
+   442→throughout.
+   443→
+   444→### `fields.tsx` — inputs
+   445→
+   446→Paper surfaces, hairline borders, forest focus (border 45% + 15% ring).
+   447→**Errors are neutral charcoal** — only actions carry color.
+   448→
+   449→- `Field` — label + children + hint/error slot (error wins, `role="alert"`).
+   450→- `TextField` — 48px input, Inter 15px.
+   451→- `PasswordField` — the **uncontrolled secret field** (Task 27): accepts no
+   452→  `value`/`defaultValue` (typed out via `Omit`), so React never mirrors the
+   453→  typed text into the DOM `value` *attribute* — Elements shows no value for
+   454→  the field's whole life, and no plaintext ever sits in React state. Parents
+   455→  seed/wipe imperatively via the forwarded ref (`el.value = …` sets the
+   456→  property only) and read once at submit. Eye toggle (44px hit area,
+   457→  keyboard-focusable, `aria-pressed`), `autoComplete="new-password`"
+   458→  (the documented suppressor of Chrome's save-password prompt for
+   459→  ephemeral room passwords), no autocapitalize/spellcheck.
+   460→- `MonoValue` — selectable mono block with an inline copy affordance and
+   461→  "Copied" confirmation state.
+   462→
+   463→### `mark.tsx` — `InkMark` (The Vanishing Ink)
+   464→
+   465→The brand mark: a hand-fallen ink drop, seated on the page, its top
+   466→fraying into three rising flecks — the last one ember-warm. Hand-tuned
+   467→beziers on a 96×96 grid (joint radii wobble a few percent off a compass
+   468→circle, the tail leans a hair), the whole assembly rotated 21° so the
+   469→flecks rise up-and-right — off the line of text, the direction writing
+   470→leaves in. The product metaphors: the drop is the writing, the flecks
+   471→are the ephemerality, the ember is the heat of the conversation
+   472→leaving — not the paper burning. Four variants:
+   473→
+   474→- `intact` (default) — the seated drop with its flecks rising. With
+   475→  `breathe`, the flecks quietly rise and fade on a staggered loop
+   476→  (`.ink-fleck-1/2/3` classes carry the stagger in globals.css — the
+   477→  hero's landing choreography stacks a second animation on the same
+   478→  flecks, and a single inline `animation-delay` would bind both).
+   479→  Brand, landing hero, desk centrepieces.
+   480→- `scattered` — the drop has lifted off: its outline rises away while
+   481→  seven flecks flee outward and the ember flares once. Animates once
+   482→  on mount. Burn/destruction contexts only (terracotta is legitimate
+   483→  there — see the burn overlay).
+   484→- `fleck` — one four-pointed fleck alone in `currentColor`, so member
+   485→  inks (`--ink-0..7`) can drive it from outside. The identity system:
+   486→  every member is a fleck of the same vanishing ink (bubble sender
+   487→  lines, the typing whisper's three rising flecks).
+   488→- `ghost` — the drop's outline stroked in `currentColor`, flecks
+   489→  filled. Watermarks at whisper opacity; never intercepts a touch.
+   490→  With `draw`, the outline inks itself onto the page (pathLength-
+   491→  normalized `ghost-draw`) and the flecks surface behind its tip;
+   492→  pair with the `ghost-drift` class for the slow ambient float.
+   493→
+   494→The hero landing choreography lives in globals.css (`.hero-mark` +
+   495→`.drop-land` + `.mark-land`): the drop falls with gravity easing,
+   496→squashes at impact (~220ms), the flecks splash upward
+   497→(`fleck-splash` on the independent `translate`/`scale` properties, so
+   498→it composes with the infinite evaporation loop's `transform`), and a
+   499→soft ink halo bleeds outward beneath the mark. At rest, hover lifts
+   500→the flecks and flares the ember — again via independent properties,
+   501→so the loop never pauses.
+   502→
+   503→Props stay backwards-compatible (`size`, `breathe`, `className`;
+   504→`SealMark` is an exported alias) plus `variant`, `ink`, and `draw`.
+   505→Pure SVG, `aria-hidden`; it never carries meaning alone. Assets
+   506→regenerate from the same geometry via `scripts/gen-icons.ts` (sharp):
+   507→PWA icons, apple-touch, OG image.
+   508→
+   509→### `sheet-grabber.tsx`
+   510→
+   511→36×4px rounded mute bar, `aria-hidden`. "A fold in the paper, not a handle
+   512→that promises dragging" — mobile bottom sheets only.
+   513→
+   514→### `theme-toggle.tsx`
+   515→
+   516→Daylight/Nightfall switch. CSS decides which icon shows
+   517→(`dark:block` / `dark:hidden`) — zero hydration guesswork. After
+   518→hydration (a `useSyncExternalStore` check, no effect-setState), the
+   519→icon pair is keyed by the resolved theme, so a switch remounts the
+   520→span and the new icon swings in from a quarter-turn back
+   521→(`theme-turn`, 420ms).
+   522→
+   523→### `sw-register.tsx`
+   524→
+   525→Registers `/sw.js` after a 1.2s idle delay with `updateViaCache: "none"`;
+   526→failures are silent by design. The worker itself (public/sw.js) is
+   527→network-first for navigations, stale-while-revalidate for static assets
+   528→(now including `/legal/`), versioned caches, and **never** caches `/api/`
+   529→or socket traffic — installability without retention.
+   530→
+   531→Update flow (Task 22): when a freshly deployed worker takes over
+   532→(`controllerchange` after a first controller existed, or the worker's
+   533→`cipherchat:updated` activate message), the page shows ONE persistent
+   534→sonner toast — "A fresh seal is ready" — with a Reload action and no
+   535→auto-reload: a half-written draft outranks freshness. Dev is exempt
+   536→(a caching worker and HMR serve each other stale chunks).
+   537→
+   538→Notification taps (Task 25): the worker's `notificationclick` handler
+   539→focuses an existing window and posts `cipherchat:navigate {roomId}`
+   540→(or `clients.openWindow("/#/r/:id")` on cold start). This component
+   541→routes BOTH that message and the `cc:open-room` CustomEvent (from the
+   542→page-level notification fallback) to `navigate("chat", roomId)` — the
+   543→listeners stay attached in dev too, where they are inert.
+   544→
+   545→### `notice-stack.tsx`
+   546→
+   547→The in-app notification banner — the fix for "a notification enters and
+   548→overlaps the top of the screen." A banner NEVER covers anything: it is
+   549→in flow, at the top of the shell wrapper (`app.tsx` `Shell`), and the
+   550→whole app steps down as its grid track opens (`notice-open`, 0fr→1fr,
+   551→360ms). One banner per room (a room speaking again replaces in place
+   552→and resets its 6.5s clock); max three on stage; timers live in the
+   553→`store/notices.ts` zustand store, so remounts never freeze a banner.
+   554→Removal is a two-step bow: `dismiss` marks it leaving (the component
+   555→plays `notice-close`), `remove` takes it off stage on animationend.
+   556→
+   557→The card: the writer's ink worn as a fleck (`InkMark variant="fleck"`
+   558→inside a colored circle), alias in the sender's ink, room name, and a
+   559→preview line that follows the notification preference. Tap (or Enter —
+   560→it is a real focusable `role="button"`) navigates to the room; X
+   561→dismisses. The stack is `sticky top-0 z-30`, claims the safe-area
+   562→padding only while non-empty, and publishes its live height as
+   563→`--cc-notice-h` via ResizeObserver — which `--toast-top` consumes so
+   564→toasts seat below it.
+   565→
+   566→### `app-settings-sheet.tsx`
+   567→
+   568→The device-level settings sheet (Task 25): Notifications and "On your
+   569→home screen" (install) plus the About rows. `AppSettingsButton` (the
+   570→bell) is the entry point, mounted on the desk header and the landing
+   571→header. The Notifications section walks the permission states —
+   572→default ("Allow notifications" → `requestNotifyPermission`), granted
+   573→(preview preference radio group: Full text / Sender only / Nothing +
+   574→a test notification), denied (quiet copy pointing at browser site
+   575→settings), unsupported (in-app banners still work). The Install
+   576→section is platform-aware via `useInstallPrompt`: `beforeinstallprompt`
+   577→captured → "Install app" (our UI asks, never the browser's mini-infobar);
+   578→iOS → the three-tap Share walkthrough; standalone → a check and silence.
+   579→
+   580→### `apple-splash.tsx`
+   581→
+   582→Server component rendering the 13 `apple-touch-startup-image` `<link>`s
+   583→(React 19 hoists them to `<head>`) for the installed iOS launch image —
+   584→generated by `scripts/gen-splash.ts` into `public/splash/` (105KB total).
+   585→See MOBILE.md for the full mobile pipeline.
+   586→
+   587→### `legal-sheet.tsx`
+   588→
+   589→The in-app reading surface for the legal documents. A tiny local zustand
+   590→store (`useLegalSheet`) drives it; `LegalLinks` renders the footer pair
+   591→("Terms of Use" / "Privacy Policy") and Settings → About opens the same
+   592→store. `LegalSheetHost` (mounted once in `app.tsx` beside the overlays)
+   593→fetches `/legal/{terms,privacy}.md` on first open (module-level cache),
+   594→renders via react-markdown with hand-styled elements — serif forest
+   595→headings, `max-w-prose` body, hairline rules, mono code — in the Sheet
+   596→primitive (bottom sheet `h-[92dvh]` on mobile, right sheet on desktop;
+   597→centered modals remain reserved for the burn moment). Loading is a mono
+   598→status line, errors get a retry. Single source of truth lives in
+   599→`public/legal/*.md`; the repo root has no duplicate.
+   600→
+   601→---
+   602→
+   603→## 8. Hooks
+   604→
+   605→### `useIsDesktop(breakpoint = 768)`
+   606→
+   607→MatchMedia listener (not a one-shot) — sheets flip between bottom (phone) and
+   608→right (desk) live on resize. Defaults false to match the mobile-first render.
+   609→
+   610→### `useKeyboardInset()` — `hooks/use-keyboard-inset.ts`
+   611→
+   612→Makes the on-screen keyboard visible to CSS. Mounted once in `CipherChatApp`.
+   613→Mechanics:
+   614→
+   615→- Listens for `focusin`/`focusout` on any editable (input/textarea/select/
+   616→  contenteditable). **No editable focused → `--kb-inset` stays `0px`** —
+   617→  desktops, headless runs, and mobile URL-bar collapses never false-positive.
+   618→- While editing, computes the covered height with the standard
+   619→  visual-viewport formula:
+   620→  `layoutViewportHeight (documentElement.clientHeight) − visualViewport.height − visualViewport.offsetTop`,
+   621→  clamped to 0…60% of layout height, updated on `visualViewport` resize/scroll
+   622→  and window resize, rAF-batched.
+   623→- Focus hops between fields are handled by re-checking `activeElement` after a
+   624→  tick on `focusout`.
+   625→- Consumers: bottom sheets (`bottom-[var(--kb-inset,0px)]`,
+   626→  `max-h-[calc(100dvh-var(--kb-inset,0px))]`, 250ms transition) and the app
+   627→  shell (`pb-[var(--kb-inset,0px)]` — composer, typing strip, and message
+   628→  column rise; the scroll area shrinks to the visible viewport).
+   629→- Division of labor: **iOS** (overlays the page) is fully handled by the
+   630→  measured inset; **Android** is handled natively by the
+   631→  `interactive-widget=resizes-content` viewport meta (inset reads ~0 there) —
+   632→  the two mechanisms never double-count.
+   633→
+   634→---
+   635→
+   636→## 9. Styling system — `globals.css`
+   637→
+   638→### Tokens
+   639→
+   640→Two themes on one sheet: `:root` (Daylight: paper `#F4F1EB`, side `#EBE7DF`,
+   641→charcoal `#2C2A28`, forest `#3A4F41`/deep `#2B3D31`, terracotta `#C85A40`/
+   642→deep, ember `#E8A87C` **motion-only**, ash, hairline @8%) and `.dark`
+   643→(Nightfall: `#17181A` family, forest `#4A6453` — the same desk by lamplight,
+   644→not an inversion). Eight identity inks `--ink-0…7` (muted stationery hues;
+   645→no red, no neon) selected deterministically from key fingerprints.
+   646→`--kb-inset: 0px` defaults here. Full rationale in `DESIGN.md`.
+   647→
+   648→### Typography classes
+   649→
+   650→| Class | Face | Spec | Voice |
+   651→|---|---|---|---|
+   652→| `.t-display` | Lora 600 | 30/36 | Landing headline |
+   653→| `.t-title` | Lora 600 | 20/28 | Screen + sheet titles |
+   654→| `.t-body` | Lora 400 | 15.5/1.5 | Messages — letters, not data |
+   655→| `.t-label` | Inter 500 | 13 | Form labels |
+   656→| `.t-meta` | Inter 400 | 11px | Machine voice: time, counts, hints |
+   657→| `.t-fingerprint` | Plex Mono | grouped 4-4 | Codes and keys |
+   658→
+   659→### Materials & effects
+   660→
+   661→- `.bubble-self` / `.bubble-other` — forest-tinted vs. side-paper bubbles.
+   662→- `.spent-card` — view-once spent, ember ring at its edge.
+   663→- `.grain` — 2.8% fractal-noise paper texture, multiply, fixed overlay.
+   664→- `.scroll-quiet` — 4px warm scrollbar, dark variant included.
+   665→- `.composer-blur` — backdrop blur for the composer strip.
+   666→- `.shadow-float` — the single sanctioned soft shadow (cards stay flat;
+   667→  only floating surfaces cast).
+   668→- iOS input-zoom guard: `@supports (-webkit-touch-callout: none) and
+   669→  (pointer: coarse) { input, textarea, select { font-size: 16px } }`, unlayered
+   670→  to outrank Tailwind — kills Safari's focus-zoom on 15/15.5px fields.
+   671→
+   672→### Motion
+   673→
+   674→Keyframes: `mark-breathe` (the idle seal), `settle` (fade-rise entrances),
+   675→`rise` (bubble entrance), `seal-arc`/`seal-press` (S3), `msg-burn` (single
+   676→message), `char-close`/`char-veil`/`ember-rim`/`char-grain`/`burn-line-in`/
+   677→`burn-out` (S6 room), `dot-pulse` (status dots). Durations 150/250/400/600ms;
+   678→easing `cubic-bezier(0.2, 0, 0, 1)` — weight, never bounce.
+   679→`prefers-reduced-motion` collapses everything to 150ms fades (mandatory
+   680→override block at the end of the keyframe section).
+   681→
+   682→---
+   683→
+   684→## 10. shadcn/ui inventory
+   685→
+   686→**Used by CipherChat** (restyled, in `components/ui/`):
+   687→
+   688→- `sheet.tsx` — every sheet; bottom variant carries the keyboard-awareness
+   689→  geometry (§8).
+   690→- `dialog.tsx` — exactly one consumer: the burn-consequence modal.
+   691→- `context-menu.tsx` — message copy/burn menu (§4).
+   692→- `sonner.tsx` (`Toaster` in layout) — toasts, top-center, paper-styled.
+   693→
+   694→**Available but unused** (stock scaffolding, safe to ignore or use later):
+   695→accordion, alert, alert-dialog, aspect-ratio, avatar, badge, button, calendar,
+   696→card, carousel, chart, checkbox, collapsible, command, drawer, dropdown-menu,
+   697→form, hover-card, input, input-otp, label, menubar, navigation-menu,
+   698→pagination, popover, progress, radio-group, resizable, scroll-area, select,
+   699→separator, sidebar, skeleton, slider, switch, table, tabs, textarea, toast,
+   700→toggle, toggle-group, tooltip.
+   701→
+   702→House rule: prefer the `cc/` primitives (`actions`, `fields`) over raw shadcn
+   703→so the verb system and field language stay consistent.
+   704→
+   705→---
+   706→
+   707→## 11. Data layer
+   708→
+   709→### `store/app.ts` — the orchestrator
+   710→
+   711→One Zustand store holds all client state:
+   712→
+   713→| State | Shape |
+   714→|---|---|
+   715→| `ready`, `seed` | Boot: the device seed (one random 32B; every room derives its own signing key from it) |
+   716→| `screen`, `activeRoomId`, `inviteCode` | Hash-router position |
+   717→| `roomCards` | The desk (persisted via `lib/local`) |
+   718→| `messages` | `Record<roomId, MessageView[]>` — memory only |
+   719→| `members`, `typing` | Live registries per room (identity authoritative only via REST) |
+   720→| `relayOnline`, `resealing` | Connection truths ("Re-sealing" = awaiting key delivery) |
+   721→| `sealing`, `burn` | Ceremony overlay triggers |
+   722→
+   723→Actions (all UI mutations funnel through these): `init`, `navigate`,
+   724→`createRoom`, `joinRoom`/`enterRoom` (incl. the stale-rejoin bootstrap past
+   725→the server's rotation ledger), `sendMessage` (sign → pad → encrypt → relay,
+   726→optimistic; files become 1 meta + 44 uniform chunk frames), `emitTyping`
+   727→(throttled 2.5s, rides the same encrypted frames), `spendViewOnce`,
+   728→`burnMessage` (600ms choreography), `burnRoom`/`finishRoomBurn`, `leaveRoom`
+   729→(remaining members re-seal under a new random key), `renameRoom`,
+   730→`setDefaultTtl`, `markVerified`, `refreshMembers`.
+   731→
+   732→Internals worth knowing: TTL burn timers and typing-prune timers live in
+   733→module memory (not state); sealing enforces `MIN_SEAL_MS`; the v2 receive
+   734→pipeline (`receiveFrame` → `RoomCipher.open`) enforces shape → registry
+   735→(eviction) → key version → **ECDSA signature** → **replay guard**, and only
+   736→then renders — forged or replayed traffic becomes either a quiet rejection
+   737→line (signature) or silence (everything else). The store is a thin adapter:
+   738→every security decision lives in `lib/room-protocol.ts` where the Task 19
+   739→test suite can reach it.
+   740→
+   741→**Round 21 internals** — the silent-departure grace: a module-level
+   742→`silentGrace` timer map (one clock per offline member per room, 120s) is
+   743→armed by `member:presence(false)` and by the `room:state` honest-diff
+   744→(registry members absent from the relay's live list are marked offline —
+   745→this also fixes the stale away-dot after a refresh). When a clock expires,
+   746→only the still-connected coordinator acts (`fireSilentEviction` →
+   747→`stillSilentAtExpiry` gate → `POST /api/rooms/:id/evict` → announce
+   748→`member:expired`); both `member:left` and `member:expired` funnel through
+   749→`confirmDeparture()` — REST-confirmed eviction, system line (`left.` vs
+   750→`drifted away.`), coordinator rotation. `init()` is guarded by a
+   751→synchronous `initStarted` flag (the `ready` check alone has an await gap
+   752→that once let handlers register twice). Composer drafts live in
+   753→`lib/drafts.ts` (memory-only, per-room).
+   754→
+   755→### `lib/` modules
+   756→
+   757→| Module | Role |
+   758→|---|---|
+   759→| `protocol.ts` | **Wire protocol v2**: frame types, uniform padding (control 20480+16B, file chunks 65536+16B, fixed-count file transfers), canonical v2 signing string, seal/open, replay guard (counters + session tags + ±10min window + id dedup + persistable watermarks), send clock, session ECDH helpers |
+   760→| `room-protocol.ts` | **`RoomCipher`** — the per-room security engine: versioned key ring with grace, registry eviction gate, rotation ceremony (`rotateTo`/`rotateAsCoordinator`), join-key delivery (double-wrapped offers), pending buffer, file-chunk assembly with sha verification, key-version cap |
+   761→| `kdf.ts` | argon2id (64 MB, t=3, p=1) versioned key bundles; legacy PBKDF2 room unlock |
+   762→| `room-identity.ts` | Per-room ECDSA keys derived from the device seed via HKDF(seed, roomId) — cross-room unlinkability |
+   763→| `crypto.ts` | Legacy v1 primitives (PBKDF2 room keys, verifier blobs, canonical-JSON sign/verify, base64) — still the sign/verify backbone |
+   764→| `legacy.ts` | PBKDF2 epoch-key cache for pre-v2 rooms (the legacy receive path is gated to them) |
+   765→| `rate-limit.ts` | Token bucket (20 frames/s per socket), IP limiter (5 rooms/min), frame-size cap — shared by relay and API |
+   766→| `silent-grace.ts` | **Round 21**: the silent-departure decision logic — `SILENT_GRACE_MS` (120s client clock), `EVICT_MIN_OFFLINE_MS` (60s server floor), `authorizeEviction` (pure; the /evict route obeys), `stillSilentAtExpiry` (pure; the client's gate at timer expiry) |
+   767→| `drafts.ts` | Per-room composer drafts — memory-only, like the keys |
+   768→| `identity.ts` | Deterministic aliases ("Quiet Heron") and ink indexes from fingerprints; 8-hex fingerprints + `3F2A · 91BC` grouping; passphrase generator (CSPRNG, 256-word list, 5 words = 40 bits — see DESIGN.md §5); room-code parser |
+   769→| `session.ts` | **Memory-only** room sessions (member ids, kv, the password — kept while the room is open so the invite sheet can re-share it; never on disk; refresh = locked rooms, by design) |
+   770→| `local.ts` | localStorage: room cards, creator tokens, verify marks, replay watermarks, TTL-hint flag, per-room settings |
+   771→| `relay.ts` | The single socket.io client (`io("/?XTransformPort=3003")`) |
+   772→| `types.ts` | `MessageView`, `RoomCard`, `MemberPublic` (incl. `ecdhPub`), legacy `WireEnvelope`, TTL steps, `Screen` |
+   773→| `format.ts` | `fmtTime`, `fmtAgo`, `fmtTtlRemaining`, `fmtBytes` |
+   774→| `db.ts` | Prisma client (server-side only) |
+   775→| `__tests__/` | **The property suite** — tests named after the security properties they protect: task-19 (47: replay, rotation, padding, KDF, identity, hardening), task-20 (11: file captions, ink reactions), task-21.1 (16: silent-grace decisions) |
+   776→
+   777→### Backend surface (for reference)
+   778→
+   779→REST: `POST /api/rooms` (rate-limited 5/min/IP) · `GET /api/rooms/:id` ·
+   780→`PUT verifier` (set-once) · `POST/GET members` (cap 12; carries `ecdhPub`;
+   781→**the only identity authority** — keyed by pubkey) · `POST leave` (epoch
+   782→ledger bump) · `POST evict` (round 21 — silent-leaver write-out: consults
+   783→the relay presence snapshot server-to-server, fails closed; 30/min/IP) ·
+   784→`POST burn` (creatorToken). Relay (socket.io, port 3003, in-memory,
+   785→hardened): `room:join`, `message:send`/`message:ack`
+   786→(uniform v2 frames), `member:joined`/`member:left`/`member:presence`/
+   787→`member:expired`, `key:request`, `room:burn` — plus legacy
+   788→`message:spent`/`member:typing`/`message:burn` forwarding for pre-v2
+   789→clients. Per-socket token bucket
+   790→(20 frames/s sustained, burst 64), hard frame-size cap with disconnect,
+   791→16-room cap. **Internal presence snapshot** (round 21): port 3004,
+   792→`GET /presence/:roomId`, guarded by the shared `RELAY_INTERNAL_TOKEN`
+   793→header — the connection authority `/evict` consults; not routed through
+   794→the gateway. The relay stamps `wentOfflineAt` on every silent last-socket
+   795→drop (the grace clock) and clears it on any return. The relay never
+   796→touches the database — new joiners see no history because none exists.
+   797→
+   798→---
+   799→
+   800→## 12. Conventions checklist
+   801→
+   802→When adding a component, it must obey:
+   803→
+   804→1. One primary verb per surface; forest means trust, terracotta means
+   805→   destruction/impermanence — never anything else.
+   806→2. Lora is the human voice (messages, names, titles); Inter is the machine
+   807→   (UI, labels, meta); Plex Mono is for codes.
+   808→3. Errors are neutral charcoal, inline, `role="alert"`, no exclamation marks.
+   809→4. No card shadows; hairline borders; radius 4/8/12/18; 44px minimum touch
+   810→   targets (48px primary buttons).
+   811→5. Irreversible actions require the centered consequence modal; everything
+   812→   else uses sheets.
+   813→6. Never persist messages or keys — localStorage holds cards, tokens, marks,
+   814→   settings only.
+   815→7. Empty states are product statements, not apologies.
+   816→8. New bottom sheets get `SheetGrabber` on mobile, keyboard-aware geometry
+   817→   comes free from the shared `SheetContent` bottom variant, and content must
+   818→   scroll internally (`overflow-y-auto overscroll-contain scroll-quiet`).
+   819→9. Respect `prefers-reduced-motion` — entrances become 150ms fades.
+   820→10. The only security glyph is the shield that opens verification. The lock
+   821→    glyph means one thing: a locked room.
+   822→

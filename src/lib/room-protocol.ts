@@ -51,7 +51,7 @@ import {
   verifyCanonical,
 } from "./crypto";
 import { signLeaveProof } from "./leave-proof";
-import { isReactionMark } from "./types";
+import { isReactionMark, isReplySnapshot, type ReplySnapshot } from "./types";
 
 export interface RegistryEntry {
   pubkey: JsonWebKey;
@@ -98,6 +98,8 @@ export type OpenResult =
       /** caption typed alongside the attachment — rides in the meta frame's
        * canonical-signed top-level text field, so it is nameplate-authentic */
       text?: string;
+      /** quoted-reply target — signature-covered like the caption */
+      reply?: ReplySnapshot;
       file: FileMetaBody & { dataB64: string };
     }
   | { type: "offer-installed"; kv: number; rotation: boolean }
@@ -130,6 +132,8 @@ interface AssemblingFile {
   meta: FileMetaBody;
   /** the signature-covered caption (top-level frame text) */
   text?: string;
+  /** the signature-covered quote snapshot, when the file replies */
+  reply?: ReplySnapshot;
   metaTs: number;
   chunks: Map<number, string>;
 }
@@ -298,9 +302,16 @@ export class RoomCipher {
     });
   }
 
-  async sealText(opts: { text: string; ttlSec?: number }): Promise<WireFrame[]> {
+  async sealText(opts: {
+    text: string;
+    ttlSec?: number;
+    reply?: ReplySnapshot;
+  }): Promise<WireFrame[]> {
     return [
-      await this.seal({ kind: "text", text: opts.text, ttlSec: opts.ttlSec }, CONTROL_FRAME_BYTES),
+      await this.seal(
+        { kind: "text", text: opts.text, ttlSec: opts.ttlSec, reply: opts.reply },
+        CONTROL_FRAME_BYTES,
+      ),
     ];
   }
 
@@ -350,6 +361,8 @@ export class RoomCipher {
     text?: string;
     ttlSec?: number;
     viewOnce?: boolean;
+    /** quoted-reply target — rides the meta frame, signature-covered */
+    reply?: ReplySnapshot;
   }): Promise<WireFrame[]> {
     const padded = padB64Payload(opts.dataB64, FILE_PAYLOAD_B64);
     const messageId = crypto.randomUUID();
@@ -360,6 +373,7 @@ export class RoomCipher {
         // Top-level text is part of canonicalV2 — the caption is signed,
         // so it is exactly as authentic as the sender's words in text frames.
         text: opts.text,
+        reply: opts.reply,
         file: {
           messageId,
           name: opts.name,
@@ -568,6 +582,11 @@ export class RoomCipher {
       text: body.text,
       fileSha: body.fileSha,
       messageId: body.messageId,
+      // Raw, exactly as sealed — verification must recompute the
+      // sender's canonical string, not a cleaned-up one. Sanitising
+      // for the UI happens later, after the signature has bound these
+      // bytes to their author.
+      reply: isReplySnapshot(body.reply) ? body.reply : undefined,
     });
     const okSig = await verifyCanonical(entry.pubkey, canonical, body.sig);
     if (!okSig) return { type: "reject", reason: "signature" };
@@ -618,6 +637,7 @@ export class RoomCipher {
         this.files.set(body.file.messageId, {
           meta: body.file,
           text: typeof body.text === "string" && body.text.length > 0 ? body.text : undefined,
+          reply: isReplySnapshot(body.reply) ? body.reply : undefined,
           metaTs: body.ts,
           chunks: new Map(),
         });
@@ -649,6 +669,7 @@ export class RoomCipher {
           senderId: frame.from,
           ts: file.metaTs,
           text: file.text,
+          reply: file.reply,
           file: { ...file.meta, dataB64 },
         };
       }

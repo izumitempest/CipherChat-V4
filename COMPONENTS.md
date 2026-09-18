@@ -47,7 +47,8 @@ are rewritten to `#/join/…` on boot.
 (`useApp((s) => s.messages[roomId])`), never hold server state locally, and
 call store actions for every mutation. Secrets (room keys, passwords) never
 enter the store — they live in the module-memory `lib/session.ts`, wiped by
-refresh.
+refresh. Quoted-reply snapshots (`MessageView.replyTo`) are data, not
+secrets — copies of words already shown to the room.
 
 **Server model.** REST (`app/api/rooms/*`) manages room lifecycle only.
 A socket.io mini-service on port 3003 (`lib/relay.ts` → `io("/?XTransformPort=3003")`)
@@ -196,6 +197,18 @@ State handling note: room-prop changes (switching rooms) use the sanctioned
 render-time adjustment pattern (`if (roomId !== hintRoomChecked) setState…`) —
 no effects for derived state.
 
+**Round 29 state** — `replyTarget` (the message being answered; memory-only
+like everything else) and `viewing` (the file open in the viewer). Both are
+released by the same render-time pattern when their message burns — a letter
+that burns while being read must not linger on screen, and you cannot answer
+what is no longer here. `jumpToMessage(id)` finds the row via
+`[data-mid="${CSS.escape(id)}"]`, scrolls it to the center, and restarts the
+`quote-flash` pulse (class remove → forced reflow → add, so repeated jumps
+re-announce); a target that is gone toasts "That message is no longer in
+this session" instead. `beginReply` seats the quote and closes the viewer if
+one is open. The window-level Escape guard also steps aside while a reply is
+pending.
+
 ---
 
 ## 4. Chat surface
@@ -221,6 +234,7 @@ The writing surface, and the most stateful leaf component. A sticky,
 | Paste | Clipboard files into the textarea attach instead of inserting |
 | TTL chip | Cycles OFF → 5m → 1h → 8h; armed state is terracotta; the first-ever arming raises the hint strip instead of a toast |
 | Attachment slip | Paper tile + name/size + **View once** toggle + remove; expanded hit areas on the small chips |
+| Reply slip (round 29) | The quoted words above the input (alias + snippet + X to cancel); beginning a reply focuses the input — touch included, the reply IS an intent to write; submit seals the quote snapshot into the message (`makeReplySnapshot` at send time, so the quote is exactly what was on screen); **Escape releases the quote first** (stopPropagation keeps the window-level escape-to-rooms handler from seeing the key) |
 | Send | Forest circle with arrow; disabled unless text or attachment exists |
 | Offline | Send button is replaced by a status chip: "Reconnecting" (relay down) or "Re-sealing" (key rotation after someone left) — you never type into a void silently |
 | Near limit | "N characters left" appears under 200 remaining; at zero, calm terracotta copy ("…as long as a letter can be") |
@@ -245,10 +259,27 @@ nearest the sender (group-internal edges). Max width 75%. Entrance is the
 (`msg-burning` — ember-rim glow into the 600ms dissolve, handled by the store's
 burn choreography). File messages render the caption (`message.text`) as
 `t-body` above the file card — the caption rides the meta frame's canonical-
-signed text field, so it is exactly as authentic as a text message.
+signed text field, so it is exactly as authentic as a text message. A reply
+renders its **`QuoteBlock`** inside the bubble, above the body. Every row
+carries `data-mid={message.id}` — the jump target. Three roads to the same
+verb (round 29): a hover-only reply icon button beside the bubble on desktop
+(`group/row` opacity transition, `-left-10` for self / `-right-10` for others
+— a mouse thing; touch uses press-and-hold), the context menu's "Reply" item,
+and a double-click on the bubble itself.
+
+**`QuoteBlock`** — the strip of the message being answered, a small letter
+inside the letter. Left border (2px) in the **quoted sender's own ink**
+(`var(--ink-N)`; "Someone" in mute if they have left, "You" if it is you),
+alias + snippet, a `FileText` glyph when the quoted message carried a file.
+The snippet is a copy the reply itself carries, so the quote survives the
+original burning — the words were already shown to the room. Clicking jumps
+to the original while it lives in session memory; it is a real focusable
+button whose `aria-label` tells the truth either way ("Jump to the original"
+/ "The original is no longer in this session").
 
 **`CopyMenu`** — Radix ContextMenu wrapping every bubble (right-click desktop,
-press-and-hold touch): "Copy text" / "Copy caption" (file messages with a
+press-and-hold touch): **"Reply"** (first item, when a reply handler is
+wired — round 29) · "Copy text" / "Copy caption" (file messages with a
 caption) / "Copy file name" → toast; **"Mark this message"** — a submenu with
 the four ink marks (✓ Acknowledged · ✦ Noted · ♥ Warmly received · ☾ Later,
 `REACTION_MARKS` in `lib/types.ts`), the one you currently hold flagged with a
@@ -272,18 +303,24 @@ local update and every receiver.
 glyph, `tabular-nums` so the meta row never jitters. Label from
 `fmtTtlRemaining` ("4:59" → "moments").
 
-**`FileContent`** — three file presentations:
+**`FileContent`** — the file presentations (round 29: opening is every
+card's job now — downloading is a choice the viewer offers, never the
+card's whole job):
 - **View-once sealed** — a paper card with mail glyph: "Sealed — View once —
   opening destroys it"; opens `FileViewer`.
 - **View-once spent** — `.spent-card` with ember rim: "Opened — the contents
   are gone". Never re-opens (enforced server-side too: spent IDs are
   broadcast).
 - **Images** — inline base64 `img` (max-h-56), click to open viewer.
-- **Other files** — download card: file tile, name, size, hover-brightening
-  download glyph; `downloadFile()` (below).
+- **Video / audio / other files** — an open-in-the-viewer card: file tile
+  wearing the kind's glyph (Film for video, Music for audio, FileText
+  otherwise), kind label ("Video" / "Audio" / "File") + name + size, and an
+  Eye glyph that warms to forest on hover. Nothing downloads directly.
 
 **`downloadFile(name, mime, dataB64)`** — exported helper: base64 → Blob →
 object URL → synthetic anchor click → revoke after 4s. Toast on success/fail.
+Since round 29 its only caller is the viewer's Download button — the cards
+never call it.
 
 **`SystemLine`** — quiet centered meta text ("Quiet Heron joined.", "A message
 claiming to be from X was rejected — signature invalid."). System lines are
@@ -294,20 +331,75 @@ claiming to be from X was rejected — signature invalid."). System lines are
 A **full surface, not a modal** — centered modals are reserved for irreversible
 moments. Fixed overlay of `bg-paper/95` + 16px blur (the second blurred
 surface), `role="dialog"` (not modal — the room stays alive behind it).
+**Round 29 rewrote it: every file opens IN THE APP now** — no forced
+downloads, nothing handed to the browser's own viewer.
 
-- Images: contained by default; click/Enter/Space toggles 220% zoom
-  (`cursor-zoom-in/out`, focus ring, keyboard-operable `role="button"` img).
-- Other files: paper card with name, size, and Download.
-- **View-once spending happens the instant the viewer opens** — `onSpent`
-  fires on `message.id` change; the bubble becomes the spent card behind the
-  viewer simultaneously for everyone in the room.
-- Escape closes; body scroll lock is not needed (fixed overlay).
+**Classification** — exported `classifyFile(mime, name)` routes by mime
+first, then file extension: `image/*` → image · `video/*` → video ·
+`audio/*` → audio · `application/pdf` / `.pdf` → pdf · `text/csv` / `.csv` →
+csv · text-ish mimes plus a `TEXT_EXTS` allowlist (code, config, markdown,
+svg, …) → text · everything else → binary.
+
+**Blob lifecycle** — the base64 decodes once to a `Uint8Array` in memory; a
+single object URL is minted in an effect keyed on the message id and revoked
+in its cleanup (`URL.revokeObjectURL`) on switch or unmount. Nothing is
+fetched, nothing is written. The viewing copy was taken at open time, so a
+message burning behind the viewer doesn't yank the bytes — the chat screen
+closes the viewer when its message goes.
+
+Per type:
+
+- **Image** — contained; click/Enter/Space toggles 220% zoom
+  (`cursor-zoom-in/out`, focus ring, keyboard-operable `role="button"` img;
+  same behavior as always, now fed from the blob).
+- **Video** — `<video controls playsInline
+  controlsList="nodownload noremoteplayback">`; view-once additionally
+  disables picture-in-picture and suppresses the context menu.
+- **Audio** — a styled card (music glyph in a forest circle, name, size) with
+  the same `controlsList`.
+- **PDF** — rendered by **pdfjs-dist v6 onto a `<canvas>`** (worker vendored
+  at `public/pdf.worker.min.mjs`, served from `/pdf.worker.min.mjs`; a
+  static asset, eslint-ignored as vendored): devicePixelRatio-aware scaling
+  (capped 2×), fit-to-width, Back/Next page nav, "Page x of y". A canvas
+  carries **no browser PDF toolbar and no save button** — that is the point.
+  pdf.js transfers buffers, so it is handed `bytes.slice()` — a copy — and
+  our bytes stay ours. If pdf.js fails to load the document: regular files
+  fall back to an `<iframe>` with the blob URL (honest degradation), but
+  **view-once files stay sealed** — the notice says falling back would expose
+  the browser PDF toolbar's save button, and asks the sender to re-share. A
+  page that fails to render sets a failed state, never a blank canvas.
+- **Text** — escaped plain text in a monospace `pre` (React escaping — never
+  innerHTML), wrap toggle, `TEXT_SHOW_MAX = 100_000` on-screen cap ("copy
+  takes the whole file"). HTML files carry the label "Shown as source — HTML
+  is never executed here"; SVG rides an `<img>` context, where its scripts
+  cannot run.
+- **CSV** — `parseCsv()` (exported, pure, quote-aware RFC-4180-style: doubled
+  quotes, commas and newlines inside quoted fields, CRLF tolerated, empty
+  rows dropped) into a sticky-header table capped at **500 rows × 32 cols**
+  (`CSV_MAX_ROWS` / `CSV_MAX_COLS`) — wide rows clipped, copy takes the whole
+  file.
+- **Binary** — a metadata card (name, size, "inspected in memory") plus a
+  hex dump of the first 512 bytes (offset · hex · ASCII gutter).
+
+Header row: name · size · mime (+ "view once" marker). Buttons: **Copy
+contents** (text-ish files — copies the whole file), **Download** (present
+ONLY for non-view-once files), Close. **A view-once file has no download
+anywhere** — not on the card, not in the viewer — and the policy is stated
+outright beneath the header: "View once — it lives on screen only. There is
+no download for this file, from anyone, by design."
+
+**View-once spending happens the instant the viewer opens** — `onSpent`
+fires on `message.id` change; the bubble becomes the spent card behind the
+viewer simultaneously for everyone in the room.
+
+Escape closes; body scroll lock is not needed (fixed overlay).
 
 **Chat keyboard layer** (`screens/chat.tsx`) — Escape with an empty composer
 returns to the room list. Sheets, menus, dialogs and the file viewer own the
 key first (they prevent it, and `[data-state="open"]` / `[role="dialog"]` is
-checked besides); a composer holding words never loses them to a stray
-Escape. **`TypingLine`** carries three `.typing-dot` ink dots (aria-hidden,
+checked besides); a reply in progress owns it before all of that — the
+composer's own keydown releases the quote and stops propagation; and a
+composer holding words never loses them to a stray Escape. **`TypingLine`** carries three `.typing-dot` ink dots (aria-hidden,
 staggered 180ms) before the aria-live sentence. **`ChatHeader`** renders per-
 member presence dots in each member's own ink (`.dot-in` entrance, away
 members rest at 35% opacity) before the member count.
@@ -722,8 +814,10 @@ One Zustand store holds all client state:
 
 Actions (all UI mutations funnel through these): `init`, `navigate`,
 `createRoom`, `joinRoom`/`enterRoom` (incl. the stale-rejoin bootstrap past
-the server's rotation ledger), `sendMessage` (sign → pad → encrypt → relay,
-optimistic; files become 1 meta + 44 uniform chunk frames), `emitTyping`
+the server's rotation ledger), `sendMessage(text, file?, ttlOverride?,
+reply?)` (sign → pad → encrypt → relay, optimistic — the reply snapshot rides
+the frame and the optimistic view as `replyTo`; files become 1 meta + 44
+uniform chunk frames), `emitTyping`
 (throttled 2.5s, rides the same encrypted frames), `spendViewOnce`,
 `burnMessage` (600ms choreography), `burnRoom`/`finishRoomBurn`, `leaveRoom`
 (remaining members re-seal under a new random key), `renameRoom`,
@@ -734,9 +828,11 @@ module memory (not state); sealing enforces `MIN_SEAL_MS`; the v2 receive
 pipeline (`receiveFrame` → `RoomCipher.open`) enforces shape → registry
 (eviction) → key version → **ECDSA signature** → **replay guard**, and only
 then renders — forged or replayed traffic becomes either a quiet rejection
-line (signature) or silence (everything else). The store is a thin adapter:
-every security decision lives in `lib/room-protocol.ts` where the Task 19
-test suite can reach it.
+line (signature) or silence (everything else). Since round 29, both receive
+paths (text and file-assembly completion) pass the verified reply through
+`sanitizeReplySnapshot()` before it reaches the view. The store is a thin
+adapter: every security decision lives in `lib/room-protocol.ts` where the
+Task 19 test suite can reach it.
 
 **Round 21 internals** — the silent-departure grace: a module-level
 `silentGrace` timer map (one clock per offline member per room, 120s) is
@@ -756,8 +852,8 @@ that once let handlers register twice). Composer drafts live in
 
 | Module | Role |
 |---|---|
-| `protocol.ts` | **Wire protocol v2**: frame types, uniform padding (control 20480+16B, file chunks 65536+16B, fixed-count file transfers), canonical v2 signing string, seal/open, replay guard (counters + session tags + ±10min window + id dedup + persistable watermarks), send clock, session ECDH helpers |
-| `room-protocol.ts` | **`RoomCipher`** — the per-room security engine: versioned key ring with grace, registry eviction gate, rotation ceremony (`rotateTo`/`rotateAsCoordinator`), join-key delivery (double-wrapped offers), pending buffer, file-chunk assembly with sha verification, key-version cap |
+| `protocol.ts` | **Wire protocol v2**: frame types, uniform padding (control 20480+16B, file chunks 65536+16B, fixed-count file transfers), canonical v2 signing string, seal/open, replay guard (counters + session tags + ±10min window + id dedup + persistable watermarks), send clock, session ECDH helpers. **Round 29**: `FrameBody.reply` + exported `replyCanonical()` — the reply snapshot is the canonical string's 12th field, so a quote is signature-covered like the words themselves |
+| `room-protocol.ts` | **`RoomCipher`** — the per-room security engine: versioned key ring with grace, registry eviction gate, rotation ceremony (`rotateTo`/`rotateAsCoordinator`), join-key delivery (double-wrapped offers), pending buffer, file-chunk assembly with sha verification, key-version cap. **Round 29**: `sealText`/`sealFile` accept a `reply` snapshot, the file-assembly map carries it, the completed-file OpenResult hands it to the store, and `open()` verifies the **raw** snapshot — sanitising happens only after the signature has bound the bytes |
 | `kdf.ts` | argon2id (64 MB, t=3, p=1) versioned key bundles; legacy PBKDF2 room unlock |
 | `room-identity.ts` | Per-room ECDSA keys derived from the device seed via HKDF(seed, roomId) — cross-room unlinkability |
 | `crypto.ts` | Legacy v1 primitives (PBKDF2 room keys, verifier blobs, canonical-JSON sign/verify, base64) — still the sign/verify backbone |
@@ -769,10 +865,10 @@ that once let handlers register twice). Composer drafts live in
 | `session.ts` | **Memory-only** room sessions (member ids, kv, the password — kept while the room is open so the invite sheet can re-share it; never on disk; refresh = locked rooms, by design) |
 | `local.ts` | localStorage: room cards, creator tokens, verify marks, replay watermarks, TTL-hint flag, per-room settings |
 | `relay.ts` | The single socket.io client (`io("/?XTransformPort=3003")`) |
-| `types.ts` | `MessageView`, `RoomCard`, `MemberPublic` (incl. `ecdhPub`), legacy `WireEnvelope`, TTL steps, `Screen` |
+| `types.ts` | `MessageView` (round 29: `replyTo?: ReplySnapshot`), `RoomCard`, `MemberPublic` (incl. `ecdhPub`), legacy `WireEnvelope`, TTL steps, `Screen`. **Round 29**: `ReplySnapshot {id, senderId, snippet, file?}`, `REPLY_SNIPPET_MAX = 120`, `makeReplySnapshot()` (compose-time quote — "Sealed message" for view-once targets, file name + `file: true` for files, whitespace-collapsed 120-char text), `sanitizeReplySnapshot()` (post-verification UI gate: 64/64/160 caps, malformed shapes dropped), `isReplySnapshot()` shape guard |
 | `format.ts` | `fmtTime`, `fmtAgo`, `fmtTtlRemaining`, `fmtBytes` |
 | `db.ts` | Prisma client (server-side only) |
-| `__tests__/` | **The property suite** — tests named after the security properties they protect: task-19 (47: replay, rotation, padding, KDF, identity, hardening), task-20 (11: file captions, ink reactions), task-21.1 (16: silent-grace decisions) |
+| `__tests__/` | **The property suite** — tests named after the security properties they protect: task-19 (47: replay, rotation, padding, KDF, identity, hardening), task-20 (11: file captions, ink reactions), task-21.1 (16: silent-grace decisions), task-22 (leave-proof, admission, identity-range), task-25 (16: notifications), **task-29 (16: reply round-trips on text and through file assembly, tampered-quote signature break, size-indistinguishability, replay refusal, replyCanonical determinism, snapshot make/sanitize hygiene, viewer classification, CSV parsing)** — 124 cases total |
 
 ### Backend surface (for reference)
 

@@ -616,6 +616,27 @@
   animation: msg-burn 600ms cubic-bezier(0.2, 0, 0, 1) forwards;
 }
 
+/* A quoted reply's target, arrived at by the jump: one soft ring of
+ * forest that breathes twice and lets go — recognition, not alarm. */
+@keyframes quote-flash {
+  0% {
+    background-color: transparent;
+  }
+  25% {
+    background-color: color-mix(in oklab, var(--forest) 14%, transparent);
+  }
+  60% {
+    background-color: color-mix(in oklab, var(--forest) 8%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+.quote-flash {
+  animation: quote-flash 1300ms ease-out 1;
+  border-radius: 12px;
+}
+
 /* S6b — the room burns: paper chars from the edges inward */
 @keyframes char-close {
   from {
@@ -1047,6 +1068,10 @@
     animation-name: burn-out;
     filter: none !important;
     transform: none !important;
+  }
+  .quote-flash {
+    animation: none !important;
+    background-color: color-mix(in oklab, var(--forest) 8%, transparent);
   }
   .mark-breathe {
     animation: none !important;

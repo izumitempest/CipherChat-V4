@@ -7,14 +7,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Eye, Hourglass, Paperclip, X } from "lucide-react";
+import { ArrowUp, Eye, Hourglass, Paperclip, Reply, X } from "lucide-react";
 import { toast } from "sonner";
 import { FILE_LIMIT, useApp } from "@/store/app";
 import { getSession } from "@/lib/session";
 import { ttlHintSeen } from "@/lib/local";
 import { getDraft, setDraft } from "@/lib/drafts";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
-import { TTL_STEPS, isCustomTtl, type TtlChoice } from "@/lib/types";
+import { TTL_STEPS, isCustomTtl, makeReplySnapshot, type MessageView, type TtlChoice } from "@/lib/types";
 import { fmtBytes, fmtTtlLong, fmtTtlShort } from "@/lib/format";
 import { TtlPicker } from "@/components/cc/ttl-picker";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
@@ -31,7 +31,17 @@ export interface Attachment {
 
 export const MESSAGE_CHAR_LIMIT = 4000;
 
-export function Composer({ onTtlArmed }: { onTtlArmed?: () => void }) {
+export function Composer({
+  onTtlArmed,
+  replyTarget,
+  onCancelReply,
+}: {
+  onTtlArmed?: () => void;
+  /** the message being answered, if any — shown as a quote above the
+   *  input and sealed into the reply when it leaves */
+  replyTarget?: MessageView | null;
+  onCancelReply?: () => void;
+}) {
   const roomId = useApp((s) => s.activeRoomId);
   const sendMessage = useApp((s) => s.sendMessage);
   const emitTyping = useApp((s) => s.emitTyping);
@@ -62,6 +72,13 @@ export function Composer({ onTtlArmed }: { onTtlArmed?: () => void }) {
    * button as the letter leaves. Cleared by the pseudo-elements'
    * animationend, which lands on the button itself. */
   const [bursting, setBursting] = useState(false);
+
+  // Beginning an answer centres the composer — the cursor goes to
+  // the input on every reply (touch included: the reply IS an intent
+  // to write).
+  useEffect(() => {
+    if (replyTarget) inputRef.current?.focus();
+  }, [replyTarget]);
 
   // A room switch swaps in that room's letter-in-progress and its own
   // expiry setting — adjusted during render (the sanctioned no-effect
@@ -168,12 +185,14 @@ export function Composer({ onTtlArmed }: { onTtlArmed?: () => void }) {
       : undefined;
     const sending = text;
     const ttlNow = ttl;
+    const reply = replyTarget ? makeReplySnapshot(replyTarget) : undefined;
     setText("");
     setAttachment(null);
     setViewOnce(false);
     setDraft(roomId, ""); // the letter left with its sender
+    onCancelReply?.(); // and with its quote
     inputRef.current?.focus();
-    await sendMessage(sending, file, ttlNow);
+    await sendMessage(sending, file, ttlNow, reply);
   }
 
   const nearLimit = text.length > MESSAGE_CHAR_LIMIT - 200;
@@ -211,6 +230,36 @@ export function Composer({ onTtlArmed }: { onTtlArmed?: () => void }) {
         </div>
       ) : null}
       <div className="mx-auto w-full max-w-[720px] px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
+        {/* the reply slip: the quoted words above the input */}
+        {replyTarget ? (
+          <div className="settle mb-2 flex items-start gap-2.5 rounded-[10px] border border-hairline bg-side px-2.5 py-2">
+            <Reply
+              className="mt-1 size-3.5 shrink-0 text-mute"
+              aria-hidden
+            />
+            <div className="min-w-0 flex-1 border-l-2 border-forest/40 pl-2.5">
+              <p className="truncate font-sans text-[11.5px] font-semibold leading-[15px] text-forest">
+                {replyTarget.self ? "You" : (replyTarget.senderAlias ?? "Someone")}
+              </p>
+              <p className="truncate font-sans text-[12px] leading-[17px] text-mute">
+                {replyTarget.viewOnce
+                  ? "Sealed message"
+                  : replyTarget.kind === "file" && replyTarget.file
+                    ? replyTarget.file.name
+                    : (replyTarget.text ?? "").replace(/\s+/g, " ").trim()}
+              </p>
+            </div>
+            <button
+              type="button"
+              aria-label="Cancel reply"
+              onClick={onCancelReply}
+              className="relative flex size-8 shrink-0 items-center justify-center rounded-[8px] text-mute transition-colors duration-150 hover:bg-wash hover:text-charcoal before:absolute before:-inset-2 before:content-['']"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+        ) : null}
+
         {/* attachment slip */}
         {attachment ? (
           <div className="settle mb-2 flex items-center gap-2.5 rounded-[10px] border border-hairline bg-side px-2.5 py-2">
@@ -291,6 +340,15 @@ export function Composer({ onTtlArmed }: { onTtlArmed?: () => void }) {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 submit();
+                return;
+              }
+              // While answering, Escape's first duty is to release the
+              // quote — the room keeps the writer (the window-level
+              // handler must not see this key).
+              if (e.key === "Escape" && replyTarget) {
+                e.preventDefault();
+                e.stopPropagation();
+                onCancelReply?.();
               }
             }}
             onAnimationEnd={() => setDraftCue(false)}

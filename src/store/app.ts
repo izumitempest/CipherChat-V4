@@ -13,8 +13,10 @@
 import { create } from "zustand";
 import {
   isReactionMark,
+  sanitizeReplySnapshot,
   type MessageView,
   type ReactionMark,
+  type ReplySnapshot,
   type RoomCard,
   type Screen,
   type TtlChoice,
@@ -130,6 +132,7 @@ interface AppState {
     text: string,
     file?: Omit<FilePayload, "sha"> & { viewOnce?: boolean },
     ttlOverride?: TtlChoice,
+    reply?: ReplySnapshot,
   ) => Promise<void>;
   emitTyping: (roomId: string) => void;
   spendViewOnce: (roomId: string, messageId: string) => void;
@@ -654,7 +657,7 @@ export const useApp = create<AppState>()((set, get) => ({
 
   /* ------------------------------------------------- send ---- */
 
-  sendMessage: async (text, file, ttlOverride) => {
+  sendMessage: async (text, file, ttlOverride, reply) => {
     const viewOnce = !!file?.viewOnce;
     const { activeRoomId } = get();
     if (!activeRoomId) return;
@@ -680,9 +683,10 @@ export const useApp = create<AppState>()((set, get) => ({
         text: trimmed || undefined,
         ttlSec,
         viewOnce: viewOnce || undefined,
+        reply,
       });
     } else {
-      frames = await cipher.sealText({ text: trimmed, ttlSec });
+      frames = await cipher.sealText({ text: trimmed, ttlSec, reply });
     }
     // The first frame's id IS the message id (text frame, or the file
     // meta frame) — the relay acks it and the view flips to "sent".
@@ -705,6 +709,7 @@ export const useApp = create<AppState>()((set, get) => ({
       ttlSec,
       expiresAt: ttlSec ? ts + ttlSec * 1000 : undefined,
       viewOnce: file && viewOnce ? true : undefined,
+      replyTo: reply,
     };
 
     set((s) => ({
@@ -1526,6 +1531,7 @@ async function handleOpenResult(roomId: string, frame: WireFrame, result: OpenRe
         status: "sent",
         ts: result.body.ts,
         text: result.body.text ?? "",
+        replyTo: sanitizeReplySnapshot(result.body.reply),
         ttlSec,
         expiresAt: ttlSec ? result.body.ts + ttlSec * 1000 : undefined,
       };
@@ -1627,6 +1633,7 @@ async function handleOpenResult(roomId: string, frame: WireFrame, result: OpenRe
         status: "sent",
         ts: result.ts,
         text: result.text,
+        replyTo: sanitizeReplySnapshot(result.reply),
         file: {
           name: result.file.name,
           mime: result.file.mime,

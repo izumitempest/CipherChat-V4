@@ -25,8 +25,10 @@ import {
   toB64,
   fromB64,
 } from "./crypto";
+import { isReplySnapshot, type ReplySnapshot } from "./types";
 
 export { toB64, fromB64 };
+export type { ReplySnapshot };
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -103,6 +105,10 @@ export interface FrameBody {
   typing?: boolean;
   offer?: OfferBody;
   file?: FileMetaBody;
+  /** quoted-reply target snapshot — signature-covered via the
+   *  canonical (see replyCanonical), so a quote is exactly as
+   *  unforgeable as the message that carries it */
+  reply?: ReplySnapshot;
   chunk?: { messageId: string; seq: number; total: number; dataB64: string };
 }
 
@@ -240,6 +246,25 @@ export function createSendClock(): SendClock {
 
 /* ---------------- canonical signing string ---------------- */
 
+/** Deterministic serialisation of a reply snapshot for the canonical
+ *  string. Sealing and verification both build it through this one
+ *  function, so whatever a sender signed is exactly what a receiver
+ *  re-computes — a tampered quote breaks the signature. The unit
+ *  separator is cosmetic; slot order is what binds. */
+export function replyCanonical(
+  r?: { id: string; senderId: string; snippet: string; file?: boolean },
+): string {
+  if (
+    !r ||
+    typeof r.id !== "string" ||
+    typeof r.senderId !== "string" ||
+    typeof r.snippet !== "string"
+  ) {
+    return "";
+  }
+  return `${r.id}\u001f${r.senderId}\u001f${r.snippet}\u001f${r.file ? "1" : "0"}`;
+}
+
 export function canonicalV2(f: {
   roomId: string;
   kv: number;
@@ -251,6 +276,7 @@ export function canonicalV2(f: {
   text?: string;
   fileSha?: string;
   messageId?: string;
+  reply?: ReplySnapshot;
 }): string {
   return [
     "v2",
@@ -264,6 +290,7 @@ export function canonicalV2(f: {
     f.text ?? "",
     f.fileSha ?? "",
     f.messageId ?? "",
+    replyCanonical(f.reply),
   ].join("|");
 }
 
@@ -287,6 +314,7 @@ export async function sealFrame(opts: {
   const text = typeof opts.body.text === "string" ? opts.body.text : undefined;
   const fileSha = typeof opts.body.fileSha === "string" ? opts.body.fileSha : undefined;
   const messageId = typeof opts.body.messageId === "string" ? opts.body.messageId : undefined;
+  const reply = isReplySnapshot(opts.body.reply) ? opts.body.reply : undefined;
 
   const canonical = canonicalV2({
     roomId: opts.roomId,
@@ -299,6 +327,7 @@ export async function sealFrame(opts: {
     text,
     fileSha,
     messageId,
+    reply,
   });
   const sig = opts.sigPrivJwk ? await signCanonical(opts.sigPrivJwk, canonical) : "";
 

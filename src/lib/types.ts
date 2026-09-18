@@ -31,6 +31,87 @@ export interface Payload {
   file?: FilePayload;
 }
 
+/* ---------------- replies ---------------- */
+
+/** A quoted reply's snapshot of its target. The target's id and this
+ *  summary travel INSIDE the encrypted, signed frame body — the
+ *  canonical signature covers them, so a quote is exactly as
+ *  authentic as the words it quotes. The snippet is a copy, not a
+ *  reference: if the original burns, the quote still reads (the
+ *  words were already shown to the room). */
+export interface ReplySnapshot {
+  /** the quoted message's id */
+  id: string;
+  /** the quoted message's sender (memberId) */
+  senderId: string;
+  /** first words of the quoted text, or the file's name */
+  snippet: string;
+  /** true when the quoted message carried a file */
+  file?: boolean;
+}
+
+/** Cap for a quoted snippet — enough to recognise the message,
+ *  short enough to stay a hint rather than a copy. */
+export const REPLY_SNIPPET_MAX = 120;
+
+/** Build the quote snapshot for a reply. View-once targets are
+ *  never summarised by their contents — the quote says "sealed",
+ *  keeping the sealed card's own rule that nothing shows before
+ *  opening. */
+export function makeReplySnapshot(target: MessageView): ReplySnapshot {
+  if (target.viewOnce) {
+    return { id: target.id, senderId: target.senderId ?? "", snippet: "Sealed message" };
+  }
+  if (target.kind === "file" && target.file) {
+    return {
+      id: target.id,
+      senderId: target.senderId ?? "",
+      snippet: target.file.name.slice(0, 80),
+      file: true,
+    };
+  }
+  const flat = (target.text ?? "").replace(/\s+/g, " ").trim();
+  return {
+    id: target.id,
+    senderId: target.senderId ?? "",
+    snippet: flat.slice(0, REPLY_SNIPPET_MAX),
+  };
+}
+
+/** Shape guard used on both sealing and verification paths so the
+ *  canonical string is always built from the same slots. */
+export function isReplySnapshot(v: unknown): v is ReplySnapshot {
+  if (!v || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  return (
+    typeof o.id === "string" &&
+    typeof o.senderId === "string" &&
+    typeof o.snippet === "string"
+  );
+}
+
+/** Accept only the shape a reply snapshot may have, capped so a
+ *  hostile or corrupted body cannot smuggle a bloated payload into
+ *  the view layer. Applied AFTER signature verification (the
+ *  signature binds the raw bytes) — a snapshot that fails this
+ *  check is simply dropped and the message renders unquoted. */
+export function sanitizeReplySnapshot(r: unknown): ReplySnapshot | undefined {
+  if (!r || typeof r !== "object") return undefined;
+  const o = r as Record<string, unknown>;
+  if (
+    typeof o.id !== "string" ||
+    typeof o.senderId !== "string" ||
+    typeof o.snippet !== "string"
+  ) {
+    return undefined;
+  }
+  const id = o.id.slice(0, 64);
+  const senderId = o.senderId.slice(0, 64);
+  const snippet = o.snippet.slice(0, REPLY_SNIPPET_MAX + 40);
+  if (!id || !senderId || !snippet.trim()) return undefined;
+  return { id, senderId, snippet, file: o.file === true ? true : undefined };
+}
+
 export interface MemberPublic {
   memberId: string;
   alias: string;
@@ -65,6 +146,8 @@ export interface MessageView {
   expiresAt?: number;
   viewOnce?: boolean;
   spent?: boolean;
+  /** the quoted target, when this message is a reply */
+  replyTo?: ReplySnapshot;
   /** ink margin marks — mark glyph → memberIds of everyone who set it */
   marks?: Partial<Record<ReactionMark, string[]>>;
 }

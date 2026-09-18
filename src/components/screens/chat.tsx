@@ -75,6 +75,14 @@ function ActiveRoom({ roomId }: { roomId: string }) {
   const [verifyOpen, setVerifyOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [viewing, setViewing] = useState<MessageView | null>(null);
+  /* The message being answered. Memory-only like everything else —
+   *  a room switch releases it with the rest of the room's state. */
+  const [replyTarget, setReplyTarget] = useState<MessageView | null>(null);
+  const [replyRoomChecked, setReplyRoomChecked] = useState(roomId);
+  if (roomId !== replyRoomChecked) {
+    setReplyRoomChecked(roomId);
+    setReplyTarget(null);
+  }
   // The timer explained once — the flag lives on this device.
   const [hintRoom, setHintRoom] = useState<string | null>(() =>
     !ttlHintSeen() && (getSession(roomId)?.defaultTtl ?? 0) > 0
@@ -182,11 +190,13 @@ function ActiveRoom({ roomId }: { roomId: string }) {
 
   // Escape from a quiet composer returns to the desk. Sheets, menus,
   // dialogs and the file viewer own the key first (they prevent it);
-  // a composer holding words never loses them to a stray Escape.
+  // a composer holding words — or a reply in progress — never loses
+  // them to a stray Escape.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
       if (document.querySelector('[data-state="open"], [role="dialog"]')) return;
+      if (replyTarget) return;
       const composer = document.querySelector(
         'textarea[aria-label="Message"]',
       ) as HTMLTextAreaElement | null;
@@ -195,7 +205,53 @@ function ActiveRoom({ roomId }: { roomId: string }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [navigate]);
+  }, [navigate, replyTarget]);
+
+  // A letter that burns while being read must not linger on screen —
+  // the viewer follows the message out, decided during render (the
+  // sanctioned adjustment pattern). Likewise the reply target: you
+  // cannot answer what is no longer here. (The viewing copy was
+  // taken at open time; the blob URL is revoked by the viewer's own
+  // lifecycle on unmount/message switch.)
+  if (
+    viewing &&
+    !messages.some((m) => m.id === viewing.id && m.status !== "burning")
+  ) {
+    setViewing(null);
+  }
+  if (
+    replyTarget &&
+    !messages.some((m) => m.id === replyTarget.id && m.status !== "burning")
+  ) {
+    setReplyTarget(null);
+  }
+
+  /* Jump to a quoted message — scroll it into the middle of the
+   * view and let it announce itself with a soft ring of forest,
+   * once. If the original is no longer in this session's memory
+   * (expired, burned, or from before we joined), say so quietly. */
+  const jumpToMessage = useCallback((id: string) => {
+    const el = scrollRef.current?.querySelector(
+      `[data-mid="${CSS.escape(id)}"]`,
+    ) as HTMLElement | null;
+    if (!el) {
+      toast("That message is no longer in this session");
+      return;
+    }
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({
+      behavior: reduced ? "auto" : "smooth",
+      block: "center",
+    });
+    el.classList.remove("quote-flash");
+    void el.offsetWidth; // restart the animation on repeated jumps
+    el.classList.add("quote-flash");
+  }, []);
+
+  const beginReply = useCallback((m: MessageView) => {
+    setReplyTarget(m);
+    setViewing(null);
+  }, []);
 
   const dismissTtlHint = useCallback(() => {
     setHintRoom(null);
@@ -343,6 +399,8 @@ function ActiveRoom({ roomId }: { roomId: string }) {
                 groups={groups}
                 onOpenFile={(m) => setViewing(m)}
                 onBurnMessage={(m) => void burnMessage(roomId, m.id)}
+                onReplyMessage={beginReply}
+                onJumpToMessage={jumpToMessage}
               />
             )}
           </div>
@@ -396,7 +454,12 @@ function ActiveRoom({ roomId }: { roomId: string }) {
         </div>
       ) : null}
 
-      <Composer key={roomId} onTtlArmed={() => setHintRoom(roomId)} />
+      <Composer
+        key={roomId}
+        onTtlArmed={() => setHintRoom(roomId)}
+        replyTarget={replyTarget}
+        onCancelReply={() => setReplyTarget(null)}
+      />
 
       <InviteSheet roomId={roomId} open={inviteOpen} onOpenChange={setInviteOpen} />
       <VerificationSheet roomId={roomId} open={verifyOpen} onOpenChange={setVerifyOpen} />
@@ -418,10 +481,14 @@ function TimeAwareMessages({
   groups,
   onOpenFile,
   onBurnMessage,
+  onReplyMessage,
+  onJumpToMessage,
 }: {
   groups: ReturnType<typeof useMessageGroups>;
   onOpenFile: (m: MessageView) => void;
   onBurnMessage: (m: MessageView) => void;
+  onReplyMessage?: (m: MessageView) => void;
+  onJumpToMessage?: (id: string) => void;
 }) {
   const rendered: React.ReactNode[] = [];
   let lastTs: number | null = null;
@@ -442,6 +509,12 @@ function TimeAwareMessages({
           position={position}
           onOpenFile={onOpenFile}
           onBurn={() => onBurnMessage(message)}
+          onReply={
+            onReplyMessage && message.status !== "sending" && message.status !== "burning"
+              ? () => onReplyMessage(message)
+              : undefined
+          }
+          onJumpToMessage={onJumpToMessage}
         />
       ),
     );
