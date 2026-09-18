@@ -109,8 +109,12 @@ always `side="bottom"`; the grabber shows on touch) with two fields — room nam
 passphrase** (`generatePassphrase()` — five CSPRNG-picked words from a
 256-entry list, 40 bits), refreshable via a "New password" quiet
 action. The field masks by default (`PasswordField`, eye toggle to
-reveal) and is **cleared when the sheet closes** — the plaintext never
-outlives the create flow. Submits `createRoom(name, password)`; on
+reveal). **The passphrase is never React state** — it is seeded straight
+into the field's DOM *property* when the sheet opens (and re-seeded via
+the refresh action), read once at submit, wiped on success, and dies
+with the input node when the sheet unmounts. The DOM `value` *attribute*
+is never written, so the Elements panel shows no value on this field
+for its entire life. Submits `createRoom(name, password)`; on
 success closes and toasts the standing advice ("Share the link — and
 the password through a different channel."). Error state is neutral
 charcoal, never terracotta.
@@ -444,8 +448,15 @@ Paper surfaces, hairline borders, forest focus (border 45% + 15% ring).
 
 - `Field` — label + children + hint/error slot (error wins, `role="alert"`).
 - `TextField` — 48px input, Inter 15px.
-- `PasswordField` — eye toggle (44px hit area, `tabIndex=-1` so it never
-  steals tab order), `autoComplete="off"`, no autocapitalize/spellcheck.
+- `PasswordField` — the **uncontrolled secret field** (Task 27): accepts no
+  `value`/`defaultValue` (typed out via `Omit`), so React never mirrors the
+  typed text into the DOM `value` *attribute* — Elements shows no value for
+  the field's whole life, and no plaintext ever sits in React state. Parents
+  seed/wipe imperatively via the forwarded ref (`el.value = …` sets the
+  property only) and read once at submit. Eye toggle (44px hit area,
+  keyboard-focusable, `aria-pressed`), `autoComplete="new-password`"
+  (the documented suppressor of Chrome's save-password prompt for
+  ephemeral room passwords), no autocapitalize/spellcheck.
 - `MonoValue` — selectable mono block with an inline copy affordance and
   "Copied" confirmation state.
 

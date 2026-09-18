@@ -4,7 +4,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -121,30 +121,28 @@ function CreateRoomSheet({
 }) {
   const createRoom = useApp((s) => s.createRoom);
   const [name, setName] = useState("");
-  const [password, setPassword] = useState(() => generatePassphrase());
   const [ttl, setTtl] = useState<number>(ROOM_TTL_DEFAULT_SEC);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The passphrase is never React state — it is seeded straight into
+  // the field's DOM property (never its attribute), read here only at
+  // submit, and dies with the input node when the sheet unmounts.
+  const passRef = useRef<HTMLInputElement>(null);
 
-  // Re-seed the fields each time the sheet opens.
+  // Fresh CSPRNG phrase each time the sheet opens.
   const [wasOpen, setWasOpen] = useState(false);
   if (open !== wasOpen) {
     setWasOpen(open);
     if (open) {
       setName("");
-      setPassword(generatePassphrase());
       setTtl(ROOM_TTL_DEFAULT_SEC);
       setError(null);
-    } else {
-      // Closed — the plaintext dies with the sheet instead of living
-      // on in component state (and React's value-attribute mirror of
-      // it in the DOM) until the next create.
-      setPassword("");
     }
   }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    const password = passRef.current?.value ?? "";
     if (!password.trim() || busy) return;
     setBusy(true);
     setError(null);
@@ -154,6 +152,9 @@ function CreateRoomSheet({
       setError("The room could not be created. Check your connection and try again.");
       return;
     }
+    // Created — the plaintext's job is done; wipe it, then close (the
+    // unmount would take it anyway — this is the belt to that braces).
+    if (passRef.current) passRef.current.value = "";
     onOpenChange(false);
     toast("Room created", {
       description: "Share the link — and the password through a different channel.",
@@ -172,6 +173,16 @@ function CreateRoomSheet({
           </SheetDescription>
         </SheetHeader>
         <form onSubmit={submit} className="mt-5 space-y-4">
+          {/* Seeds the secret field the moment the sheet body mounts.
+              This must live INSIDE the portal content: Radix mounts
+              portal children in a later commit than the parent's
+              open-state change, so a parent effect can fire before
+              the input exists. As part of the content, this runs
+              exactly when the field it seeds comes to life — and
+              again on every reopen, since closing unmounts the
+              content. Property assignment only: the value attribute
+              stays absent for the field's whole life. */}
+          <SeedPassphrase passRef={passRef} />
           <Field label="Room name (only you see this)" htmlFor="cc-new-name">
             <TextField
               id="cc-new-name"
@@ -189,7 +200,10 @@ function CreateRoomSheet({
                 <button
                   type="button"
                   className="font-medium text-forest underline decoration-forest/30 underline-offset-2 hover:decoration-forest"
-                  onClick={() => setPassword(generatePassphrase())}
+                  onClick={() => {
+                    if (passRef.current)
+                      passRef.current.value = generatePassphrase();
+                  }}
                 >
                   New password
                   <RefreshCw className="ml-1 inline size-3 align-[-1px]" />
@@ -200,9 +214,8 @@ function CreateRoomSheet({
             error={error}
           >
             <PasswordField
+              ref={passRef}
               id="cc-new-pass"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
               placeholder="room password"
               required
             />
@@ -224,4 +237,19 @@ function CreateRoomSheet({
       </SheetContent>
     </Sheet>
   );
+}
+
+/* Mounts (and remounts) with the sheet content, seeding the secret
+ * field's DOM property with a fresh CSPRNG passphrase. Rendering null,
+ * it costs nothing — it exists purely so the seeding effect runs at
+ * the exact moment its target input comes to life. */
+function SeedPassphrase({
+  passRef,
+}: {
+  passRef: React.RefObject<HTMLInputElement | null>;
+}) {
+  useEffect(() => {
+    if (passRef.current) passRef.current.value = generatePassphrase();
+  }, [passRef]);
+  return null;
 }

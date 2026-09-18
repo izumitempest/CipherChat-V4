@@ -4,7 +4,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Field, PasswordField, TextField } from "@/components/cc/fields";
 import { PrimaryAction, QuietAction } from "@/components/cc/actions";
@@ -39,10 +39,13 @@ function InviteForm({ prefilledCode }: { prefilledCode: string | null }) {
   const navigate = useApp((s) => s.navigate);
 
   const [code, setCode] = useState(prefilledCode ?? "");
-  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [details, setDetails] = useState(false);
+  // Typed password lives only in the field's DOM property — never
+  // React state, never the value attribute DevTools mirrors for
+  // controlled inputs. Read once, here, at submit.
+  const passRef = useRef<HTMLInputElement>(null);
 
   const displayCode = prefilledCode
     ? `${prefilledCode.slice(0, 5)}-${prefilledCode.slice(5)}`
@@ -57,6 +60,7 @@ function InviteForm({ prefilledCode }: { prefilledCode: string | null }) {
       setError("Enter the room link or code you were given.");
       return;
     }
+    const password = passRef.current?.value ?? "";
     if (!password.trim()) {
       setError("Enter the room password.");
       return;
@@ -73,7 +77,7 @@ function InviteForm({ prefilledCode }: { prefilledCode: string | null }) {
       return;
     }
     // Joined — the key is derived; the plaintext leaves with the form.
-    setPassword("");
+    if (passRef.current) passRef.current.value = "";
   }
 
   return (
@@ -120,11 +124,11 @@ function InviteForm({ prefilledCode }: { prefilledCode: string | null }) {
             error={error}
           >
             <PasswordField
+              ref={passRef}
               id="cc-join-pass"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
               placeholder="given to you by the sender"
               autoFocus={!prefilledCode}
+              required
             />
           </Field>
           <PrimaryAction type="submit" full busy={busy}>

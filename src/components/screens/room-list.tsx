@@ -7,7 +7,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Clock3, Lock, Mail, Plus } from "lucide-react";
 import {
   Sheet,
@@ -279,18 +279,22 @@ export function UnlockSheet({
 }) {
   const joinRoom = useApp((s) => s.joinRoom);
   const isDesktop = useIsDesktop();
-  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Secret field, uncontrolled: the typed password exists only as the
+  // input's DOM property — never React state, never the value
+  // attribute. Read once at submit; wiped on close and on unmount.
+  const passRef = useRef<HTMLInputElement>(null);
 
   function close() {
     onOpenChange(false);
-    setPassword("");
+    if (passRef.current) passRef.current.value = "";
     setError(null);
   }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    const password = passRef.current?.value ?? "";
     if (!card || busy || !password.trim()) return;
     setBusy(true);
     setError(null);
@@ -328,11 +332,11 @@ export function UnlockSheet({
         <form onSubmit={submit} className="mt-5 space-y-4">
           <Field label="Room password" htmlFor="cc-unlock-pass" error={error}>
             <PasswordField
+              ref={passRef}
               id="cc-unlock-pass"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
               placeholder="room password"
               autoFocus
+              required
             />
           </Field>
           <PrimaryAction type="submit" full busy={busy}>

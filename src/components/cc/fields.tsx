@@ -64,9 +64,24 @@ export const TextField = forwardRef<
   );
 });
 
+/* The secret field is UNCONTROLLED by design — it accepts no `value`
+ * or `defaultValue`. React mirrors a controlled input's text into the
+ * DOM `value` *attribute* on every keystroke, which puts the plaintext
+ * in the Elements panel, in React DevTools state, and in reach of any
+ * DOM-attribute scan — even while the field renders as bullets. By
+ * staying uncontrolled the attribute is never written at all: the
+ * typed secret exists only as the live DOM `value` *property*, the
+ * irreducible minimum (the page must be able to read it to encrypt
+ * with it; `$0.value` in the user's own console is a fact of the
+ * platform, true of every site, and defends nothing to fake-hide).
+ * Parents read the field at submit time through the forwarded ref and
+ * seed/wipe it imperatively — `el.value = …` sets the property only,
+ * never the attribute. */
 export const PasswordField = forwardRef<
   HTMLInputElement,
-  InputHTMLAttributes<HTMLInputElement> & { revealDefault?: boolean }
+  Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "defaultValue"> & {
+    revealDefault?: boolean;
+  }
 >(function PasswordField({ className, revealDefault, ...props }, ref) {
   const [shown, setShown] = useState(!!revealDefault);
   const id = useId();

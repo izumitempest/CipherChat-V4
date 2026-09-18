@@ -538,12 +538,16 @@ function LockedRoomView({ roomId }: { roomId: string }) {
   const card = useApp((s) => s.roomCards.find((c) => c.roomId === roomId));
   const joinRoom = useApp((s) => s.joinRoom);
   const navigate = useApp((s) => s.navigate);
-  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The re-entered password never becomes React state and never
+  // appears as the field's value attribute — it exists only as the
+  // DOM property, read once here at submit.
+  const passRef = useRef<HTMLInputElement>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    const password = passRef.current?.value ?? "";
     if (busy || !password.trim()) return;
     setBusy(true);
     setError(null);
@@ -561,7 +565,7 @@ function LockedRoomView({ roomId }: { roomId: string }) {
     }
     // Unlocked — the entry key is derived; the plaintext has no
     // further business in this (or any) input.
-    setPassword("");
+    if (passRef.current) passRef.current.value = "";
   }
 
   return (
@@ -591,11 +595,11 @@ function LockedRoomView({ roomId }: { roomId: string }) {
           <div className="settle mt-5 space-y-4" style={{ animationDelay: "120ms" }}>
             <Field label="Room password" htmlFor="cc-locked-pass" error={error}>
               <PasswordField
+                ref={passRef}
                 id="cc-locked-pass"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
                 placeholder="room password"
                 autoFocus
+                required
               />
             </Field>
             <PrimaryAction type="submit" full busy={busy}>
