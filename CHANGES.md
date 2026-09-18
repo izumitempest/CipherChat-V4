@@ -2,8 +2,9 @@
 
 A detailed, chronological record of every change and addition made to the
 project, cross-referenced against the internal task IDs used in
-`worklog.md`. Final state at time of writing: **139/139 property tests
-green, lint clean (0 errors, 0 warnings), tsc clean, all services
+`worklog.md`. Final state at time of writing: **158/158 property tests
+green + the Playwright golden path green against the dev stack
+(33.9s), lint clean (0 errors, 0 warnings), tsc clean, all services
 healthy.**
 
 **What the product is:** an end-to-end-encrypted, ephemeral group chat.
@@ -908,52 +909,216 @@ stated as the remaining distance.
 
 ---
 
-## 15. Current state inventory
+## 15. Round 32 — green gate, graded reports, E2E-in-CI, push prep
 
-**Tests:** 139/139 across 15 files (replay, rotation, kdf, identity,
+The last in-sandbox round. Context: the repo was pushed to GitHub
+(`izumemptest/CipherChat-v4`) and **CI Run #1 executed and failed** at
+the Types step — `TS2307: Cannot find module 'socket.io'` in
+`mini-services/relay-service/index.ts`: root `tsc` deliberately
+typechecks the relay (tsconfig includes `**/*.ts`), but CI's install
+step only installed root deps; the sandbox never caught it because the
+relay's own `node_modules` existed locally. Everything below closed
+what that run opened.
+
+### 15.1 The CI fix (P0)
+
+`ci.yml` gained a **Relay dependencies** step (`bun install
+--frozen-lockfile` with `working-directory: mini-services/relay-service`),
+commented with the Run #1 post-mortem. The relay keeps riding the same
+types gate — it is part of the security surface.
+
+### 15.2 Green the gate honestly (the audit split + the surgery)
+
+The runtime-tree audit (`npm audit --omit=dev`) was red with 9 highs.
+Verified-unused scaffold was **deleted, not upgraded**: `@mdxeditor/editor`,
+`react-syntax-highlighter`, `recharts` (+ orphaned `ui/chart.tsx`, imported
+by nothing), `@reactuses/core`, `next-intl` — each with a zero-import grep
+as the receipt. Misfiled deps were **reclassified**: `prisma` (CLI —
+`Dockerfile.web` installs full deps at build and copies only standalone +
+engines at runtime) and `sharp` (icon/splash scripts only; zero
+`next/image` usage; bumped 0.34.5 → the fixed 0.35.4) both moved to
+`devDependencies`. Result: runtime tree **9 highs → 2**, both the prisma
+CLI chain (`@prisma/client`'s package-graph dependency on the CLI drags
+`@prisma/config` → `deepmerge-ts` + `c12` → `defu`; no fixed prisma
+exists — the audit tool's suggested fix is a downgrade to 6.12.0,
+refused).
+
+The gate itself is now **split** (`ci.yml` + `scripts/audit-gate.mjs` +
+`AUDIT.md`): the runtime tree is **blocking**, with exceptions enumerated
+per `(module, advisory id)` — a NEW advisory against an excepted module
+still fails — and each exception dispositioned in `AUDIT.md` with the
+`require('prisma')` scan of `@prisma/client` (zero hits) and the
+`Dockerfile.web` runtime-stage copy list as the load-bearing evidence.
+The full tree (dev/lint/build chains: brace-expansion, minimatch,
+picomatch, browserslist, flatted, @babel/core, @humanfs/node,
+baseline-browser-mapping, uuid/xcode/@capacitor/cli — every chain
+verified with `npm ls`, not assumed) is **advisory, non-blocking**, with
+per-advisory dispositions. The gate script was tested both directions:
+real tree → exit 0 with 2 masked; exceptions stripped → exit 1 naming
+exactly the two findings. `npm audit fix --force` is forbidden by policy.
+
+### 15.3 The canonical separator collision (the review's confirm #5)
+
+The conditional 12th slot WAS counterfeitable at the string level: a
+plain frame with `messageId = "abc|<replyCanonical>"` produced the same
+string as the reply frame `{messageId: "abc", reply}` — a signed plain
+letter could be re-encrypted as a quote its author never wrote. Fixed at
+the canonical: field 11 is now percent-escaped
+(`escapeCanonicalField`: `%`→`%25` first, then `|`→`%7C`, `\u001f`→`%1f`)
+which makes the boundary **injective** — an escaped field 11 contains no
+`|`, so no plain frame's tail can equal `messageId + "|" + replySlot`.
+Byte-compat preserved: real messageIds (UUIDs; `offer:{cuid}:{epoch}`)
+contain none of the three characters, so every frame any shipped client
+produced canonicalises identically — the Round-31 cross-version proofs
+survive (re-asserted in the new tests). The residual ambiguity within
+earlier variable-length fields predates replies and is replay-window-
+blocked (documented in the canonical's comment). Named tests:
+pre-fix collision pair now differs; trailing-separator case; the
+structural lemma (escaped field 11 never contains the separator);
+escape injectivity on the adversarial battery; full 18-frame
+`(messageId × reply)` injectivity sweep; legacy byte-compat; plus the
+report-proof suite and the tally suite (below).
+
+### 15.4 Graded reports (replacing the anonymous kill switch)
+
+Round 31's report endpoint handed the system's weakest credential (the
+room ID, riding in every forwarded invite link) its strongest action —
+one anonymous POST burned the room. Round 32 graded credibility exactly
+on the `cc-leave-v1` pattern: `src/lib/report-proof.ts` (NEW) signs
+`cc-report-v1:{roomId}:{memberId}:{ts}` with the room's ECDSA key
+(±10-minute window, never-throws verifier, domain-separated from leave
+proofs — neither replays as the other, tested); `RoomCipher.signReportProof()`;
+store `reportRoom`; room-settings "Report this room" (members only —
+the creator already holds burn; confirm dialog explains the finality);
+Settings → About copy updated. The route: **member-signed → immediate
+burn** (verified against the registered pubkey, active members only);
+**anonymous → queued** (`tallyAnonymousReport` — pure, unit-tested: same-IP
+repeats never add weight, 3 distinct IPs burn, day-old tallies reset);
+every path answers uniform `{ok:true}` — existence and tally proximity
+are never confirmed. `DESIGN.md` §6 ceiling rewritten: **"A member can
+end the room at any time; a stranger needs corroboration."**
+
+**Live verification:** member report from the UI → both connected ends
+ran the burn sequence, DB `reportReason "member:(no reason given)"`, 0
+members, relay `terminated (internal)`; anonymous ladder — 1 and 2
+distinct IPs queued (no burn), the 3rd burned with
+`corroborated:3 IPs` (and the gateway's Caddy `header_up
+X-Forwarded-For {remote_host}` was incidentally proven to collapse
+spoofed XFFs into one distinct IP — same-IP adds no weight, live);
+unknown and already-burned rooms answered `{ok:true}`; the 6th call in
+the window 429'd.
+
+### 15.5 E2E-in-CI (the first Actions run IS the compose E2E)
+
+Playwright + `tests/e2e/golden-path.spec.ts`: **two browser contexts,
+same origin** (isolated storage — the two-origins trick retires) walk
+create → join → message → reply (quote propagates) → react (mark chip
+reaches the other context) → **GPS-tagged JPEG through the EXIF strip,
+byte-verified in the receiver's viewer** (the blob is fetched and
+scanned for an `Exif` APP1 — none) → view-once (opened, no download
+button, spent propagates to both ends) → leave → rotation → rejoin
+(fresh joiner sees no history; the rotated key delivers — "returned"
+arrives) → burn (both ends run the sequence). Green locally against the
+dev stack through the gateway in 33.9s (after two honest selector
+fixes: `getByLabel("Message")` needed `exact` — 4 substring matches; the
+invite sheet auto-opens after creation, so the link is read from the
+already-open sheet; desktop assertions target what actually changes —
+composer hidden, room card gone — because the two-pane desk keeps the
+rail visible). The GPS fixture is self-contained
+(`tests/e2e/fixtures/` — committed 248 B base JPEG + the APP1 injector,
+no ffmpeg at test time). `ci.yml` gained the **e2e job**: compose up
+(--build, random per-run `RELAY_INTERNAL_TOKEN`, `CADDY_SITE=http://localhost`)
+→ curl-wait → Playwright against `http://localhost` → teardown
+(`down -v`) → traces + screenshots + stack logs uploaded on failure.
+
+### 15.6 Push prep
+
+`.gitignore` hardened and **96 tracked local artifacts untracked**: the
+live dev DB (`db/custom.db`), `tool-results/`, `upload/`, `qa/`,
+`download/`, the sandbox gateway `Caddyfile` (root — the product one is
+`deploy/Caddyfile`), `.zscripts/` (incl. `dev.pid`), relay diagnostic
+scripts, `package-lock.json` (CI materializes it fresh; `bun.lock` is
+the lock), Playwright artifacts, and **`.env` itself** — tracked since
+before the ignore rule existed (a final sweep for ignored-but-tracked
+files caught it); its `RELAY_INTERNAL_TOKEN` is a sandbox-local value
+that guards a port nothing off-machine can reach, but it never ships
+again. `.env.example` fixed — the
+sandbox-absolute `DATABASE_URL=file:/home/z/my-project/db/custom.db`
+became `file:./db/custom.db` (the example is now the contract, no
+sandbox paths). **`SECURITY.md`** (NEW): vulnerability reporting + the
+security contract in one screen + the graded-report mechanics table +
+the audit policy. README gained the E2E section and the two-job CI
+description; "Reporting abuse" rewritten for the graded ceiling. Tagged
+**v1.0.0-rc1**.
+
+## 16. Current state inventory
+
+**Tests:** 158/158 across 16 files (replay, rotation, kdf, identity,
 padding, hardening, captions, reactions, silent-grace, leave-proof,
 identity-range, admission, notifications, replies + viewer/CSV
-parsing, last-mile: canonical versioning proof + passphrase
-generator + image-metadata detector).
-Lint clean (0 errors, 0 warnings); tsc clean in src/.
+parsing, last-mile, **round-32: canonical separator-collision proofs +
+report proof-of-possession + anonymous corroboration tally**) — plus
+the **Playwright golden path** (`tests/e2e/`, two contexts, byte-level
+EXIF verification in the receiver's viewer), green against the dev
+stack in 33.9s.
+Lint clean (0 errors, 0 warnings); tsc clean (src/ + relay + E2E).
 
 **Services:** Next.js dev `:3000` · relay `:3003` (socket.io,
 in-memory, supervised) — **the same relay process also serves the
 internal presence snapshot on `:3004`** (token-guarded, plus
 `POST /terminate/:roomId` since Task 31; never gateway-routed) ·
-gateway `:81` (Caddy, `XTransformPort` routing).
+gateway `:81` (Caddy, `XTransformPort` routing — and its
+`X-Forwarded-For` header_up makes the report tally's IP trust sound).
 
-**Docs:** `README.md` (product + honest NOT-protect list + running
-it + reporting abuse) · `DESIGN.md` (tokens, motion vocabulary,
-architecture §5, threat model §6) · `COMPONENTS.md` (full
-component/behavior reference) · `MOBILE.md` (PWA + Capacitor +
-honest limits) · `LICENSE` + `public/legal/` (MIT, Terms, Privacy) ·
-`worklog.md` (this history's raw source).
+**Docs:** `README.md` (product + honest NOT-protect list + running it
++ E2E + two-job CI + graded abuse reporting) · `DESIGN.md` (tokens,
+motion vocabulary, architecture §5, threat model §6 — the graded
+ceiling) · `COMPONENTS.md` (full component/behavior reference) ·
+**`AUDIT.md` (NEW — the two-gate audit policy + per-advisory
+dispositions + the Prisma refusal)** · **`SECURITY.md` (NEW —
+vulnerability reporting + the security contract + graded-report
+mechanics)** · `MOBILE.md` (PWA + Capacitor + honest limits) ·
+`LICENSE` + `public/legal/` (MIT, Terms, Privacy) · `worklog.md`
+(this history's raw source).
 
 **Deploy:** `deploy/` (docker-compose: web + relay — both ports —
-+ Caddy TLS, `.env.example` contract) · `.github/workflows/ci.yml`.
++ Caddy TLS, `.env.example` contract) · `.github/workflows/ci.yml`
+(two jobs: **verify** — lint/types/relay-deps/suite/split-audit/build;
+**e2e** — compose stack on the runner + the golden path + artifacts)
+· `scripts/audit-gate.mjs` (the blocking runtime-tree gate) ·
+`tests/e2e/` (spec + self-contained GPS fixture) · tagged
+**v1.0.0-rc1** on a clean, pushable tree (96 local artifacts
+untracked: dev DB, QA screenshots, tool persistence, sandbox gateway
+config, process scripts — nothing secret or local ships).
 
-**Known residuals (documented, not hidden):** the last mile itself —
-**a real CI run on GitHub Actions has still never fired** (the
-sandbox simulated every step it can: lint/tsc/tests green, but the
-push and the build step need the repo), and **the audit gate is
-red**: 25 advisories remain (0 critical, 14 high) after the semver
-`bun update`; the fix paths are deliberate work, not `--force`
-(prisma's listed fix is a downgrade, @mdxeditor needs a major bump,
-the rest are dev-chain transitives that never ship in the standalone
-build). Compose E2E still needs a Docker host. No web push by
+**Known residuals (documented, not hidden):** the last mile is now
+*structurally outside the sandbox*: CI Run #1 fired and failed at
+Types — the fix (relay-deps step) is staged but **unverified on a
+runner**; the next push is the proof, and it doubles as the compose
+E2E (the e2e job needs the runner's Docker). The audit gate is green
+by construction locally (runtime tree: 0 unmasked findings; the two
+masked prisma-chain exceptions are dispositioned in `AUDIT.md` —
+re-verify the `require('prisma')` scan and the Dockerfile copy list
+if either file changes); the dev/lint-chain advisories are advisory
+by policy. Compose E2E still needs a Docker host. No web push by
 architecture (VAPID sketched in MOBILE.md with its privacy price);
 evict trusts the relay's in-memory clock; nuisance-eviction residual
-(and its sibling: anyone who knows a room ID can report-terminate it
-— stated as a threat-model ceiling, Task 31); replay-to-fresh-device
-within 10 min. From Round 29: a reply's quote deliberately survives
-its original burning (the words were already shown; burning quotes
-with their original is a one-line policy flip if that ever feels
-wrong); video and audio cards are icon cards, not frame previews
-(canvas frame-capture is possible but adds decode cost); the vendored
-pdf.js worker is ~1.3 MB (accepted, documented, lazy-loaded). Closed
-in Round 31: EXIF (scan + canvas re-encode at attach, fail-closed),
-the 5-word passphrase (now 6, 2^48), the canonical versioning gap
-(plain frames are byte-identical to the pre-reply form — proven both
-directions), and the abuse surface (report endpoint + relay
-terminate + abuse@ contact).
+(its sibling — report-termination — is now **graded**: member-signed
+burns at once, anonymous needs 3 distinct IPs, stated in DESIGN.md
+§6); replay-to-fresh-device within 10 min. From Round 29: a reply's
+quote deliberately survives its original burning (the words were
+already shown; burning quotes with their original is a one-line
+policy flip if that ever feels wrong); video and audio cards are icon
+cards, not frame previews (canvas frame-capture is possible but adds
+decode cost); the vendored pdf.js worker is ~1.3 MB (accepted,
+documented, lazy-loaded); canvas re-encode strips ICC color profiles
+(wide-gamut photos may render slightly differently — the honest price
+of EXIF-free). Closed in Round 31: EXIF (scan + canvas re-encode at
+attach, fail-closed), the 5-word passphrase (now 6, 2^48), the
+canonical versioning gap (plain frames byte-identical to the
+pre-reply form — proven both directions), and the abuse surface
+(report endpoint + relay terminate + abuse@ contact). Closed in
+Round 32: the anonymous kill switch (graded reports), the canonical
+separator collision (field-11 escaping + named proofs), the red audit
+gate (split + surgery + dispositions), and the never-executed CI
+workflow (Run #1 fired; its one failure fixed).

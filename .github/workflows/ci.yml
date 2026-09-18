@@ -25,6 +25,18 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # The relay is a separate package: its own package.json and
+      # bun.lock inside mini-services/relay-service. Root tsc
+      # deliberately typechecks it (tsconfig includes **/*.ts — the
+      # relay is part of the security surface, so it rides the same
+      # gate), which means CI must install its dependencies too.
+      # Run #1 failed exactly here: TS2307 'Cannot find module
+      # socket.io' — the sandbox never caught it because the relay's
+      # node_modules existed locally.
+      - name: Relay dependencies
+        run: bun install --frozen-lockfile
+        working-directory: mini-services/relay-service
+
       - name: Prisma client
         run: bunx prisma generate
 
@@ -37,12 +49,26 @@ jobs:
       - name: Property tests (replay, rotation, padding, KDF, identity, hardening, leave-proof, admission)
         run: bun run test
 
-      # The repo locks with bun.lock; npm is only used to materialize a
-      # lockfile for `npm audit`'s advisory database. No install happens.
-      - name: Dependency audit
+      # ---- Dependency audit: two gates, one policy (see AUDIT.md) ----
+      # BLOCKING: the runtime tree (--omit=dev) — what the standalone
+      # build ships. Exceptions live ONLY in scripts/audit-gate.mjs,
+      # each keyed by (module, advisory id) and dispositioned in
+      # AUDIT.md, so a NEW advisory against an excepted module still
+      # fails the gate.
+      # The repo locks with bun.lock; npm only materializes a lockfile
+      # for its advisory database. No install happens.
+      - name: Dependency audit (runtime tree — blocking)
         run: |
           npm install --package-lock-only --ignore-scripts --no-audit --silent
-          npm audit --audit-level=high
+          node scripts/audit-gate.mjs
+
+      # ADVISORY, non-blocking: the full tree — dev, lint, and build
+      # chains that never ship in the standalone runtime image. Every
+      # current finding is dispositioned in AUDIT.md; red here is a
+      # review prompt, not a ship stopper.
+      - name: Dependency audit (full tree — advisory)
+        run: npm audit --audit-level=high
+        continue-on-error: true
 
       - name: Production build
         env:
@@ -51,3 +77,70 @@ jobs:
         run: |
           bunx prisma db push --accept-data-loss --skip-generate
           bun run build
+
+  # The compose E2E — the production stack (web + relay + Caddy) built
+  # and run on the runner, with the golden path driven through it. This
+  # is the job that makes the first real CI run ALSO be the compose
+  # E2E: one act, both last-mile items. The suite has already run in
+  # `verify`; this job exercises the artifact users will actually touch.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: bunx playwright install --with-deps chromium
+
+      # CADDY_SITE=http://localhost → plain HTTP on :80 (no auto-HTTPS
+      # redirect): the E2E target. The token is random per run — the
+      # relay's internal presence/terminate port is never exposed.
+      - name: Build and start the compose stack
+        run: |
+          cd deploy
+          printf 'RELAY_INTERNAL_TOKEN=%s\nCADDY_SITE=http://localhost\n' "$(openssl rand -hex 24)" > .env
+          docker compose up -d --build
+
+      - name: Wait for the stack to answer
+        run: |
+          for i in $(seq 1 90); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost/ || echo 000)
+            if [ "$code" = "200" ]; then echo "stack up after ~$((i*2))s"; exit 0; fi
+            sleep 2
+          done
+          echo "--- stack logs on timeout ---"
+          docker compose -f deploy/docker-compose.yml logs
+          exit 1
+
+      - name: E2E golden path against the stack
+        run: bunx playwright test
+        env:
+          E2E_BASE_URL: http://localhost
+
+      - name: Stack logs on failure
+        if: failure()
+        run: |
+          docker compose -f deploy/docker-compose.yml logs web relay caddy > compose-logs.txt 2>&1 || true
+
+      - name: Teardown
+        if: always()
+        run: docker compose -f deploy/docker-compose.yml down -v --remove-orphans
+
+      - name: Upload E2E artifacts (traces, screenshots, stack logs)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: |
+            test-results/
+            playwright-report/
+            compose-logs.txt
+          if-no-files-found: ignore

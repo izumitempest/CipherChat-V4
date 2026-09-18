@@ -117,11 +117,38 @@ working HTTPS site; verify the golden path with **two devices** (two
 origins, not two tabs — tabs share localStorage): create, join, message,
 rotate-on-leave, rejoin, file, view-once, burn.
 
+### E2E — the golden path, automated
+
+`tests/e2e/golden-path.spec.ts` (Playwright) drives the whole product
+through one conversation with **two browser contexts** — same origin,
+isolated storage, which retires the two-origins trick manual QA needed:
+create → join → message → reply → react → GPS-tagged JPEG through the
+EXIF strip (byte-verified in the receiver's viewer) → view-once (opened,
+no download, spent propagates) → leave → rotation → rejoin (fresh joiner
+sees no history, but the rotated key delivers) → burn (both ends run
+the burn sequence).
+
+```bash
+bunx playwright install chromium   # once
+bunx playwright test                # against a running dev stack (base URL
+                                    # configurable via E2E_BASE_URL)
+```
+
 ### CI
 
-`.github/workflows/ci.yml` runs lint → `tsc --noEmit` → the full property
-suite → `npm audit --audit-level=high` → production build. Red means no
-merge — the property suite is the security contract.
+`.github/workflows/ci.yml` runs two jobs:
+
+- **verify** — lint → `tsc --noEmit` (the relay included) → the full
+  property suite → the dependency audit → production build. The audit
+  is split honestly: the **runtime tree** gate is blocking (exceptions
+  enumerated per advisory in `scripts/audit-gate.mjs` + `AUDIT.md`),
+  the full-tree view is advisory and dispositioned per advisory.
+- **e2e** — builds the production compose stack on the runner (web +
+  relay + Caddy), waits for it to answer, and drives the golden path
+  through it; traces, screenshots, and stack logs upload on failure.
+
+Red means no merge — the property suite is the security contract, and
+the golden path is the product contract.
 
 ### Performance note
 
@@ -141,13 +168,21 @@ the cost of grinding resistance, not a bug. The sealing screen says so.
 The architecture permits exactly one act of moderation: ending a
 room. There is no content to review (the server is blind), no member
 to suspend (identity is per-room and derived), no history to scrub
-(none is stored). Rooms being misused can be reported to
-**abuse@cipherchat.app** (also listed in Settings → About) or
-terminated directly with the rate-limited
-`POST /api/rooms/:roomId/report` endpoint, which destroys the
-registry, withdraws the verifier, and tells every connected member
-the room is gone. Self-hosters should publish their own contact and
-expect the same ceiling: anyone who knows a room's ID can end it.
+(none is stored). Reports are **graded by credibility** (see
+`SECURITY.md` for the mechanics):
+
+- **A member's report acts at once.** The report button in room
+  settings signs `cc-report-v1` with the room's signing key — members
+  are the only humans who can see content, so they are the only
+  credible content reporters.
+- **A stranger's report needs corroboration.** Anonymous reports are
+  tallied per room by distinct IP; three independent networks burn
+  the room as the backstop.
+
+Rooms can also be reported to **abuse@cipherchat.app** (also listed in
+Settings → About). Self-hosters should publish their own contact and
+keep the operator path (`POST /terminate` on the relay's internal
+port, token-guarded) for the legal cases.
 
 ## Documentation
 

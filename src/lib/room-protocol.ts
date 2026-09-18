@@ -51,6 +51,7 @@ import {
   verifyCanonical,
 } from "./crypto";
 import { signLeaveProof } from "./leave-proof";
+import { signReportProof } from "./report-proof";
 import { isReactionMark, isReplySnapshot, type ReplySnapshot } from "./types";
 
 export interface RegistryEntry {
@@ -347,6 +348,15 @@ export class RoomCipher {
    *  memberId alone must never be enough to rotate the room. */
   async signDepartureProof(ts: number = Date.now()) {
     return signLeaveProof(this.sigPrivJwk, this.roomId, this.selfId, ts);
+  }
+
+  /** Sign the graded abuse-report proof (cc-report-v1:{roomId}:
+   *  {memberId}:{ts}) with this room's signing key — the member half
+   *  of the report endpoint's credibility grading. Same shape as the
+   *  departure proof, different domain prefix: neither replays as
+   *  the other. */
+  async signReportProof(ts: number = Date.now()) {
+    return signReportProof(this.sigPrivJwk, this.roomId, this.selfId, ts);
   }
 
   /** A file becomes exactly 1 control-sized meta frame plus a FIXED

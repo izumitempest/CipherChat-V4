@@ -464,9 +464,27 @@ forest when selected) · **People here** (ink dot + alias + verified checks +
 "· you"). Then whitespace — not a header — and the exit: **Burn this room**
 (creator, terracotta) or **Leave room** (member, secondary), each with its
 consequence line ("Burning destroys the room for everyone, unrecoverably." /
-"Leaving rotates the room key for those who stay.").
+"When you leave, those who stay re-seal the room under a new key you will
+never receive.").
 
-Burning opens the app's **only centered modal** (shadcn Dialog):
+**Round 32 — the graded abuse report:** below Leave, separated by more
+whitespace and never crowding it, members (not the creator — they already
+hold burn) get a quiet **Report this room** row: Flag glyph + label in
+`text-mute` (hovers to charcoal), with the line "For misuse, not manners:
+a member's report is signed with their room key and ends the room at
+once." It opens the app's second centered modal: "**Report this room?**
+Your report is signed with your room key, so it acts at once: the room
+ends for everyone, immediately. It cannot unsend anything — nothing is
+kept. To add detail, or to reach an operator for anything the room itself
+cannot fix, write to abuse@cipherchat.app." → Send the report
+(terracotta, busy "Sending") / Cancel. On confirm, the store's
+`reportRoom` signs `cc-report-v1` via `RoomCipher.signReportProof()`, POSTs
+`/api/rooms/:id/report`, and runs the same local burn sequence a burn or
+relay announce triggers — a reported room is indistinguishable from a
+burned one, by design. Anonymous reports (no key) are the server's
+problem: queued, three distinct IPs to burn (see `report-proof.ts`).
+
+Burning opens the app's **only other centered modal** (shadcn Dialog):
 "**Burn this room?** This destroys the room and its messages for everyone.
 This cannot be undone." → Burn the room (terracotta, busy state) / Cancel.
 The creator token lives in localStorage (`lib/local.ts`) so a creator can
@@ -675,9 +693,13 @@ captured → "Install app" (our UI asks, never the browser's mini-infobar);
 iOS → the three-tap Share walkthrough; standalone → a check and silence.
 Since Task 31 the About section also carries the abuse contact: a
 Flag glyph + one quiet paragraph naming `abuse@cipherchat.app` (a
-button that copies the address, "Address copied" toast) and stating
-plainly what reporting does — "Reporting ends the room — it cannot
-unsend anything, because nothing is kept."
+button that copies the address, "Address copied" toast). Round 32
+rewrote the paragraph for the graded ceiling: rooms are reported from
+their settings ("a member's report is signed with their room key and
+ends the room at once — a stranger's needs corroboration"), the
+address reaches an operator for anything the room itself cannot fix,
+and the finality stays honest — "Reporting cannot unsend anything,
+because nothing is kept."
 
 ### `apple-splash.tsx`
 
@@ -862,10 +884,12 @@ that once let handlers register twice). Composer drafts live in
 
 | Module | Role |
 |---|---|
-| `protocol.ts` | **Wire protocol v2**: frame types, uniform padding (control 20480+16B, file chunks 65536+16B, fixed-count file transfers), canonical v2 signing string, seal/open, replay guard (counters + session tags + ±10min window + id dedup + persistable watermarks), send clock, session ECDH helpers. **Round 29**: `FrameBody.reply` + exported `replyCanonical()` — the reply snapshot is the canonical string's 12th field, so a quote is signature-covered like the words themselves |
+| `protocol.ts` | **Wire protocol v2**: frame types, uniform padding (control 20480+16B, file chunks 65536+16B, fixed-count file transfers), canonical v2 signing string, seal/open, replay guard (counters + session tags + ±10min window + id dedup + persistable watermarks), send clock, session ECDH helpers. **Round 29**: `FrameBody.reply` + exported `replyCanonical()` — the reply snapshot is the canonical string's 12th field, so a quote is signature-covered like the words themselves. **Round 32**: `escapeCanonicalField()` — field 11 (messageId) is percent-escaped (`%`→`%25` first, then `|`→`%7C`, `\u001f`→`%1f`), making the conditional 12th slot collision-proof against crafted field-11 content while leaving every real frame's canonical byte-identical (messageIds are UUIDs / `offer:{cuid}:{epoch}`) |
 | `room-protocol.ts` | **`RoomCipher`** — the per-room security engine: versioned key ring with grace, registry eviction gate, rotation ceremony (`rotateTo`/`rotateAsCoordinator`), join-key delivery (double-wrapped offers), pending buffer, file-chunk assembly with sha verification, key-version cap. **Round 29**: `sealText`/`sealFile` accept a `reply` snapshot, the file-assembly map carries it, the completed-file OpenResult hands it to the store, and `open()` verifies the **raw** snapshot — sanitising happens only after the signature has bound the bytes |
 | `kdf.ts` | argon2id (64 MB, t=3, p=1) versioned key bundles; legacy PBKDF2 room unlock |
 | `room-identity.ts` | Per-room ECDSA keys derived from the device seed via HKDF(seed, roomId) — cross-room unlinkability |
+| `leave-proof.ts` | **Task 22**: `cc-leave-v1:{roomId}:{memberId}:{ts}` proof-of-possession — sign/verify with the room key, ±10-min window, never throws |
+| `report-proof.ts` | **Round 32**: the graded abuse report's member half — `cc-report-v1:{roomId}:{memberId}:{ts}` (same shape and window as the leave proof, different domain prefix, so neither replays as the other) + `tallyAnonymousReport` (pure: same-IP repeats never add weight, 3 distinct IPs burn, day-old tallies reset) |
 | `crypto.ts` | Legacy v1 primitives (PBKDF2 room keys, verifier blobs, canonical-JSON sign/verify, base64) — still the sign/verify backbone |
 | `legacy.ts` | PBKDF2 epoch-key cache for pre-v2 rooms (the legacy receive path is gated to them) |
 | `rate-limit.ts` | Token bucket (20 frames/s per socket), IP limiter (5 rooms/min), frame-size cap — shared by relay and API |

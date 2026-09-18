@@ -53,3 +53,21 @@ prompt
 server.log
 # Skills directory
 /skills/
+# --- local runtime state + sandbox artifacts (never ship) ---
+# The live dev database (each machine pushes its own schema: bun run db:push)
+/db/
+# npm lockfile materialized only inside CI for `npm audit` (bun.lock is the lock)
+package-lock.json
+# tool persistence, QA screenshots, uploaded scratch images, diagnostics
+/tool-results/
+/qa/
+/download/
+/upload/
+relay-diag-tmp*.mjs
+# sandbox infrastructure: gateway config + process scripts
+/Caddyfile
+.zscripts/
+# Playwright E2E artifacts
+/test-results/
+/playwright-report/
+/tests/*.sh

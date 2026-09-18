@@ -265,6 +265,37 @@ export function replyCanonical(
   return `${r.id}\u001f${r.senderId}\u001f${r.snippet}\u001f${r.file ? "1" : "0"}`;
 }
 
+/** Percent-escape the three characters that are structural in the
+ * canonical string — the field separator "|", the reply-slot separator
+ * \u001f, and the escape character "%" itself (escaped first, so the
+ * encoding is injective: "%7C" produced by the escaper can never be
+ * confused with a literal "%7C" from the field, which becomes "%257C").
+ *
+ * A no-op for every value this field has ever legitimately held
+ * (messageIds are crypto.randomUUID()s; key:offer ids are
+ * "offer:{cuid}:{epoch}", and cuids are [a-z0-9]) — which is what
+ * keeps the Round-31 cross-version proofs byte-identical: real plain
+ * letters still canonicalise to the exact pre-reply eleven-field
+ * string, so old tabs and new tabs keep verifying each other's plain
+ * letters.
+ *
+ * Why only field 11: the conditional 12th slot created a NEW ambiguity
+ * class at the 11→12 boundary. Before this escape, a plain frame whose
+ * messageId was crafted as "abc|<replyCanonical>" produced the SAME
+ * string as the reply frame {messageId:"abc", reply} — a signed plain
+ * frame could be re-encrypted as a quote-carrying frame its author
+ * never wrote. After the escape, field 11 contains no "|", so no plain
+ * frame's tail can ever equal `messageId + "|" + replySlot` (the
+ * right-hand side always contains the joiner). The residual ambiguity
+ * *within* earlier variable-length fields (e.g. text containing "|")
+ * predates replies and is blocked by the Task-19.1 replay window: any
+ * canonical-collision forgery must reuse the victim's exact
+ * (senderId, sessionTag, counter, ts) clock, which the window rejects.
+ */
+export function escapeCanonicalField(s: string): string {
+  return s.replace(/%/g, "%25").replace(/\|/g, "%7C").replace(/\u001f/g, "%1f");
+}
+
 export function canonicalV2(f: {
   roomId: string;
   kv: number;
@@ -289,7 +320,7 @@ export function canonicalV2(f: {
     f.kind,
     f.text ?? "",
     f.fileSha ?? "",
-    f.messageId ?? "",
+    escapeCanonicalField(f.messageId ?? ""),
   ].join("|");
   // The reply slot is appended ONLY when a quote exists — so a plain
   // frame's canonical is byte-identical to the pre-reply eleven-field

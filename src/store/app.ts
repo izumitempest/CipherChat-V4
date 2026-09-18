@@ -141,6 +141,7 @@ interface AppState {
   burnRoom: (roomId: string) => Promise<void>;
   finishRoomBurn: (roomId: string) => void;
   leaveRoom: (roomId: string) => Promise<void>;
+  reportRoom: (roomId: string) => Promise<void>;
   renameRoom: (roomId: string, name: string) => void;
   setDefaultTtl: (roomId: string, ttl: TtlChoice) => void;
   markVerified: (roomId: string, memberId: string, verified: boolean) => void;
@@ -851,6 +852,42 @@ export const useApp = create<AppState>()((set, get) => ({
       messages: { ...s.messages, [roomId]: [] },
     }));
     get().navigate("rooms");
+  },
+
+  /* ----------------------------------------------- report --- */
+
+  /** Report this room for abuse, as a member: the report is signed
+   *  with the room's signing key (cc-report-v1), so the server treats
+   *  it as credible and burns the room at once — the graded-report
+   *  fix for Round 31's anonymous kill switch, where a room ID alone
+   *  (the weakest credential, one that rides in every forwarded
+   *  invite link) could end the room. Members are the only credible
+   *  content reporters; a stranger's report now needs corroboration
+   *  from three distinct networks. */
+  reportRoom: async (roomId) => {
+    const session = getSession(roomId);
+    const cipher = getCipher(roomId);
+    if (!session || !cipher) return;
+    const proof = await cipher.signReportProof();
+    try {
+      await fetch(`/api/rooms/${roomId}/report`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          memberId: session.memberId,
+          ts: proof.ts,
+          sig: proof.sig,
+        }),
+      });
+    } catch {
+      /* best effort — the room may already be gone; the relay's
+       * room:burned (sent by the server's terminate call) still
+       * reaches us and runs the same burn sequence */
+    }
+    // Same local burn sequence a creator's burn or a relay announce
+    // triggers — a reported room is indistinguishable from a burned
+    // one, by design.
+    set({ burn: { roomId } });
   },
 
   /* ------------------------------------------------- leave --- */
