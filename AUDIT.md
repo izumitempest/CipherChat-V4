@@ -130,3 +130,8 @@ The switch (both directions verified):
   for the masked exceptions; re-verify both if either file changes.
 - Any change to `EXCEPTIONS` in `scripts/audit-gate.mjs` must land in
   the same commit as its disposition row here.
+- Retirement condition for the one remaining approximation: when
+  `bun audit` grows dependency chains or a `--production` flag, drop the
+  npm split (and the gate's materialized lockfile) entirely — findings
+  and topology then both come from bun, and the last approximation
+  closes.
