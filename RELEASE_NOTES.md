@@ -27,7 +27,7 @@ only.
   padded to uniform sizes: the relay cannot tell typing from messages,
   or read file sizes
 - Messages can carry a TTL (presets from seconds to hours, custom up
-  to a day); rooms have lifetimes; anyone can burn a room for
+  to a day); rooms have lifetimes; anyone in the room can burn it for
   everyone
 - Images pass a fail-closed EXIF strip — location metadata that
   cannot be stripped does not get sent
@@ -36,7 +36,8 @@ only.
   out after a bounded grace while anyone remains connected
 - PWA: installs from the browser, offline shell, local notifications
   while the app is alive
-- Self-host in one command: `docker compose up` (see `deploy/`)
+- Self-host on your own VPS: one token, one hostname, then
+  `docker compose up` (see `deploy/`)
 
 ## What it isn't
 
@@ -63,10 +64,11 @@ password-independent); endpoint compromise reads everything; mobile
 notifications arrive only while the app is running (`MOBILE.md` says
 why, and what web push would cost).
 
-Every claim in these notes is backed by a named property test — the
-suite's inventory and count live in `CHANGES.md` — and the security
-contract is written down in `SECURITY.md`, the dependency-audit policy
-in `AUDIT.md`, the full threat model in `DESIGN.md` §6.
+Every security property in these notes is enforced by a named test,
+and the product contract by the E2E golden path — the suite's
+inventory and count live in `CHANGES.md`, the security contract is
+written down in `SECURITY.md`, the dependency-audit policy in
+`AUDIT.md`, the full threat model in `DESIGN.md` §6.
 
 ## Verify it
 
