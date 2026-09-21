@@ -50,24 +50,24 @@ jobs:
         run: bun run test
 
       # ---- Dependency audit: two gates, one policy (see AUDIT.md) ----
-      # BLOCKING: the runtime tree (--omit=dev) — what the standalone
-      # build ships. Exceptions live ONLY in scripts/audit-gate.mjs,
-      # each keyed by (module, advisory id) and dispositioned in
-      # AUDIT.md, so a NEW advisory against an excepted module still
-      # fails the gate.
-      # The repo locks with bun.lock; npm only materializes a lockfile
-      # for its advisory database. No install happens.
+      # BLOCKING: the runtime tree — what the standalone build ships.
+      # Findings come from `bun audit` over bun.lock (the exact installed
+      # pins); the runtime/dev split comes from a package-lock the gate
+      # materializes itself. Exceptions live ONLY in
+      # scripts/audit-gate.mjs, each keyed by (module, advisory id) and
+      # dispositioned in AUDIT.md, so a NEW advisory against an excepted
+      # module still fails the gate. The gate fails closed: an error
+      # payload or a missing lockfile is red, never a vacuous green.
       - name: Dependency audit (runtime tree — blocking)
-        run: |
-          npm install --package-lock-only --ignore-scripts --no-audit --silent
-          node scripts/audit-gate.mjs
+        run: node scripts/audit-gate.mjs
 
       # ADVISORY, non-blocking: the full tree — dev, lint, and build
       # chains that never ship in the standalone runtime image. Every
       # current finding is dispositioned in AUDIT.md; red here is a
-      # review prompt, not a ship stopper.
+      # review prompt, not a ship stopper. `bun audit` reads bun.lock
+      # directly — no lockfile materialization needed.
       - name: Dependency audit (full tree — advisory)
-        run: npm audit --audit-level=high
+        run: bun audit --audit-level=high
         continue-on-error: true
 
       - name: Production build

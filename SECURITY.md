@@ -11,7 +11,8 @@ at.
 
 What we can offer:
 
-- A response within 7 days, and an honest timeline after that.
+- We target a first response within 7 days, and an honest timeline
+  after that.
 - Credit in `CHANGES.md` if you want it (the project's whole history is
   there, including the rounds where the agent was wrong and said so).
 - No legal trouble for good-faith research against rooms you created
