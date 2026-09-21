@@ -220,7 +220,7 @@ this policy will say so explicitly.
 
 ## 14. Contact
 
-**[Contact placeholder — the party operating the deployment you use.]**
+**Who to contact: the party operating the deployment you use.**
 
 The party operating a self-hosted deployment is responsible for publishing
 its own contact. The reference deployment publishes none, because it is

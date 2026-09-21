@@ -1,6 +1,27 @@
-# CipherChat
+<div align="center">
 
-A conversation that leaves no trace.
+<img src="assets/banner.svg" alt="CipherChat — a conversation that leaves no trace" width="880" />
+
+<br />
+
+<a href="https://readme-typing-svg.demolab.com"><img src="https://readme-typing-svg.demolab.com?font=Georgia&size=18&pause=1600&color=C85A40&center=true&vCenter=true&random=false&width=620&lines=A+room+is+a+link+and+a+password.;The+server+relays+ciphertext+it+cannot+read.;Keys+are+derived+and+held+in+your+browser.;No+accounts.+No+history.+No+trace.;Burn+it+when+you%27re+done." alt="CipherChat, one true line at a time" width="620" /></a>
+
+<p>
+  <img src="https://img.shields.io/badge/license-MIT-3A4F41?style=flat-square" alt="License: MIT" />
+  <img src="https://img.shields.io/badge/e2e-encrypted-3A4F41?style=flat-square" alt="End-to-end encrypted" />
+  <img src="https://img.shields.io/badge/relay-zero--knowledge-2C2A28?style=flat-square" alt="Zero-knowledge relay" />
+  <img src="https://img.shields.io/badge/tests-property--driven-3A4F41?style=flat-square" alt="Property-driven test suite" />
+  <img src="https://img.shields.io/badge/self--host-docker--compose-2C2A28?style=flat-square" alt="Self-host with docker compose" />
+  <img src="https://img.shields.io/badge/rooms-burn--after--reading-C85A40?style=flat-square" alt="Rooms burn after reading" />
+</p>
+
+<p>
+  <img src="https://skillicons.dev/icons?i=ts,react,nextjs,tailwind,bun,docker" alt="TypeScript, React, Next.js, Tailwind CSS, Bun, Docker" height="40" />
+</p>
+
+</div>
+
+---
 
 CipherChat is an ephemeral, end-to-end-encrypted chat with no accounts: a
 room is a link and a password. Everything that matters happens in your
@@ -200,3 +221,17 @@ port, token-guarded) for the legal cases.
 - `DESIGN.md` — tokens, motion, architecture, and the full threat model
 - `COMPONENTS.md` — every component, its states and mechanics
 - `worklog.md` — the build history, round by round
+
+---
+
+<div align="center">
+  <img src="assets/footer.svg" width="880" alt="" />
+</div>
+
+## Author
+
+**Okwuchukwu Ekene Don Davies** — *Izumi*
+
+CipherChat is designed and built by Izumi. The repository follows one
+rule, in prose and in code alike: claims are checked against the bytes,
+and the residuals are written down rather than hidden.

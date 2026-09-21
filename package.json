@@ -1,6 +1,9 @@
 {
-  "name": "nextjs_tailwind_shadcn_ts",
-  "version": "0.2.1",
+  "name": "cipherchat",
+  "version": "1.0.0-rc.1",
+  "description": "Ephemeral, end-to-end-encrypted chat rooms — a link and a password.",
+  "author": "Okwuchukwu Ekene Don Davies (Izumi)",
+  "license": "MIT",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 2>&1 | tee dev.log",

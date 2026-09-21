@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "nextjs_tailwind_shadcn_ts",
+      "name": "cipherchat",
       "dependencies": {
         "@capacitor/core": "^8.5.2",
         "@dnd-kit/core": "^6.3.1",
