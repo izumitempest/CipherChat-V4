@@ -22,6 +22,13 @@ export default defineConfig({
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: {
     baseURL: process.env.E2E_BASE_URL ?? "http://127.0.0.1:81",
+    // The golden path tests conversation logic, not the service
+    // worker's lifecycle. A fresh profile's first install raced the
+    // "new version installed" toast over the message list and
+    // intercepted the reply click (CI run #6); blocking removes the
+    // whole class of timing flakiness. The update-prompt behavior
+    // itself is a first-install-silent design in sw-register.tsx.
+    serviceWorkers: "block",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",

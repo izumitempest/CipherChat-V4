@@ -49,9 +49,17 @@ export function SwRegister() {
 
     /* ---- Update prompt + registration (production only) ---- */
 
-    // The page already had a controller when it loaded → any LATER
-    // controllerchange is an update, not the first install.
-    let hadController = !!navigator.serviceWorker?.controller;
+    // The truth this whole flow hangs on, captured once at load and
+    // never mutated: did this page load WITH a controller? If it did,
+    // any later takeover is an update. If it did not, what follows is
+    // the first install claiming a virgin page — silent, always, no
+    // matter which of controllerchange or the worker's activate
+    // message wins the race. (The mutable-flag version fired the "new
+    // version installed" toast on fresh browser profiles — CI caught
+    // it blocking the golden path's reply click: a visitor who never
+    // had a version, told one was installed, with a duration:
+    // Infinity toast parked over their conversation.)
+    const loadedWithController = !!navigator.serviceWorker?.controller;
     let prompted = false;
 
     const offerReload = () => {
@@ -67,10 +75,7 @@ export function SwRegister() {
     };
 
     const onControllerChange = () => {
-      if (!hadController) {
-        hadController = true; // first install claiming the page — silent
-        return;
-      }
+      if (!loadedWithController) return; // first install claiming the page — silent
       if (prompted) return; // one prompt per page load
       prompted = true;
       offerReload();
@@ -82,7 +87,7 @@ export function SwRegister() {
       if (
         event.data?.type === "cipherchat:updated" &&
         !prompted &&
-        hadController
+        loadedWithController
       ) {
         prompted = true;
         offerReload();
