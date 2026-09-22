@@ -980,3 +980,17 @@ Stage Summary:
 - The two lineages are grafted: merge commit with both parents, GitHub's Task 34-38 polish and the sandbox's Task 39-44 release round both preserved in history, final tree = the newer sandbox state plus the GitHub side's examples/ purge and eslint cleanup.
 - Gate results on the merged tree: bun install lock-consistent; eslint 0/0; tsc --noEmit clean; vitest 158/158; audit-gate exit 0. Tag v1.0.0-rc1 moved to the merge commit.
 - Remaining: the authenticated push (operator PAT or local machine), then GitHub shows the full continuous history.
+
+---
+Task ID: 45b (push completion)
+Agent: lead (Z.ai Code)
+Task: Finish Task 45 — execute the authenticated push of the merged history to github.com/izumitempest/CipherChat-V4 and verify the release automation.
+
+Work Log:
+- The operator's first fine-grained PAT arrived without Contents:write (diagnosed live: valid identity, repo access correct, but ref-create and contents-PUT both 403 "Resource not accessible by personal access token"). After the operator added Contents+Workflows read/write, the push succeeded: main 4bd35e6..bb2ffa4, tag v1.0.0-rc1 (new) pointing at merge commit baab3f2.
+- Cleanup: the sandbox auto-committer had swept the 6.6MB fallback bundle (public/cipherchat-merged.bundle) into bb2ffa4 before the push; removed it in c15f225 ("Drop the 6.6MB merge bundle artifact") and pushed again. Remote main now c15f225, no stray artifacts.
+- Release automation verified from the API: release.yml run on the tag push completed with conclusion success (suite ran on GitHub's runner first — the gate held); GitHub Release "CipherChat v1.0.0-rc1" published as prerelease with the flat RELEASE_NOTES.md body intact. CI runs on the main pushes spun up normally.
+- Token hygiene: the PAT transited chat; operator advised to delete it from Settings → Developer settings → Personal access tokens now that the push is done.
+
+Stage Summary:
+- Mission complete: GitHub main now carries the full continuous history (old pushed lineage + sandbox Tasks 39-45 grafted at merge baab3f2), tag v1.0.0-rc1 on the merge, published prerelease with verified notes, nothing deleted or force-pushed. The repo's public face (README, notes, author attribution via noreply email 167245050+izumitempest) is live.
