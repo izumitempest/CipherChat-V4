@@ -111,10 +111,25 @@ jobs:
 
       - name: Wait for the stack to answer
         run: |
-          for i in $(seq 1 90); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost/ || echo 000)
-            if [ "$code" = "200" ]; then echo "stack up after ~$((i*2))s"; exit 0; fi
-            sleep 2
+          # The stack is up when BOTH hold:
+          #   - the landing page answers 200 (Caddy + web tier alive)
+          #   - an impossible room id 404s through the whole chain:
+          #     Caddy → web → Prisma engine loads → SQLite answers
+          #     (the same read-only probe the container healthcheck
+          #     uses). A 5xx here means a broken tier — this is the
+          #     check that would have caught the Prisma engine
+          #     mismatch in seconds, instead of a 60s Playwright
+          #     timeout with a "room could not be created" alert.
+          # Cadence stays under the room-info limiter (30/min per IP):
+          # 24/min worst case.
+          for i in $(seq 1 75); do
+            site=$(curl -s -o /dev/null -w "%{http_code}" http://localhost/ || echo 000)
+            room=$(curl -s -o /dev/null -w "%{http_code}" http://localhost/api/rooms/healthprobe0 || echo 000)
+            if [ "$site" = "200" ] && [ "$room" = "404" ]; then
+              echo "stack up (iteration $i: site=$site room=$room)"
+              exit 0
+            fi
+            sleep 2.5
           done
           echo "--- stack logs on timeout ---"
           docker compose -f deploy/docker-compose.yml logs

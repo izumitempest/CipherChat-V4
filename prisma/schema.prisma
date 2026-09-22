@@ -1,5 +1,14 @@
 generator client {
   provider = "prisma-client-js"
+  // The runtime engine must be deterministic, not an accident of where
+  // the image was built. The Docker build stage (oven/bun:1, Debian
+  // bookworm) generates "native" = debian-openssl-3.0.x; the
+  // node:22-slim runtime detects via the openssl CLI (installed in
+  // deploy/Dockerfile.web) to the same target. CI runs #1-#5 all died
+  // on the mismatch: slim has no openssl CLI, detection fell back to a
+  // guess (debian-openssl-1.1.x), and every DB call in the web
+  // container 500ed.
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
