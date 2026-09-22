@@ -209,7 +209,14 @@ export function CipherPlayground() {
       title="A live example"
       lede="This example runs in your browser with the same WebCrypto API the app uses. Nothing is sent to a server. Type on the left. The right side shows the frame the server would receive."
     >
-      <div className="rounded-[12px] border border-hairline">
+      {/* suppressHydrationWarning: password-manager extensions
+          (Proton Pass and the like) stamp data-* attributes onto
+          password-field wrappers before React hydrates. The wrapper
+          is ours; the attribute is not. */}
+      <div
+        className="rounded-[12px] border border-hairline"
+        suppressHydrationWarning
+      >
         {/* the door: password + salt */}
         <div className="border-b border-hairline p-4 sm:p-5">
           <div className="grid items-end gap-3 sm:grid-cols-[1fr_auto]">

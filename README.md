@@ -182,6 +182,20 @@ bunx playwright test                # against a running dev stack (base URL
 Red means no merge. The property suite is the security contract, and
 the golden path is the product contract.
 
+### Releases
+
+Pushing a tag (`v*`) fires `.github/workflows/release.yml`: the
+property suite runs first, then a GitHub release is created from
+`RELEASE_NOTES.md`. A red suite means no release, the same rule as
+CI. Tags containing a hyphen (rc, beta) are marked prerelease
+automatically. If you would rather create a release without the
+workflow:
+
+```bash
+gh release create v1.0.0-rc1 --prerelease \
+  --title "CipherChat v1.0.0-rc1" --notes-file RELEASE_NOTES.md
+```
+
 ### Performance note
 
 Room unlocking is deliberately slow (argon2id, 64 MB). On a desktop this
