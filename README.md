@@ -1,6 +1,27 @@
-# CipherChat
+<div align="center">
 
-A conversation that leaves no trace.
+<img src="assets/banner.svg" alt="CipherChat — a conversation that leaves no trace" width="880" />
+
+<br />
+
+<a href="https://readme-typing-svg.demolab.com"><img src="https://readme-typing-svg.demolab.com?font=Georgia&size=18&pause=1600&color=C85A40&center=true&vCenter=true&random=false&width=620&lines=A+room+is+a+link+and+a+password.;The+server+relays+ciphertext+it+cannot+read.;Keys+are+derived+and+held+in+your+browser.;No+accounts.+No+history.+No+trace.;Burn+it+when+you%27re+done." alt="CipherChat, one true line at a time" width="620" /></a>
+
+<p>
+  <img src="https://img.shields.io/badge/license-MIT-3A4F41?style=flat-square" alt="License: MIT" />
+  <img src="https://img.shields.io/badge/e2e-encrypted-3A4F41?style=flat-square" alt="End-to-end encrypted" />
+  <img src="https://img.shields.io/badge/relay-zero--knowledge-2C2A28?style=flat-square" alt="Zero-knowledge relay" />
+  <img src="https://img.shields.io/badge/tests-property--driven-3A4F41?style=flat-square" alt="Property-driven test suite" />
+  <img src="https://img.shields.io/badge/self--host-docker--compose-2C2A28?style=flat-square" alt="Self-host with docker compose" />
+  <img src="https://img.shields.io/badge/rooms-burn--after--reading-C85A40?style=flat-square" alt="Rooms burn after reading" />
+</p>
+
+<p>
+  <img src="https://skillicons.dev/icons?i=ts,react,nextjs,tailwind,bun,docker" alt="TypeScript, React, Next.js, Tailwind CSS, Bun, Docker" height="40" />
+</p>
+
+</div>
+
+---
 
 CipherChat is an ephemeral, end-to-end-encrypted chat with no accounts: a
 room is a link and a password. Everything that matters happens in your
@@ -12,8 +33,10 @@ browser — the server is a blind relay that cannot read a single frame.
   different channels. That pair *is* the room.
 - **Ephemeral by construction.** No message is ever stored on any server.
   New joiners see nothing from before they joined. Messages can carry a
-  TTL (5m / 1h / 8h) and destroy themselves on schedule; the creator can
-  burn the whole room for everyone.
+  TTL — presets from 15 seconds to 8 hours, or custom anywhere in
+  5 seconds to 24 hours (the steps live in `TTL_STEPS`,
+  `src/lib/types.ts`) — and destroy themselves on schedule; the creator
+  can burn the whole room for everyone.
 - **Ink marks.** Mark any message with one of four quiet margin marks
   (✓ acknowledged · ✦ noted · ♥ warmly received · ☾ later). Marks are
   encrypted, signed, uniform-sized frames — the relay cannot even tell
@@ -35,19 +58,24 @@ browser — the server is a blind relay that cannot read a single frame.
 | Uniformity | All control frames (messages, typing, receipts, burns, key offers, file meta, ink marks) are the same size; every file transfer is the same fixed number of chunk frames — the relay cannot read file sizes or even tell typing from messages |
 | Replay defense | per-sender monotonic counters, ±10-minute timestamp window, frame-id dedup, refresh-surviving watermarks |
 | Rotation on leave | the remaining members seal the room under a **new random key**, delivered pairwise over ephemeral ECDH — the leaver never receives it, and it is not derived from the password |
-| Silent-departure grace | a member whose connection drops without a clean leave is written out **2 minutes** later: the relay's live presence (token-guarded, server-to-server) is the connection authority the eviction route consults, the epoch ledger makes the re-seal durable, and the departed member simply re-enters with the password when they return |
+| Silent-departure grace | a member whose connection drops without a clean leave is written out **2 minutes** later — while anyone remains connected; the clock lives on the remaining clients: the relay's live presence (token-guarded, server-to-server) is the connection authority the eviction route consults, the epoch ledger makes the re-seal durable, and the departed member simply re-enters with the password when they return |
 | Departure proof | leaving requires a signature from the member's registered key — a room-code holder cannot trigger nuisance rotations in your name |
 | Rejoin after rotation | the current key arrives ECDH-wrapped and sealed under the password-derived entry key, so only a joiner who proved the password can open it |
 | Forgery | messages are signed inside the encrypted payload and verified against the REST member registry; forgeries render as a quiet rejection line |
 | Verifiability | fingerprints derive from registered public keys; verification marks live on your device |
 
+The constants behind these rows (KDF parameters, replay windows, the
+120-second grace clock) live in `src/lib/` — `identity.ts`,
+`protocol.ts`, `silent-grace.ts` — and every one is enforced by a
+property test.
+
 The full property suite is enforced by tests named after the properties
-they protect: `src/lib/__tests__/task-19.*.test.ts` (replay,
-rotation, padding, KDF, identity, hardening), `task-20.*.test.ts`
-(file captions, ink reactions), `task-21.1-silent-grace.test.ts` (the
-silent-departure grace decision logic) and `task-22.*.test.ts`
-(departure proofs, key-derivation range safety, room admission).
-Run them with `bun run test`.
+they protect — replay, rotation, padding, KDF, identity, hardening,
+silent-departure grace, departure proofs, admission, reply integrity,
+canonical collision-proofing, report grading, passphrase CSPRNG source.
+The per-round inventory and the current count live in `CHANGES.md`
+(this section deliberately does not restate them — duplicated counts
+rot). Run the suite with `bun run test`.
 
 ## What CipherChat does NOT protect against
 
@@ -60,11 +88,15 @@ Read this part — it is the product's spine.
   decrypt a view-once file on arrival and keep it without opening the
   viewer. Inherent to group E2EE; Signal has the same limit.
 - **Silent leavers — closed by the grace.** A member who just closes the
-  tab keeps the current key for at most **2 minutes**: their connection
-  drop starts a grace clock on every remaining client, and the connected
-  coordinator asks the server to write them out and re-seal when it
-  expires. The residual window is the grace itself — and for a hostile
-  exit, burn the room.
+  tab keeps the current key for at most **2 minutes while anyone remains
+  connected**: their connection drop starts a grace clock on every
+  remaining client, and the connected coordinator asks the server to
+  write them out and re-seal when it expires. If everyone has left, no
+  clock runs — an empty room has no traffic to decrypt — and the next
+  rejoin re-seals past any rotated key they held (a room still on its
+  first, password-derived key never had secrecy from password-holders;
+  that limit is its own bullet below). The residual window is the grace
+  itself — and for a hostile exit, burn the room.
 - **Insiders can sabotage.** A member can always publish the room key
   out-of-band or push nuisance rotations. Group E2EE keeps outsiders
   out; it cannot police participants.
@@ -189,3 +221,17 @@ port, token-guarded) for the legal cases.
 - `DESIGN.md` — tokens, motion, architecture, and the full threat model
 - `COMPONENTS.md` — every component, its states and mechanics
 - `worklog.md` — the build history, round by round
+
+---
+
+<div align="center">
+  <img src="assets/footer.svg" width="880" alt="" />
+</div>
+
+## Author
+
+**Okwuchukwu Ekene Don Davies** — *Izumi*
+
+CipherChat is designed and built by Izumi. The repository follows one
+rule, in prose and in code alike: claims are checked against the bytes,
+and the residuals are written down rather than hidden.

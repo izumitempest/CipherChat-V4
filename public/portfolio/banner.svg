@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 240" width="880" height="240" role="img" aria-labelledby="bannerTitle">
+  <title id="bannerTitle">CipherChat — a conversation that leaves no trace</title>
+
+  <!-- ink card -->
+  <rect x="1" y="1" width="878" height="238" rx="20" fill="#2C2A28" stroke="#F4F1EB" stroke-opacity="0.12"/>
+
+  <!-- faint stationery dust -->
+  <g fill="#B7B2A8" opacity="0.16">
+    <circle cx="300" cy="52" r="1.6"/>
+    <circle cx="560" cy="196" r="1.3"/>
+    <circle cx="624" cy="46" r="1.1"/>
+    <circle cx="236" cy="206" r="1.4"/>
+    <circle cx="700" cy="70" r="1.2"/>
+  </g>
+
+  <!-- the ephemeral letter: rises out of the envelope, then leaves no trace -->
+  <g>
+    <animateTransform attributeName="transform" type="translate"
+      values="0 30; 0 26; 0 -16; 0 -28; 0 -28"
+      keyTimes="0;0.16;0.5;0.72;1" dur="6.5s" repeatCount="indefinite"/>
+    <animate attributeName="opacity"
+      values="0;0.96;0.94;0;0"
+      keyTimes="0;0.07;0.55;0.73;1" dur="6.5s" repeatCount="indefinite"/>
+    <rect x="92" y="104" width="86" height="54" rx="6" fill="#F4F1EB"/>
+    <g fill="#3A4F41">
+      <circle cx="118" cy="131" r="3.6">
+        <animate attributeName="opacity" values="0.25;1;0.25" dur="1.4s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+      <circle cx="135" cy="131" r="3.6">
+        <animate attributeName="opacity" values="0.25;1;0.25" dur="1.4s" begin="0.22s" repeatCount="indefinite"/>
+      </circle>
+      <circle cx="152" cy="131" r="3.6">
+        <animate attributeName="opacity" values="0.25;1;0.25" dur="1.4s" begin="0.44s" repeatCount="indefinite"/>
+      </circle>
+    </g>
+  </g>
+
+  <!-- envelope (drawn after the letter so the letter emerges from inside) -->
+  <g>
+    <rect x="74" y="126" width="122" height="76" rx="9" fill="#262421" stroke="#F4F1EB" stroke-opacity="0.92" stroke-width="2.6"/>
+    <path d="M 79 132 L 135 172 L 191 132" fill="none" stroke="#F4F1EB" stroke-opacity="0.92" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- ash left behind as the letter dissolves -->
+  <g fill="#B7B2A8">
+    <circle cx="128" cy="84" r="1.8">
+      <animate attributeName="opacity" values="0;0;0.55;0;0" keyTimes="0;0.58;0.66;0.78;1" dur="6.5s" repeatCount="indefinite"/>
+      <animateTransform attributeName="transform" type="translate" values="0 0;0 -10;0 -20" keyTimes="0;0.58;1" dur="6.5s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="141" cy="78" r="1.4">
+      <animate attributeName="opacity" values="0;0;0.45;0;0" keyTimes="0;0.62;0.7;0.8;1" dur="6.5s" repeatCount="indefinite"/>
+      <animateTransform attributeName="transform" type="translate" values="0 0;0 -12;0 -24" keyTimes="0;0.62;1" dur="6.5s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="153" cy="86" r="1.6">
+      <animate attributeName="opacity" values="0;0;0.5;0;0" keyTimes="0;0.66;0.74;0.84;1" dur="6.5s" repeatCount="indefinite"/>
+      <animateTransform attributeName="transform" type="translate" values="0 0;0 -9;0 -18" keyTimes="0;0.66;1" dur="6.5s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+
+  <!-- wax seal -->
+  <circle cx="190" cy="200" r="21" fill="none" stroke="#E8A87C" stroke-width="1.6">
+    <animate attributeName="opacity" values="0.12;0.5;0.12" dur="3.2s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="190" cy="200" r="16.5" fill="#C85A40"/>
+  <text x="190" y="206" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-style="italic" font-size="16" fill="#F4F1EB">cc</text>
+
+  <!-- wordmark -->
+  <text x="252" y="140" font-family="Georgia, 'Times New Roman', serif" font-size="56" letter-spacing="0.5" fill="#F4F1EB">CipherChat</text>
+
+  <!-- terracotta rule, drawing itself in time with the letter -->
+  <line x1="256" y1="160" x2="540" y2="160" stroke="#C85A40" stroke-width="2" stroke-linecap="round" stroke-dasharray="290">
+    <animate attributeName="stroke-dashoffset" values="290;0;0;290" keyTimes="0;0.4;0.75;1" dur="6.5s" repeatCount="indefinite"/>
+  </line>
+
+  <!-- tagline -->
+  <text x="252" y="188" font-family="Georgia, 'Times New Roman', serif" font-style="italic" font-size="19" fill="#E8A87C">a conversation that leaves no trace</text>
+  <text x="252" y="212" font-family="Georgia, 'Times New Roman', serif" font-size="13" letter-spacing="1.5" fill="#B7B2A8">EPHEMERAL ROOMS · UNIFORM FRAMES · A BLIND RELAY</text>
+</svg>

@@ -29,7 +29,13 @@ import { useApp } from "@/store/app";
 export function LandingScreen() {
   const navigate = useApp((s) => s.navigate);
   const hasRooms = useApp((s) => s.roomCards.length > 0);
-  const [createOpen, setCreateOpen] = useState(false);
+  /* The porch's seal gesture ends here: the store consumed
+   * ?create=1 during init (URL cleaned, flag raised), and the
+   * landing answers by having the form already out. First render
+   * happens after init (the ready gate), so the initial value is
+   * simply the flag — no effect, no cascade. */
+  const porchCreate = useApp((s) => s.porchCreate);
+  const [createOpen, setCreateOpen] = useState(porchCreate);
 
   return (
     <div className="screen-in flex min-h-dvh flex-col">

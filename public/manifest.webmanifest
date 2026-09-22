@@ -3,7 +3,7 @@
   "short_name": "CipherChat",
   "description": "End-to-end encrypted, ephemeral rooms. No accounts, no history, no trace.",
   "id": "/",
-  "start_url": "/",
+  "start_url": "/?app=1",
   "scope": "/",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui"],

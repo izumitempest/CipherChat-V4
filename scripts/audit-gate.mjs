@@ -2,16 +2,40 @@
 // The BLOCKING half of CipherChat's dependency audit — see AUDIT.md.
 //
 // What ships is the standalone runtime tree; what that tree may not carry
-// is an un-dispositioned critical/high advisory. This script runs
-// `npm audit --omit=dev --json` (the repo locks with bun.lock; npm is
-// used only as the advisory database, exactly as ci.yml materializes it)
-// and fails on every critical/high finding EXCEPT the enumerated
-// exceptions below. Exceptions are keyed by (module, advisory id), so a
-// NEW advisory against an excepted module still fails the gate.
+// is an un-dispositioned critical/high advisory.
+//
+// Two sources, one verdict (since the Round 35 engine switch):
+//
+//   1. FINDINGS come from `bun audit --json` — bound to the EXACT
+//      versions pinned in bun.lock, the lockfile the project actually
+//      installs from. (The previous engine audited npm's fresh
+//      re-resolution of the same ranges, which can drift from the pins —
+//      and, run without a materialized lockfile, failed VACUOUSLY
+//      green: npm's ENOLOCK error object is valid JSON with no
+//      `vulnerabilities` key, which the old parser read as "clean".
+//      That fail-open hole is why the payloads below are shape-checked.)
+//
+//   2. The RUNTIME/DEV SPLIT comes from npm's materialized lockfile
+//      (`npm install --package-lock-only`, owned by this script): a
+//      package marked `"dev": true` there is reachable only through
+//      devDependencies and never ships. The split is the one remaining
+//      approximation — npm re-resolves ranges to derive it — and is
+//      stated as such in AUDIT.md. Versions and advisories are
+//      lockfile-exact; only the classification rides on npm.
+//
+// The gate fails CLOSED: an unparseable payload, a missing lockfile, a
+// failed materialization, or an error object where findings were
+// expected is a gate FAILURE, never a clean pass. A gate that audits
+// nothing is red.
+//
+// Failures on critical/high runtime findings exit 1 EXCEPT for the
+// enumerated exceptions below, keyed by (module, advisory id), so a NEW
+// advisory against an excepted module still fails the gate.
 //
 // The full-tree audit (dev / lint / build chain) is a separate,
-// NON-blocking advisory step in ci.yml: those packages never ship in the
-// standalone runtime image, and each is dispositioned in AUDIT.md.
+// NON-blocking advisory step in ci.yml (`bun audit --audit-level=high`,
+// continue-on-error): those packages never ship in the standalone
+// runtime image, and each is dispositioned in AUDIT.md.
 
 import { execFileSync } from "node:child_process";
 
@@ -40,42 +64,100 @@ const EXCEPTIONS = [
 
 const GATE = new Set(["critical", "high"]);
 
-let audit;
-try {
-  audit = JSON.parse(
-    execFileSync("npm", ["audit", "--omit=dev", "--json"], {
+function die(msg) {
+  console.error(`audit-gate: FAIL (fail-closed) — ${msg}`);
+  process.exit(1);
+}
+
+// Run a command, tolerating the non-zero exits both tools use to signal
+// FINDINGS (not errors). stdout is returned either way; a spawn failure
+// is fatal.
+function run(cmd, args) {
+  try {
+    return execFileSync(cmd, args, {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
-    }),
-  );
-} catch (err) {
-  // npm audit exits non-zero when it FINDS something — the JSON is on
-  // stdout either way. Only an unparseable result is a gate error.
-  try {
-    audit = JSON.parse(String(err.stdout ?? ""));
-  } catch {
-    console.error("audit-gate: npm audit could not run:", String(err.stderr ?? err.message));
-    process.exit(1);
+    });
+  } catch (err) {
+    const out = String(err.stdout ?? "");
+    if (!out && !err.stderr) die(`${cmd} could not run: ${err.message}`);
+    return out; // non-zero exit WITH output = findings, parse them
   }
 }
 
-const vulns = audit?.vulnerabilities ?? {};
+// ---- 1. Findings: bun audit over the real lockfile ------------------
+
+const rawAudit = run("bun", ["audit", "--json"]);
+let audit;
+try {
+  audit = JSON.parse(rawAudit);
+} catch {
+  die("bun audit --json did not produce parseable output.");
+}
+// Shape check: a plain object of module -> advisory[]. Anything else —
+// including an {error: …} payload — is a gate failure, never "clean".
+if (
+  typeof audit !== "object" ||
+  audit === null ||
+  Array.isArray(audit) ||
+  Object.values(audit).some((v) => !Array.isArray(v))
+) {
+  die(
+    "bun audit payload has an unexpected shape (error object? registry trouble?). " +
+      "Refusing to pass a gate that may have audited nothing.",
+  );
+}
+
+// ---- 2. Scope: the runtime/dev split from npm's materialized lockfile
+
+run("npm", [
+  "install",
+  "--package-lock-only",
+  "--ignore-scripts",
+  "--no-audit",
+  "--silent",
+]);
+let lock;
+try {
+  lock = JSON.parse(execFileSync("cat", ["package-lock.json"], { encoding: "utf8" }));
+} catch {
+  die("package-lock.json could not be read after materialization.");
+}
+const packages = lock?.packages;
+if (typeof packages !== "object" || packages === null) {
+  die("materialized package-lock.json has no packages map.");
+}
+const runtimeModules = new Set();
+for (const [path, p] of Object.entries(packages)) {
+  if (!path.startsWith("node_modules/")) continue;
+  if (p?.dev) continue; // reachable only via devDependencies — never ships
+  const name = path.slice("node_modules/".length).split("/node_modules/").pop();
+  runtimeModules.add(name);
+}
+if (runtimeModules.size === 0) {
+  die("runtime module set is empty — the scope source is broken, not the tree clean.");
+}
+
+// ---- 3. Adjudicate ----------------------------------------------------
+
 const failures = [];
 const masked = [];
+const seen = new Set();
 
-for (const [module, v] of Object.entries(vulns)) {
-  if (!GATE.has(String(v.severity ?? ""))) continue;
-  // via[] mixes two shapes: objects (direct advisories on this module)
-  // and strings (deeper chain nodes, which carry their own top-level
-  // entries). Only the objects are adjudicated here.
-  for (const a of (v.via ?? [])) {
-    if (typeof a !== "object" || a === null) continue;
-    const hay = `${a.url ?? ""} ${a.id ?? ""}`;
-    const hit = EXCEPTIONS.find((e) => e.module === module && hay.includes(e.id));
+for (const [module, advisories] of Object.entries(audit)) {
+  for (const a of advisories) {
+    const severity = String(a?.severity ?? "");
+    if (!GATE.has(severity)) continue;
+    if (!runtimeModules.has(module)) continue; // dev chain — advisory gate's turf
+    const ghsa = (String(a?.url ?? "").match(/GHSA-[a-z0-9-]+/) ?? [])[0] ?? String(a?.id ?? "?");
+    const key = `${module}|${ghsa}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const hit = EXCEPTIONS.find((e) => e.module === module && ghsa === e.id);
     if (hit) {
-      masked.push({ module, id: hit.id, title: a.title ?? "" });
+      masked.push({ module, id: hit.id, title: String(a?.title ?? "") });
     } else {
-      failures.push({ module, id: hay.trim(), title: a.title ?? "", severity: v.severity });
+      failures.push({ module, id: ghsa, title: String(a?.title ?? ""), severity });
     }
   }
 }
@@ -85,17 +167,9 @@ if (masked.length) {
   for (const m of masked) console.log(`  - ${m.module} ${m.id} — ${m.title}`);
 }
 
-const seen = new Set();
-const unique = failures.filter((f) => {
-  const key = `${f.module}|${f.id}`;
-  if (seen.has(key)) return false;
-  seen.add(key);
-  return true;
-});
-
-if (unique.length) {
+if (failures.length) {
   console.error("\naudit-gate: FAIL — runtime-tree findings outside the exception list:");
-  for (const f of unique) {
+  for (const f of failures) {
     console.error(`  - ${f.module} [${f.severity}] ${f.title} (${f.id})`);
   }
   console.error(
@@ -105,4 +179,7 @@ if (unique.length) {
   process.exit(1);
 }
 
-console.log(`audit-gate: runtime tree clean (${masked.length} masked, all dispositioned).`);
+console.log(
+  `audit-gate: runtime tree clean (${masked.length} masked, all dispositioned; ` +
+    `${runtimeModules.size} runtime modules, findings bound to bun.lock pins).`,
+);

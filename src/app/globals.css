@@ -1212,3 +1212,49 @@
 }
 
 /* motion vocabulary v2 */
+
+/* ============================================================
+   Protocol page (src/components/portfolio/*)
+
+   A plain document in the house's own clothes: Lora headings,
+   Inter prose, Plex Mono for actual technical strings, hairline
+   rules, one table, one live example. Motion appears only
+   where the product's own laws are being demonstrated —
+   ash fleeing a burned frame.
+   ============================================================ */
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* The exhibit's ciphertext pane fades out at its foot, as if the
+ * frames continued past the margin of the page. */
+.cipher-fade {
+  mask-image: linear-gradient(to bottom, black 72%, transparent 100%);
+}
+
+/* The playground's burn: every fleck flees on its own vector. */
+@keyframes ash-flee {
+  from {
+    transform: translate3d(0, 0, 0) scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  to {
+    transform: translate3d(var(--flee-dx, 0px), -120px, 0) scale(0.35)
+      rotate(var(--flee-rot, 40deg));
+    opacity: 0;
+  }
+}
+.ash-flee {
+  animation: ash-flee 950ms cubic-bezier(0.2, 0, 0, 1) forwards;
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .ash-flee {
+    animation-duration: 1ms;
+  }
+}

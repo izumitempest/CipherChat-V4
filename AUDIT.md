@@ -5,13 +5,19 @@ noise — red has to keep meaning "do not ship."
 
 | Gate | Scope | Where | Behavior |
 |---|---|---|---|
-| **Blocking** | Runtime tree (`npm audit --omit=dev`) | `scripts/audit-gate.mjs`, called from `.github/workflows/ci.yml` | Fails CI on every critical/high finding **except** the enumerated exceptions below |
-| **Advisory** | Full tree (dev + lint + build chains) | `ci.yml`, `continue-on-error: true` | Review prompt only — none of it ships |
+| **Blocking** | Runtime tree — findings from `bun audit` over **bun.lock**; runtime/dev split from a package-lock the gate materializes | `scripts/audit-gate.mjs`, called from `.github/workflows/ci.yml` | Fails CI on every critical/high runtime finding **except** the enumerated exceptions below. Fails **closed**: an error payload or missing lockfile is red, never a vacuous green |
+| **Advisory** | Full tree (dev + lint + build chains) | `ci.yml` (`bun audit --audit-level=high`), `continue-on-error: true` | Review prompt only — none of it ships |
 
-The repo locks with **bun.lock**. The npm lockfile is materialized fresh
-by CI on every run (`npm install --package-lock-only`) purely so
-`npm audit` has an advisory database; it is never committed. Both views
-derive from `package.json`, so what the audit sees is what bun installs.
+The repo locks with **bun.lock**, and the blocking gate's findings are
+bound to it: `bun audit` reports advisories against the exact versions
+bun installs — no re-resolution. The one approximation left is the
+**runtime/dev split**, which derives from a package-lock the gate
+materializes (`npm install --package-lock-only` — a fresh resolution of
+the same ranges, read only for each package's `dev` flag). Versions and
+advisories are lockfile-exact; only the classification rides on npm,
+and a misclassification would require that resolution to drop or add a
+module relative to bun's pins *and* a real advisory on it — bounded,
+stated, and checked on every run.
 
 ## When the gate goes red
 
@@ -30,7 +36,7 @@ Escalation ladder, in order — never skip to the bottom:
 `npm audit fix --force` is **forbidden**: its idea of a fix is a
 breaking downgrade (see the Prisma refusal below).
 
-## Round 32 surgery (2026-…) — receipts
+## Round 32 surgery (2026-09-18) — receipts
 
 The runtime-tree audit was red with 9 highs. Verified-unused scaffold
 dependencies were **deleted**, not upgraded:
@@ -87,6 +93,34 @@ none of which is traced into `.next/standalone`:
 | `uuid` / `xcode` / `@capacitor/cli` | mod | `devDependencies` — Capacitor packaging tooling | the vulnerable buf path is never used by our icon/splash scripts |
 | `deepmerge-ts`, `defu` | high | prisma CLI chain | see masked exceptions above |
 
+## Round 35 — the gate engine switch (2026-09-21), receipts
+
+The documentation truth audit flagged this file's fidelity claim
+("what the audit sees is what bun installs") as approximate: npm
+audits a **fresh re-resolution** of the ranges, not the bun.lock pins.
+Probing it found something worse than an overclaim — the old gate could
+fail **open**: run without a materialized lockfile, `npm audit` exits 1
+with an `ENOLOCK` error object that is valid JSON with no
+`vulnerabilities` key, which the old parser read as "clean tree".
+CI never hit this (it materialized the lockfile in the preceding step),
+but any local run without a package-lock — including this sandbox after
+a machine restore wiped the untracked file — was **vacuously green**.
+
+The switch (both directions verified):
+
+- Findings now come from `bun audit --json` — the exact bun.lock pins.
+- The runtime/dev split comes from the materialized package-lock's
+  `dev` flags; a finding is adjudicated only if its module is in the
+  runtime set.
+- Every payload is shape-checked; a spawn failure, unparseable
+  output, error object, empty runtime set, or failed materialization
+  exits 1. The gate now owns its own lockfile materialization.
+- Verified: real tree exit 0 with the same 2 masked exceptions
+  (348 runtime modules); with `EXCEPTIONS` stripped, exit 1 naming
+  exactly deepmerge-ts and defu; with either source's registry dead,
+  exit 1 fail-closed. The advisory step in CI switched to
+  `bun audit --audit-level=high` (native full tree, no npm).
+
 ## Keeping this file true
 
 - Chains were verified with `npm ls <module>` (Round 32 receipts in the
@@ -96,3 +130,8 @@ none of which is traced into `.next/standalone`:
   for the masked exceptions; re-verify both if either file changes.
 - Any change to `EXCEPTIONS` in `scripts/audit-gate.mjs` must land in
   the same commit as its disposition row here.
+- Retirement condition for the one remaining approximation: when
+  `bun audit` grows dependency chains or a `--production` flag, drop the
+  npm split (and the gate's materialized lockfile) entirely — findings
+  and topology then both come from bun, and the last approximation
+  closes.

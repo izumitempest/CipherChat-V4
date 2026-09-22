@@ -104,6 +104,10 @@ interface AppState {
   screen: Screen;
   activeRoomId: string | null;
   inviteCode: string | null;
+  /** The porch's hand-off: /?app=1&create=1#/new arrived —
+   *  consumed (and cleaned from the URL) during init, so the
+   *  landing can open the create form on its first render. */
+  porchCreate: boolean;
 
   roomCards: RoomCard[];
   messages: Record<string, MessageView[]>;
@@ -258,6 +262,7 @@ export const useApp = create<AppState>()((set, get) => ({
   screen: "landing",
   activeRoomId: null,
   inviteCode: null,
+  porchCreate: false,
 
   roomCards: [],
   messages: {},
@@ -282,7 +287,27 @@ export const useApp = create<AppState>()((set, get) => ({
     const seed = await loadDeviceSeed();
     // Burned rooms showed their ash last session; now they are gone.
     const cards = sweepBurnedRooms();
-    set({ seed, roomCards: cards, ready: true });
+
+    // The porch's seal gesture ends here: /?app=1&create=1#/new
+    // arrives expecting the create form already out. Read once,
+    // here — client-side, post-hydration, beside the hash routing
+    // it accompanies — and cleaned from the URL so a refresh
+    // never re-opens the sheet at the user.
+    const search = new URLSearchParams(window.location.search);
+    const porchCreate = search.get("create") === "1";
+    if (porchCreate) {
+      search.delete("create");
+      const qs = search.toString();
+      window.history.replaceState(
+        null,
+        "",
+        window.location.pathname +
+          (qs ? `?${qs}` : "") +
+          window.location.hash,
+      );
+    }
+
+    set({ seed, roomCards: cards, ready: true, porchCreate });
 
     get().syncHash();
     window.addEventListener("hashchange", () => get().syncHash());

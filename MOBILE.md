@@ -126,6 +126,12 @@ Read this part before promising anything — same rule as the README.
 - **The Capacitor shell is a frame, not a bundle.** In remote-URL
   mode the app needs the deployed origin to be up; its offline
   behavior is exactly the web app's offline shell, nothing more.
+- **Apple's App Store may say no.** Guideline 4.2 (minimum
+  functionality) rejects apps that read as little more than a wrapped
+  website — a remote-URL Capacitor build is exactly that shape, and the
+  review risk is real. If the App Store refuses, the iOS story is the
+  PWA install path (§1): the same app on the home screen, without a
+  store listing.
 - **The iOS splash is per-resolution.** The 13 PNGs in
   `public/splash/` cover every current iPhone and iPad; a future
   screen size falls back to the plain paper background (the same

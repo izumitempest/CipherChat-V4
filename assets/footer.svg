@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 84" width="880" height="84" role="img" aria-label="divider">
+  <!-- two slow counter-drifting waves; each path spans two screen widths so
+       the translate loop is seamless (pattern period 440, shift 880) -->
+  <path d="M -880 46
+           Q -770 24 -660 46 T -440 46 T -220 46 T 0 46 T 220 46 T 440 46 T 660 46 T 880 46
+           T 1100 46 T 1320 46 T 1540 46 T 1760 46
+           L 1760 84 L -880 84 Z"
+        fill="#3A4F41" opacity="0.28">
+    <animateTransform attributeName="transform" type="translate"
+      values="0 0; 880 0" dur="11s" repeatCount="indefinite"/>
+  </path>
+  <path d="M -880 56
+           Q -770 38 -660 56 T -440 56 T -220 56 T 0 56 T 220 56 T 440 56 T 660 56 T 880 56
+           T 1100 56 T 1320 56 T 1540 56 T 1760 56
+           L 1760 84 L -880 84 Z"
+        fill="#C85A40" opacity="0.2">
+    <animateTransform attributeName="transform" type="translate"
+      values="0 0; -880 0" dur="17s" repeatCount="indefinite"/>
+  </path>
+</svg>

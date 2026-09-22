@@ -107,9 +107,9 @@ browser and destroyed on schedule."
 **`CreateRoomSheet`** (internal): bottom sheet (mobile) / plain sheet (it is
 always `side="bottom"`; the grabber shows on touch) with two fields — room name
 (private label, maxLength 60) and password **pre-seeded with a generated
-passphrase** (`generatePassphrase()` — five CSPRNG-picked words from a
-256-entry list, 40 bits), refreshable via a "New password" quiet
-action. The field masks by default (`PasswordField`, eye toggle to
+passphrase** (`generatePassphrase()` — six CSPRNG-picked words from a
+256-entry list, 48 bits; see DESIGN.md §5), refreshable via a "New
+password" quiet action. The field masks by default (`PasswordField`, eye toggle to
 reveal). **The passphrase is never React state** — it is seeded straight
 into the field's DOM *property* when the sheet opens (and re-seeded via
 the refresh action), read once at submit, wiped on success, and dies
@@ -899,11 +899,11 @@ that once let handlers register twice). Composer drafts live in
 | `media.ts` | Image-metadata gate for the attach path: `imageNeedsScan` (scope: jpeg/png/webp — SVG and GIF pass by policy), `imageHasMetadata` (pure byte-level detector: JPEG APP1-Exif/APP1-XMP/COM incl. FF-fill tolerance, PNG eXIf/tEXt/iTXt/zTXt/tIME, WebP EXIF/XMP; unparseable image bytes flag suspect), `reencodeImage` (browser canvas decode→draw→encode, q0.92 for lossy formats, null on failure) |
 | `session.ts` | **Memory-only** room sessions (member ids, kv, the password — kept while the room is open so the invite sheet can re-share it; never on disk; refresh = locked rooms, by design) |
 | `local.ts` | localStorage: room cards, creator tokens, verify marks, replay watermarks, TTL-hint flag, per-room settings |
-| `relay.ts` | The single socket.io client (`io("/?XTransformPort=3003")`) |
+| `relay.ts` | The single socket.io client — URL from `NEXT_PUBLIC_RELAY_URL` (default same-origin `/relay/`; see `.env.example`) |
 | `types.ts` | `MessageView` (round 29: `replyTo?: ReplySnapshot`), `RoomCard`, `MemberPublic` (incl. `ecdhPub`), legacy `WireEnvelope`, TTL steps, `Screen`. **Round 29**: `ReplySnapshot {id, senderId, snippet, file?}`, `REPLY_SNIPPET_MAX = 120`, `makeReplySnapshot()` (compose-time quote — "Sealed message" for view-once targets, file name + `file: true` for files, whitespace-collapsed 120-char text), `sanitizeReplySnapshot()` (post-verification UI gate: 64/64/160 caps, malformed shapes dropped), `isReplySnapshot()` shape guard |
 | `format.ts` | `fmtTime`, `fmtAgo`, `fmtTtlRemaining`, `fmtBytes` |
 | `db.ts` | Prisma client (server-side only) |
-| `__tests__/` | **The property suite** — tests named after the security properties they protect: task-19 (47: replay, rotation, padding, KDF, identity, hardening), task-20 (11: file captions, ink reactions), task-21.1 (16: silent-grace decisions), task-22 (leave-proof, admission, identity-range), task-25 (16: notifications), **task-29 (16: reply round-trips on text and through file assembly, tampered-quote signature break, size-indistinguishability, replay refusal, replyCanonical determinism, snapshot make/sanitize hygiene, viewer classification, CSV parsing)** — 124 cases total |
+| `__tests__/` | **The property suite** — tests named after the security properties they protect (replay, rotation, padding, KDF, identity, hardening, file captions, ink reactions, silent-grace decisions, leave-proof, admission, notifications, reply round-trips, canonical collision-proofing, report grading, passphrase CSPRNG source). The per-round inventory and the current count live in `CHANGES.md` — this row deliberately does not restate them |
 
 ### Backend surface (for reference)
 

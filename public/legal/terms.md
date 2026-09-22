@@ -268,7 +268,7 @@ the laws of the place it operates from — govern your use of it.
 
 ## 18. Contact
 
-**[Contact placeholder — the party operating the deployment you use.]**
+**Who to contact: the party operating the deployment you use.**
 
 The party operating a self-hosted deployment is responsible for publishing
 its own contact. The reference deployment publishes none, because it is

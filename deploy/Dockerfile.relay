@@ -18,4 +18,13 @@ COPY src/lib/rate-limit.ts ./src/lib/rate-limit.ts
 
 ENV NODE_ENV=production
 EXPOSE 3003 3004
+
+# Liveness = the message plane answers a real engine.io handshake:
+# HTTP 200 AND a body opening with the OPEN packet ("0{"). Anything
+# else fails closed. The :3004 presence port is token-guarded by design
+# and deliberately not probed — a 403 there is the guard working, not
+# a fault.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
+  CMD bun -e "fetch('http://127.0.0.1:3003/?EIO=4&transport=polling').then(r=>r.text().then(t=>process.exit(r.status===200&&t.startsWith('0{')?0:1))).catch(()=>process.exit(1))" || exit 1
+
 CMD ["bun", "mini-services/relay-service/index.ts"]

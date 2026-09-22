@@ -52,8 +52,17 @@ RUN chmod +x /app/entrypoint.sh \
     && mkdir -p /app/db \
     && cp /app/db/custom.db.template /app/db/custom.db
 
+# Liveness = the API tier answers a READ that touches the database.
+# GET a room id that cannot exist (lowercase never appears in the
+# Crockford base32 ids) and expect exactly 404: Prisma answered "no
+# such room". Anything else fails closed — 5xx is a broken DB, 429 is
+# a choked limiter, a 2xx would mean the impossible id exists. The
+# previous probe POSTed /api/rooms with no body, took the default-TTL
+# path, and created a junk room every 30s; this one is read-only and
+# leaves the expired-room janitor on its designed cadence (real room
+# creations).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
-  CMD node -e "fetch('http://127.0.0.1:3000/api/rooms',{method:'POST'}).then(r=>{if(r.status>=500)process.exit(1);process.exit(0)}).catch(()=>process.exit(1))" || exit 1
+  CMD node -e "fetch('http://127.0.0.1:3000/api/rooms/healthprobe0').then(r=>{process.exit(r.status===404?0:1)}).catch(()=>process.exit(1))" || exit 1
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["node", "server.js"]

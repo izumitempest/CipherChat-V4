@@ -55,7 +55,7 @@ test("golden path: create → join → message → reply → react → EXIF stri
   const b = await ctxB.newPage();
 
   // ---------------- create ----------------
-  await a.goto("/");
+  await a.goto("/?app=1"); // the portfolio fronts /; the product lives one param in
   await a.getByRole("button", { name: "Create a room" }).click();
   await a.getByPlaceholder("e.g. Trip plans").fill("Golden path");
   const passphrase = await a.locator('input[placeholder="room password"]').inputValue();
@@ -75,7 +75,7 @@ test("golden path: create → join → message → reply → react → EXIF stri
   await expect(a.getByText(/\/\?join=/)).toBeHidden();
 
   // ---------------- join ----------------
-  await b.goto("/");
+  await b.goto("/?app=1");
   await b.getByRole("button", { name: "Join with a link or code" }).click();
   await b.locator("#cc-join-code").fill(code);
   await b.locator("#cc-join-pass").fill(passphrase);
@@ -161,7 +161,7 @@ test("golden path: create → join → message → reply → react → EXIF stri
   await expect(a.getByText("still here after the rotation")).toBeVisible({ timeout: 15_000 });
 
   // ---------------- rejoin ----------------
-  await b.goto("/"); // no rooms left → landing
+  await b.goto("/?app=1"); // no rooms left → landing
   await b.getByRole("button", { name: "Join with a link or code" }).click();
   await b.locator("#cc-join-code").fill(code);
   await b.locator("#cc-join-pass").fill(passphrase);
