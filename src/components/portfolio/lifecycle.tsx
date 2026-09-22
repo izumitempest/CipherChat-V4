@@ -2,29 +2,29 @@
 
 import { Section } from "./section";
 
-/* How a room works — five steps, as a plain ordered list. Every
+/* How a room works: five steps, as a plain ordered list. Every
  * step is on the page at once, because a document is scannable. */
 
 const STEPS = [
   {
     title: "Create",
-    body: "A room is minted: a random link and a random password. Share them through different channels — the link is routing, the password is the room.",
+    body: "The app generates a random link and a random password. Share them through different channels. Anyone with both can enter the room.",
   },
   {
     title: "Unlock",
-    body: "Your browser stretches the password with argon2id — 64 MB of memory — into the entry key. The key is derived, used and kept in memory: never transmitted, never stored.",
+    body: "The browser derives the entry key from the password with argon2id, at a cost of 64 MB of memory. The key stays in memory. It is not sent to the server and is not written to disk.",
   },
   {
     title: "Talk",
-    body: "Messages, files, reactions, ink marks — signed, padded, sealed. The relay forwards uniform frames it cannot read, cannot size, and cannot tell apart.",
+    body: "Messages, files, reactions, and ink marks are signed, padded, and encrypted before being sent. The relay forwards the frames. It cannot read them, and because all frames are the same size, it cannot tell what kind they are. Files always use the same number of frames, so a file's size stays hidden.",
   },
   {
     title: "Leave",
-    body: "Leaving seals the room under a fresh random key, delivered pairwise over ephemeral ECDH — never derived from the password. A silent leaver is written out after a two-minute grace.",
+    body: "When a member leaves, the remaining members switch to a new random key. Each of them receives the new key individually over an ECDH connection. The new key is not derived from the password, so the departed member cannot calculate it. A member who disconnects without leaving is removed after two minutes.",
   },
   {
     title: "Burn",
-    body: "Timers delete messages on their own clocks, and rooms expire on theirs. Anyone in the room can burn it for everyone — no appeals, no undo.",
+    body: "Messages with timers delete themselves when the timer ends. Rooms expire on their own schedule. Any member can burn the room, which ends it for everyone immediately. There is no undo.",
   },
 ] as const;
 
@@ -33,7 +33,7 @@ export function Lifecycle() {
     <Section
       id="life"
       title="How a room works"
-      lede="Every room goes through the same five steps, in the same order."
+      lede="A room goes through five steps, always in this order."
     >
       <ol className="border-t border-hairline">
         {STEPS.map((step, i) => (

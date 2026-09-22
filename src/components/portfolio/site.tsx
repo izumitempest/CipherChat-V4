@@ -15,7 +15,7 @@ import { ThemeToggle } from "@/components/cc/theme-toggle";
 
 /* The live product, one dynamic import away. Invite links are
  * hash-routed (#/join/CODE) and the service worker's navigate
- * messages never round-trip the server — so this face listens for
+ * messages never round-trip the server, so this face listens for
  * them itself and steps aside the moment one arrives. */
 const CipherChatApp = dynamic(
   () => import("@/components/cc/app"),
@@ -74,7 +74,7 @@ export function ReaderSite() {
       </header>
 
       <main className="mx-auto w-full max-w-[688px] flex-1 px-6">
-        {/* the document's opening — a title, a paragraph, the
+        {/* the document's opening: a title, a paragraph, the
             contents. Nothing else. */}
         <div className="pb-12 pt-12 sm:pb-16 sm:pt-16">
           <h1 className="font-serif text-[clamp(32px,4.6vw,44px)] font-semibold leading-[1.12] tracking-[-0.012em]">
@@ -82,7 +82,7 @@ export function ReaderSite() {
           </h1>
           <p className="mt-5 max-w-[58ch] font-sans text-[15.5px] leading-[1.7] text-mute sm:text-[16.5px]">
             What it does, how the encryption works, and what it does not
-            protect against. The source is public and MIT-licensed — every
+            protect against. The source is public and MIT-licensed. Every
             claim on this page can be checked against it.
           </p>
           <nav

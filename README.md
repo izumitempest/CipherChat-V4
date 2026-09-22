@@ -25,7 +25,7 @@
 
 CipherChat is an ephemeral, end-to-end-encrypted chat with no accounts: a
 room is a link and a password. Everything that matters happens in your
-browser — the server is a blind relay that cannot read a single frame.
+browser. The server is a blind relay that cannot read a single frame.
 
 ## What it is
 
@@ -33,20 +33,20 @@ browser — the server is a blind relay that cannot read a single frame.
   different channels. That pair *is* the room.
 - **Ephemeral by construction.** No message is ever stored on any server.
   New joiners see nothing from before they joined. Messages can carry a
-  TTL — presets from 15 seconds to 8 hours, or custom anywhere in
-  5 seconds to 24 hours (the steps live in `TTL_STEPS`,
-  `src/lib/types.ts`) — and destroy themselves on schedule; the creator
+  TTL (presets from 15 seconds to 8 hours, custom anywhere in
+  5 seconds to 24 hours; the steps live in `TTL_STEPS`,
+  `src/lib/types.ts`) and destroy themselves on schedule. The creator
   can burn the whole room for everyone.
 - **Ink marks.** Mark any message with one of four quiet margin marks
   (✓ acknowledged · ✦ noted · ♥ warmly received · ☾ later). Marks are
-  encrypted, signed, uniform-sized frames — the relay cannot even tell
+  encrypted, signed, uniform-sized frames. The relay cannot even tell
   a mark happened.
-- **Captioned files.** Attach a file with words — the caption rides the
+- **Captioned files.** Attach a file with words. The caption rides the
   file's meta frame, canonical-signed like any text message.
 - **Refresh locks every room.** Keys live only in memory. Reload the page
   and each room must be unlocked again with its password.
 - **Honest identity.** You are a derived alias and a fingerprint others
-  can verify out-of-band. Your signing key is per-room — the same device
+  can verify out-of-band. Your signing key is per-room: the same device
   in two rooms is two different, unlinkable identities.
 
 ## How the crypto works (protocol v2)
@@ -55,53 +55,53 @@ browser — the server is a blind relay that cannot read a single frame.
 | --- | --- |
 | Room entry key | argon2id (64 MB, t=3, p=1) from the password + a random salt in a versioned key bundle (legacy PBKDF2 rooms still unlock) |
 | Every frame | JSON → ECDSA-P256 signature → **padded to a uniform size** → AES-256-GCM |
-| Uniformity | All control frames (messages, typing, receipts, burns, key offers, file meta, ink marks) are the same size; every file transfer is the same fixed number of chunk frames — the relay cannot read file sizes or even tell typing from messages |
+| Uniformity | All control frames (messages, typing, receipts, burns, key offers, file meta, ink marks) are the same size; every file transfer is the same fixed number of chunk frames, so the relay cannot read file sizes or even tell typing from messages |
 | Replay defense | per-sender monotonic counters, ±10-minute timestamp window, frame-id dedup, refresh-surviving watermarks |
-| Rotation on leave | the remaining members seal the room under a **new random key**, delivered pairwise over ephemeral ECDH — the leaver never receives it, and it is not derived from the password |
-| Silent-departure grace | a member whose connection drops without a clean leave is written out **2 minutes** later — while anyone remains connected; the clock lives on the remaining clients: the relay's live presence (token-guarded, server-to-server) is the connection authority the eviction route consults, the epoch ledger makes the re-seal durable, and the departed member simply re-enters with the password when they return |
-| Departure proof | leaving requires a signature from the member's registered key — a room-code holder cannot trigger nuisance rotations in your name |
-| Rejoin after rotation | the current key arrives ECDH-wrapped and sealed under the password-derived entry key, so only a joiner who proved the password can open it |
+| Rotation on leave | the remaining members switch to a **new random key**, delivered pairwise over ephemeral ECDH. The leaver never receives it, and it is not derived from the password |
+| Silent-departure grace | a member whose connection drops without a clean leave is removed **2 minutes** later while anyone remains connected. The clock lives on the remaining clients: the relay's live presence (token-guarded, server-to-server) is the connection authority the eviction route consults, the epoch ledger makes the rotation durable, and the departed member simply re-enters with the password when they return |
+| Departure proof | leaving requires a signature from the member's registered key. A room-code holder cannot trigger nuisance rotations in your name |
+| Rejoin after rotation | the current key arrives ECDH-wrapped and encrypted under the password-derived entry key, so only a joiner who proved the password can open it |
 | Forgery | messages are signed inside the encrypted payload and verified against the REST member registry; forgeries render as a quiet rejection line |
 | Verifiability | fingerprints derive from registered public keys; verification marks live on your device |
 
 The constants behind these rows (KDF parameters, replay windows, the
-120-second grace clock) live in `src/lib/` — `identity.ts`,
-`protocol.ts`, `silent-grace.ts` — and every one is enforced by a
+120-second grace clock) live in `src/lib/` (`identity.ts`,
+`protocol.ts`, `silent-grace.ts`), and every one is enforced by a
 property test.
 
 The full property suite is enforced by tests named after the properties
-they protect — replay, rotation, padding, KDF, identity, hardening,
+they protect: replay, rotation, padding, KDF, identity, hardening,
 silent-departure grace, departure proofs, admission, reply integrity,
 canonical collision-proofing, report grading, passphrase CSPRNG source.
 The per-round inventory and the current count live in `CHANGES.md`
-(this section deliberately does not restate them — duplicated counts
+(this section deliberately does not restate them; duplicated counts
 rot). Run the suite with `bun run test`.
 
 ## What CipherChat does NOT protect against
 
-Read this part — it is the product's spine.
+Read this part. It is the product's spine.
 
 - **Metadata.** The relay sees who talks to whom, when, and how much.
   Frame sizes are uniform, so it cannot read file sizes or distinguish
-  typing from messages — but the fact of communication is visible.
+  typing from messages, but the fact of communication is visible.
 - **View-once is a promise, not enforcement.** Any member can passively
   decrypt a view-once file on arrival and keep it without opening the
   viewer. Inherent to group E2EE; Signal has the same limit.
-- **Silent leavers — closed by the grace.** A member who just closes the
+- **Silent leavers, closed by the grace.** A member who just closes the
   tab keeps the current key for at most **2 minutes while anyone remains
   connected**: their connection drop starts a grace clock on every
   remaining client, and the connected coordinator asks the server to
-  write them out and re-seal when it expires. If everyone has left, no
-  clock runs — an empty room has no traffic to decrypt — and the next
-  rejoin re-seals past any rotated key they held (a room still on its
+  remove them and rotate the key when it expires. If everyone has left, no
+  clock runs (an empty room has no traffic to decrypt), and the next
+  rejoin rotates past any key they held (a room still on its
   first, password-derived key never had secrecy from password-holders;
-  that limit is its own bullet below). The residual window is the grace
-  itself — and for a hostile exit, burn the room.
+  that limit is its own bullet below). The remaining window is the grace
+  itself. For a hostile exit, burn the room.
 - **Insiders can sabotage.** A member can always publish the room key
   out-of-band or push nuisance rotations. Group E2EE keeps outsiders
   out; it cannot police participants.
 - **The password cannot be changed** for the room's lifetime. Password
-  knowledge is permanent — which is exactly why rotation keys are random
+  knowledge is permanent. That is exactly why rotation keys are random
   and password-independent.
 - **Endpoint compromise.** Malware, XSS, or physical access to your
   device reads everything. No browser app can prevent that.
@@ -127,10 +127,10 @@ reload socket handlers).
 
 The relay URL is configuration, not code: `NEXT_PUBLIC_RELAY_URL`
 (defaults to same-origin `/relay/`, which a reverse proxy forwards to
-the relay — see `deploy/Caddyfile`). Every variable is documented in
+the relay; see `deploy/Caddyfile`). Every variable is documented in
 `.env.example`.
 
-### Production — one plain VPS
+### Production: one plain VPS
 
 ```bash
 cd deploy
@@ -142,18 +142,18 @@ docker compose up -d        # app + relay + Caddy with automatic TLS
 That is the whole self-host story: `deploy/` contains the web Dockerfile
 (Next.js standalone output + Prisma), the relay Dockerfile, and the
 compose file that wires them behind Caddy. `docker compose down -v`
-removes the database volume too — burn your rooms first if you mean it.
+removes the database volume too. Burn your rooms first if you mean it.
 
 On a machine with only Docker installed, `docker compose up` gives a
 working HTTPS site; verify the golden path with **two devices** (two
-origins, not two tabs — tabs share localStorage): create, join, message,
+origins, not two tabs; tabs share localStorage): create, join, message,
 rotate-on-leave, rejoin, file, view-once, burn.
 
-### E2E — the golden path, automated
+### E2E: the golden path, automated
 
 `tests/e2e/golden-path.spec.ts` (Playwright) drives the whole product
-through one conversation with **two browser contexts** — same origin,
-isolated storage, which retires the two-origins trick manual QA needed:
+through one conversation with **two browser contexts** (same origin,
+isolated storage), which retires the two-origins trick manual QA needed:
 create → join → message → reply → react → GPS-tagged JPEG through the
 EXIF strip (byte-verified in the receiver's viewer) → view-once (opened,
 no download, spent propagates) → leave → rotation → rejoin (fresh joiner
@@ -170,30 +170,30 @@ bunx playwright test                # against a running dev stack (base URL
 
 `.github/workflows/ci.yml` runs two jobs:
 
-- **verify** — lint → `tsc --noEmit` (the relay included) → the full
+- **verify**: lint → `tsc --noEmit` (the relay included) → the full
   property suite → the dependency audit → production build. The audit
   is split honestly: the **runtime tree** gate is blocking (exceptions
   enumerated per advisory in `scripts/audit-gate.mjs` + `AUDIT.md`),
   the full-tree view is advisory and dispositioned per advisory.
-- **e2e** — builds the production compose stack on the runner (web +
+- **e2e**: builds the production compose stack on the runner (web +
   relay + Caddy), waits for it to answer, and drives the golden path
   through it; traces, screenshots, and stack logs upload on failure.
 
-Red means no merge — the property suite is the security contract, and
+Red means no merge. The property suite is the security contract, and
 the golden path is the product contract.
 
 ### Performance note
 
 Room unlocking is deliberately slow (argon2id, 64 MB). On a desktop this
-takes ~1 second; on a low-end Android it can take 5–8 seconds — that is
+takes ~1 second; on a low-end Android it can take 5 to 8 seconds. That is
 the cost of grinding resistance, not a bug. The sealing screen says so.
 
 ## Legal
 
-- `LICENSE` — MIT
-- `public/legal/terms.md` — Terms of Use (served in-app from the
+- `LICENSE`: MIT
+- `public/legal/terms.md`: Terms of Use (served in-app from the
   landing footer and Settings → About)
-- `public/legal/privacy.md` — Privacy Policy (same)
+- `public/legal/privacy.md`: Privacy Policy (same)
 
 ## Reporting abuse
 
@@ -204,7 +204,7 @@ to suspend (identity is per-room and derived), no history to scrub
 `SECURITY.md` for the mechanics):
 
 - **A member's report acts at once.** The report button in room
-  settings signs `cc-report-v1` with the room's signing key — members
+  settings signs `cc-report-v1` with the room's signing key. Members
   are the only humans who can see content, so they are the only
   credible content reporters.
 - **A stranger's report needs corroboration.** Anonymous reports are
@@ -218,9 +218,9 @@ port, token-guarded) for the legal cases.
 
 ## Documentation
 
-- `DESIGN.md` — tokens, motion, architecture, and the full threat model
-- `COMPONENTS.md` — every component, its states and mechanics
-- `worklog.md` — the build history, round by round
+- `DESIGN.md`: tokens, motion, architecture, and the full threat model
+- `COMPONENTS.md`: every component, its states and mechanics
+- `worklog.md`: the build history, round by round
 
 ---
 
@@ -230,8 +230,9 @@ port, token-guarded) for the legal cases.
 
 ## Author
 
-**Okwuchukwu Ekene Don Davies** — *Izumi*
+**Okwuchukwu Ekene Don Davies**, *Izumi*
 
-CipherChat is designed and built by Izumi. The repository follows one
-rule, in prose and in code alike: claims are checked against the bytes,
-and the residuals are written down rather than hidden.
+CipherChat was built as an IT project and is released under the MIT
+License. It was designed and built end to end by Izumi. Claims are
+checked against the code, and known limits are written down rather
+than hidden.

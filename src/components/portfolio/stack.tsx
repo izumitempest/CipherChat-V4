@@ -2,7 +2,7 @@
 
 import { Section } from "./section";
 
-/* How it's built — the stack in a sentence, then the practices
+/* How it's built: the stack in a sentence, then the practices
  * that make the claims checkable. Plain list, plain titles. */
 
 const STACK =
@@ -11,27 +11,27 @@ const STACK =
 const PRACTICES = [
   {
     title: "Property-driven tests",
-    body: "The suite is named after the properties it protects — replay, rotation, padding, KDF, identity, grace — and runs as part of the standing gates.",
+    body: "The suite is named after the properties it protects (replay, rotation, padding, KDF, identity, grace) and runs on every push.",
   },
   {
     title: "Audit-gated dependencies",
-    body: "Installs re-verify against the lockfile; masked advisories are recorded in AUDIT.md, not hidden.",
+    body: "The dependency audit runs on every push. Masked advisories are listed with reasons in AUDIT.md.",
   },
   {
     title: "End-to-end tests",
-    body: "Playwright drives two real browsers through create → join → talk → burn, end to end, on every push.",
+    body: "Playwright drives two browsers through the full flow (create, join, talk, burn) on every push.",
   },
   {
     title: "Documentation",
-    body: "DESIGN.md, COMPONENTS.md, SECURITY.md, MOBILE.md, CHANGES.md — and a round-by-round worklog of the whole build.",
+    body: "DESIGN.md, COMPONENTS.md, SECURITY.md, MOBILE.md, and CHANGES.md, plus a round-by-round worklog of the build.",
   },
   {
     title: "How it fails",
-    body: "Fail-closed degradation when the relay is down; read-only healthchecks that never mutate what they probe; graded abuse reporting.",
+    body: "When the relay is down, the app fails closed. Healthchecks are read-only and never modify what they check. Abuse reports are graded by credibility.",
   },
   {
     title: "Self-hosting",
-    body: "One token, one hostname, then docker compose up — your server, the same code the public deployment runs.",
+    body: "The public deployment and self-hosted deployments run the same Docker Compose stack. Setup needs an access token and a hostname.",
   },
 ] as const;
 
@@ -40,7 +40,7 @@ export function Stack() {
     <Section
       id="stack"
       title="How it's built"
-      lede="Ordinary, inspectable parts — assembled so every claim about them can be checked against the bytes."
+      lede="The parts are ordinary and inspectable. Every claim about them can be checked against the source."
     >
       <p className="max-w-[68ch] font-sans text-[14.5px] leading-[1.75] text-charcoal/90">
         {STACK}

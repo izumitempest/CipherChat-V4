@@ -15,10 +15,10 @@ import { Section } from "./section";
 import { cn } from "@/lib/utils";
 
 /* ============================================================
-   A live example — a real WebCrypto pipeline in the page:
+   A live example: a real WebCrypto pipeline in the page:
    PBKDF2-SHA256 (310k) → AES-256-GCM, plaintext padded to a
-   fixed 128-byte block so the sealed frame is ALWAYS 156 B
-   (12 IV + 128 payload + 16 tag) — the product's uniformity
+   fixed 128-byte block so the frame is ALWAYS 156 B
+   (12 IV + 128 payload + 16 tag), the product's uniformity
    property, demonstrated rather than described. Nothing leaves
    this page.
    ============================================================ */
@@ -27,7 +27,7 @@ const PAD = 128;
 const FRAME_BYTES = 12 + PAD + 16; // iv + payload + gcm tag
 const ITERATIONS = 310_000;
 
-/* The flecks a burned message leaves — deterministic vectors so
+/* The flecks a burned message leaves: deterministic vectors so
  * server and client paint the same page. Ember is motion-only,
  * exactly as the design law says. */
 const BURN_FLECKS = [
@@ -74,7 +74,7 @@ async function deriveKey(
   );
 }
 
-async function sealMessage(
+async function sealFrame(
   key: CryptoKey,
   text: string,
 ): Promise<{ b64: string; nonceHex: string }> {
@@ -91,7 +91,7 @@ async function sealMessage(
   return { b64: toB64(frame), nonceHex: toHex(iv).slice(0, 12) };
 }
 
-/* The small labels — Inter, sentence case, the way the product
+/* The small labels: Inter, sentence case, the way the product
  * labels its own fields. */
 const labelClass =
   "font-sans text-[12.5px] font-medium tracking-[0.01em] text-charcoal";
@@ -130,7 +130,7 @@ function BurnField({ label }: { label: string }) {
 
 export function CipherPlayground() {
   const [password, setPassword] = useState("correct horse battery staple");
-  const [message, setMessage] = useState("meet at the bridge, 9 — tell no one");
+  const [message, setMessage] = useState("meet at the bridge at 9. tell no one");
   const [saltB64, setSaltB64] = useState<string | null>(null);
   const [saltBytes, setSaltBytes] = useState<Uint8Array<ArrayBuffer> | null>(
     null,
@@ -147,16 +147,16 @@ export function CipherPlayground() {
     null,
   );
 
-  // A fresh salt on arrival — the demo never reuses one.
+  // A fresh salt on arrival: the demo never reuses one.
   useEffect(() => {
     const b = crypto.getRandomValues(new Uint8Array(16));
     setSaltBytes(b);
     setSaltB64(toB64(b));
   }, []);
 
-  // The seal itself: debounced so typing feels like the app — every
-  // keystroke re-seals under a fresh nonce, and the ciphertext you
-  // watch re-roll is the property, not a refresh.
+  // The encryption itself: debounced so typing feels like the app.
+  // Every keystroke re-encrypts under a fresh nonce, and the
+  // ciphertext you watch re-roll is the property, not a refresh.
   useEffect(() => {
     if (saltBytes === null || burning) return;
     let cancelled = false;
@@ -175,7 +175,7 @@ export function CipherPlayground() {
             };
             keyCache.current = cached;
           }
-          const result = await sealMessage(cached.key, message);
+          const result = await sealFrame(cached.key, message);
           if (cancelled) return;
           setSealed(result);
           setFrameNo((n) => n + 1);
@@ -207,7 +207,7 @@ export function CipherPlayground() {
     <Section
       id="demo"
       title="A live example"
-      lede="This runs in your browser with the same WebCrypto the app uses — nothing is sent anywhere. Type on the left; the right shows what the server would receive."
+      lede="This example runs in your browser with the same WebCrypto API the app uses. Nothing is sent to a server. Type on the left. The right side shows the frame the server would receive."
     >
       <div className="rounded-[12px] border border-hairline">
         {/* the door: password + salt */}
@@ -232,7 +232,7 @@ export function CipherPlayground() {
               <span className="flex h-10 items-center gap-2 rounded-[8px] border border-hairline bg-paper px-3 font-mono text-[11px] text-mute">
                 salt&nbsp;
                 <span className="text-charcoal/80">
-                  {saltB64 ? `${saltB64.slice(0, 10)}…` : "——"}
+                  {saltB64 ? `${saltB64.slice(0, 10)}…` : "…"}
                 </span>
               </span>
               <Button
@@ -247,9 +247,10 @@ export function CipherPlayground() {
             </div>
           </div>
           <p id="playground-kdf-note" className={`mt-3 ${noteClass}`}>
-            The app derives its key with argon2id (64 MB, t=3). This example
-            uses PBKDF2-SHA256 with {ITERATIONS.toLocaleString()} rounds — the
-            same job, fast enough to run as you type.
+            The app derives its key with argon2id, which costs 64 MB of
+            memory and takes about a second. This example uses PBKDF2-SHA256
+            with {ITERATIONS.toLocaleString()} rounds instead, so it can run
+            as you type. The encryption is the same.
           </p>
         </div>
 
@@ -259,7 +260,7 @@ export function CipherPlayground() {
           <div className="flex flex-col border-b border-hairline p-5 md:border-b-0 md:border-r">
             <p className={labelClass}>What you see</p>
             {burning ? (
-              <BurnField label="Nothing left to hand over — the words are gone." />
+              <BurnField label="Nothing left to hand over. The words are gone." />
             ) : (
               <div className="mt-4">
                 <div
@@ -272,15 +273,15 @@ export function CipherPlayground() {
                     message
                   ) : (
                     <span className="text-mute/70">
-                      (nothing typed — it still seals to {FRAME_BYTES} B)
+                      (nothing typed; it still encrypts to {FRAME_BYTES} B)
                     </span>
                   )}
                 </div>
               </div>
             )}
             <p className={`mt-auto pt-4 ${noteClass}`}>
-              The plaintext, sealed in this tab with a key that never touched
-              a server.
+              The plaintext, encrypted in this tab with a key the server
+              never receives.
             </p>
           </div>
 
@@ -305,10 +306,10 @@ export function CipherPlayground() {
             )}
             <p className="mt-4 font-mono text-[10.5px] tabular-nums tracking-[0.04em] text-ash/70">
               {burning
-                ? "frame — · — B"
+                ? "frame … · … B"
                 : `frame ${String(frameNo).padStart(4, "0")} · nonce ${
                     sealed ? sealed.nonceHex : "…"
-                  } · ${FRAME_BYTES} B — always ${FRAME_BYTES} B`}
+                  } · ${FRAME_BYTES} B`}
             </p>
           </div>
         </div>
@@ -317,7 +318,7 @@ export function CipherPlayground() {
         <div className="border-t border-hairline p-4 sm:p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <label className="flex-1">
-              <span className="sr-only">Message to seal</span>
+              <span className="sr-only">Message to encrypt</span>
               <Input
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
@@ -347,10 +348,10 @@ export function CipherPlayground() {
                   variant="secondary"
                   onClick={() => setReseed((n) => n + 1)}
                   className="h-10 rounded-[8px] px-4 font-sans text-[13.5px] font-medium hover:bg-wash"
-                  aria-label="Seal again with a fresh nonce"
+                  aria-label="Encrypt again with a fresh nonce"
                 >
                   <RefreshCw aria-hidden className="size-4" />
-                  Seal again
+                  Encrypt again
                 </Button>
                 <Button
                   type="button"
@@ -369,19 +370,19 @@ export function CipherPlayground() {
               clipped ? "text-terracotta" : "text-mute",
             )}
           >
-            plaintext {rawLen} B → padded {PAD} B → sealed {FRAME_BYTES} B
+            plaintext {rawLen} B → padded {PAD} B → encrypted {FRAME_BYTES} B
             {clipped
-              ? " — clipped to the frame; the app would send it in same-size chunks"
-              : " — the frame never changes size"}
+              ? ". Clipped to the frame; the app would send it in same-size chunks."
+              : ". The frame size never changes."}
           </p>
         </div>
       </div>
 
       <p className="mt-5 max-w-[72ch] font-sans text-[13.5px] leading-[1.7] text-mute">
-        In the app, the payload is signed, padded and sealed with AES-256-GCM,
-        and the entry key comes from argon2id. The two properties worth
-        watching here: the frame never changes size, and the server pane never
-        learns a word.
+        In the app, the payload is signed, padded, and encrypted with
+        AES-256-GCM. The entry key comes from argon2id. Two things to check in
+        this example: the frame size never changes, and the server pane never
+        shows the plaintext.
       </p>
     </Section>
   );

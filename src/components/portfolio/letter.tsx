@@ -7,20 +7,20 @@ import { ThemeToggle } from "@/components/cc/theme-toggle";
 import { LegalLinks, LegalSheetHost } from "@/components/cc/legal-sheet";
 
 /* ================================================================
- * THE FRONT ROOM — the public porch (Task 41).
+ * THE FRONT ROOM: the public porch (Task 41).
  *
  * Round 3. The Letter's staging was itself the tell: a prop sheet
  * rotated on a desk, a struck-through word, doubled grain, a
- * sealing performance — authenticity theater, which is exactly
+ * sealing performance: authenticity theater, which is exactly
  * what generated pages perform now. Apple wouldn't stage a letter
  * on a desk; nobody at Google would rotate a card half a degree.
  *
- * So the porch performs nothing. The page IS the paper — flat,
+ * So the porch performs nothing. The page IS the paper: flat,
  * centered, wearing the product's actual furniture: the app's own
  * header, its entrance, its breathing mark, its verb system, its
  * footer caption. Identifiability comes from what the product
  * already owns (paper, forest, the ink drop, the one aphorism),
- * never from an arrangement of props. Zero new CSS — every class
+ * never from an arrangement of props. Zero new CSS: every class
  * here is a house class.
  *
  * Doctrine (DESIGN.md §7): swap test, porch rule, one aphorism,
@@ -29,7 +29,7 @@ import { LegalLinks, LegalSheetHost } from "@/components/cc/legal-sheet";
 
 /* The live product, one dynamic import away. Invite links are
  * hash-routed (#/join/CODE) and the service worker's navigate
- * messages never round-trip the server — so the porch listens
+ * messages never round-trip the server, so the porch listens
  * for them itself and steps aside the moment one arrives. */
 const CipherChatApp = dynamic(
   () => import("@/components/cc/app"),
@@ -47,7 +47,7 @@ const CipherChatApp = dynamic(
 const CREATE_HREF = "/?app=1&create=1#/new";
 const JOIN_HREF = "/?app=1#/join";
 
-/* The house verb system, as anchors — the same cut, height,
+/* The house verb system, as anchors: the same cut, height,
  * radius and sentence case the product's own buttons wear. */
 const primaryVerbClass =
   "inline-flex h-12 w-full select-none items-center justify-center gap-2 rounded-[12px] bg-forest px-6 font-sans text-[14px] font-medium tracking-[0.01em] text-paper transition duration-150 hover:bg-forest-deep active:scale-[0.99] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-forest/40 focus-visible:ring-offset-2 focus-visible:ring-offset-paper sm:w-auto";
@@ -67,7 +67,7 @@ function Dot() {
 export function LetterSite() {
   const [appRequested, setAppRequested] = useState(false);
 
-  /* Hash routes belong to the product — hand off without a
+  /* Hash routes belong to the product: hand off without a
    * server round-trip, exactly as the reader does. */
   useEffect(() => {
     const onHash = () => {
@@ -105,19 +105,19 @@ export function LetterSite() {
       <main className="mx-auto flex w-full max-w-[600px] flex-1 flex-col items-center justify-center px-6 py-14 [@media(max-height:720px)]:py-8">
         <InkMark size={72} breathe />
 
-        {/* The nbsp glues only "no trace." — the one true orphan.
+        {/* The nbsp glues only "no trace.": the one true orphan.
             Greedy wrap then breaks "A conversation that / leaves
             no trace." evenly at porch widths, and stacks three
             clean lines on narrow phones. (text-balance is
             deliberately absent: with a glued chunk it picks the
-            *worse* split — measured 370/496 vs greedy's 484/381.) */}
+            *worse* split, measured 370/496 vs greedy's 484/381.) */}
         <h1 className="mt-8 text-center font-serif text-[clamp(36px,5.4vw,54px)] font-semibold leading-[1.12] tracking-[-0.015em]">
           A conversation that leaves no&nbsp;trace.
         </h1>
 
         <p className="mt-6 max-w-[40ch] text-balance text-center font-sans text-[15px] leading-[1.65] text-mute sm:text-[16px]">
           A room is a link and a password. The server is a blind
-          relay — it cannot read a single frame.
+          relay. It cannot read a single frame.
         </p>
 
         {/* the two verbs, in the house system */}
@@ -135,10 +135,10 @@ export function LetterSite() {
         </p>
       </main>
 
-      {/* ——— the cabinet ———
+      {/* --- the cabinet ---
           The porch keeps it shut: the reader, the legal documents,
           the operator's address. (README joins this line the day
-          the repository is public — no link exists yet, and a dead
+          the repository is public; no link exists yet, and a dead
           one is a placeholder.) */}
       <footer className="mt-auto border-t border-hairline">
         <div className="mx-auto flex w-full max-w-[640px] flex-col items-center gap-3 px-6 pb-[max(1.75rem,env(safe-area-inset-bottom))] pt-5 text-center">
@@ -157,8 +157,8 @@ export function LetterSite() {
             </a>
           </div>
           <p className="font-sans text-[11px] leading-[1.5] tracking-[0.01em] text-mute">
-            designed &amp; built by Okwuchukwu Ekene Don Davies —
-            Izumi
+            designed &amp; built by Okwuchukwu Ekene Don Davies
+            (Izumi)
             <span aria-hidden> · </span>
             MIT
           </p>

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-/* The protocol page's table of contents — one source for the
+/* The protocol page's table of contents: one source for the
  * "On this page" line and nothing else. Plain labels, sentence
  * case, stable ids (the landing links to #protocol). */
 export const SECTIONS = [
@@ -16,7 +16,7 @@ export const SECTIONS = [
 
 /* Every section of the document shares this scaffold: a hairline
  * rule above, a Lora heading, an optional lede in Inter. No
- * numbers, no kickers — a heading says what the section is. */
+ * numbers, no kickers: a heading says what the section is. */
 export function Section({
   id,
   title,

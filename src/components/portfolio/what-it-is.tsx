@@ -2,34 +2,34 @@
 
 import { Section } from "./section";
 
-/* What it is — the idea in the product's own three verbs, then
+/* What it is: the idea in the product's own three verbs, then
  * the short list of what that buys you. Plain headings, plain
  * sentences, Inter labels in sentence case. */
 
 const MOVES = [
   {
     title: "Create",
-    body: "A room is a link and a password, both generated randomly. Share them through different channels — the link is the address, the password is the key. No account to make, no invite to accept, no roster with your name on it.",
+    body: "The link and the password are both generated at random. Share them through different channels. There is no account to create and no invite to accept. The server keeps a list of member public keys, not names.",
   },
   {
     title: "Talk",
-    body: "Every message, file and reaction is signed and encrypted in your browser, then padded to a uniform size. The server relays frames it cannot read — it can't tell typing from messages, or read a file's size.",
+    body: "Messages, files, and reactions are signed and encrypted in the browser before they are sent. Every frame is padded to the same size. The server forwards the frames without seeing their content, and cannot tell a message from a typing indicator or measure a file.",
   },
   {
     title: "Burn",
-    body: "Messages delete themselves on their own countdown, and rooms expire on theirs. Anyone in the room can burn it for everyone — and new joiners see nothing from before they joined.",
+    body: "Messages can be set to delete themselves after a fixed time. Rooms can also be set to expire. Any member can burn the room, which ends it for everyone. New joiners never see messages from before they joined.",
   },
 ] as const;
 
 const CAPABILITIES = [
-  ["No accounts", "A room is a link and a password, both randomly generated."],
-  ["Ephemeral by default", "Message timers from 15 seconds to 8 hours; room lifetimes up to a day."],
-  ["Uniform frames", "Every frame is the same size; every file becomes the same number of chunks."],
-  ["Keys live in memory", "Reload the page and every room locks — the key never touches storage."],
-  ["Ink marks", "Acknowledged, noted, warmly received, later — encrypted, signed, uniform-sized."],
-  ["Derived identity", "An alias and a verifiable fingerprint per room; per-room keys make you unlinkable."],
-  ["Location stripping", "Photos whose EXIF metadata cannot be stripped do not get sent."],
-  ["Installable, self-hostable", "Installs from the browser; on your own server it's one token and one hostname."],
+  ["No accounts", "A room is a link and a password, both generated at random."],
+  ["Ephemeral by default", "Message timers from 5 seconds to 24 hours. Room lifetimes from minutes to 30 days, or until burned."],
+  ["Uniform frames", "Every frame is the same size. Every file uses the same number of chunks."],
+  ["Keys live in memory", "The key is never written to storage. Reload the page and every room locks until you re-enter its password."],
+  ["Ink marks", "Four marks: acknowledged, noted, warmly received, later. They are encrypted and signed like messages."],
+  ["Derived identity", "Each room gives you a different alias and signing key. Other members cannot link you across rooms."],
+  ["Location stripping", "Photos are checked for EXIF metadata. If it cannot be stripped, the photo is not sent."],
+  ["Installable, self-hostable", "Installs from the browser. Self-hosting needs an access token and a hostname."],
 ] as const;
 
 export function WhatItIs() {
@@ -37,7 +37,7 @@ export function WhatItIs() {
     <Section
       id="what"
       title="What it is"
-      lede="A room is a link and a password — that pair is the whole account. CipherChat is for secure first contact: a private channel you can open right now, with someone you'll verify another way."
+      lede="CipherChat is an encrypted chat that runs in your browser. A room is a link and a password. There are no accounts. It is built for a first private conversation with someone you can verify through another channel."
     >
       <div className="space-y-8">
         {MOVES.map((move) => (
