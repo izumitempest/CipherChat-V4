@@ -349,7 +349,10 @@ export async function sealFrame(opts: {
   frameSize: number;
   frameId?: string;
   to?: string;
-  sigPrivJwk?: JsonWebKey;
+  /** signing half: JWK (tests, extractable flows) or a non-extractable
+   *  CryptoKey (the vault path). Present when the frame should carry a
+   *  signature inside its encrypted body. */
+  sigPrivJwk?: JsonWebKey | CryptoKey;
 }): Promise<WireFrame> {
   const counter = opts.clock.next();
   const ts = Date.now();

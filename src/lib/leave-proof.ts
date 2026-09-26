@@ -24,14 +24,16 @@ export function leaveProofInput(roomId: string, memberId: string, ts: number): s
   return `cc-leave-v1:${roomId}:${memberId}:${ts}`;
 }
 
-/** Sign a departure proof with the member's room signing key. */
+/** Sign a departure proof with the member's room signing key.
+ *  Accepts either a JWK (tests) or a non-extractable CryptoKey (vault
+ *  path); the signing material's form matches where it came from. */
 export async function signLeaveProof(
-  privJwk: JsonWebKey,
+  priv: JsonWebKey | CryptoKey,
   roomId: string,
   memberId: string,
   ts: number = Date.now(),
 ): Promise<{ ts: number; sig: string }> {
-  const sig = await signCanonical(privJwk, leaveProofInput(roomId, memberId, ts));
+  const sig = await signCanonical(priv, leaveProofInput(roomId, memberId, ts));
   return { ts, sig };
 }
 

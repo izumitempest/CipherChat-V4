@@ -66,7 +66,11 @@ export interface RegistryEntry {
 export interface CipherInit {
   roomId: string;
   selfId: string;
-  sig: { privJwk: JsonWebKey; pubJwk: JsonWebKey };
+  /** The room's signing half. `priv` is a non-extractable CryptoKey in
+   *  the live app (vault path); tests and extractable flows pass a
+   *  JWK. The public half is always a JWK because it is published to
+   *  the room's member registry. */
+  sig: { priv: JsonWebKey | CryptoKey; pubJwk: JsonWebKey };
   ecdh: SessionEcdh;
   /** the kv-1 password-derived key (from the room's key bundle) */
   entryKey: CryptoKey;
@@ -147,7 +151,7 @@ export class RoomCipher {
   readonly registry = new Map<string, RegistryEntry>();
   kv = 1;
 
-  private readonly sigPrivJwk: JsonWebKey;
+  private readonly sigPriv: JsonWebKey | CryptoKey;
   private readonly entryKey: CryptoKey;
   private readonly keys = new Map<number, InstalledKey>();
   private readonly clock: SendClock = createSendClock();
@@ -163,7 +167,7 @@ export class RoomCipher {
   constructor(init: CipherInit) {
     this.roomId = init.roomId;
     this.selfId = init.selfId;
-    this.sigPrivJwk = init.sig.privJwk;
+    this.sigPriv = init.sig.priv;
     this.sigPubJwk = init.sig.pubJwk;
     this.ecdh = init.ecdh;
     this.entryKey = init.entryKey;
@@ -295,7 +299,7 @@ export class RoomCipher {
       kv: extra?.wireKv ?? this.kv,
       senderId: this.selfId,
       clock: this.clock,
-      sigPrivJwk: this.sigPrivJwk,
+      sigPrivJwk: this.sigPriv,
       body,
       frameSize,
       frameId: extra?.frameId,
@@ -336,7 +340,7 @@ export class RoomCipher {
    *  canonical, so nobody else can burn our messages. */
   async sealBurn(messageId: string): Promise<WireFrame[]> {
     const burnSig = await signCanonical(
-      this.sigPrivJwk,
+      this.sigPriv,
       burnCanonical(this.roomId, this.selfId, messageId),
     );
     return [await this.seal({ kind: "burn", messageId, burnSig }, CONTROL_FRAME_BYTES)];
@@ -347,7 +351,7 @@ export class RoomCipher {
    *  verify against the registered pubkey before writing us out:
    *  memberId alone must never be enough to rotate the room. */
   async signDepartureProof(ts: number = Date.now()) {
-    return signLeaveProof(this.sigPrivJwk, this.roomId, this.selfId, ts);
+    return signLeaveProof(this.sigPriv, this.roomId, this.selfId, ts);
   }
 
   /** Sign the graded abuse-report proof (cc-report-v1:{roomId}:
@@ -356,7 +360,7 @@ export class RoomCipher {
    *  departure proof, different domain prefix: neither replays as
    *  the other. */
   async signReportProof(ts: number = Date.now()) {
-    return signReportProof(this.sigPrivJwk, this.roomId, this.selfId, ts);
+    return signReportProof(this.sigPriv, this.roomId, this.selfId, ts);
   }
 
   /** A file becomes exactly 1 control-sized meta frame plus a FIXED

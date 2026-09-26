@@ -35,7 +35,8 @@ import {
 import { aliasFromFingerprint, inkFromFingerprint } from "@/lib/identity";
 import { notifyIncoming } from "@/lib/notifications";
 import { createKeyBundleV2, unlockWithBundle } from "@/lib/kdf";
-import { loadDeviceSeed, deriveRoomSigningKey } from "@/lib/room-identity";
+import { deriveRoomSigningKeyFromSeed, loadDeviceSeed, deriveRoomSigningKey, type RoomSigningSecrets } from "@/lib/room-identity";
+import { loadSeedKey } from "@/lib/seed-vault";
 import {
   RoomCipher,
   generateSessionEcdh,
@@ -100,7 +101,13 @@ export interface TypingSignal {
 
 interface AppState {
   ready: boolean;
-  seed: Uint8Array | null;
+  /** The per-room signing-key deriver, captured once per page load.
+   *  When the IndexedDB seed vault is available it closes over the
+   *  non-extractable CryptoKey; otherwise (private mode, older
+   *  browsers) it derives from an in-memory seed that dies with the
+   *  tab, which is the same behavior localStorage private mode had.
+   *  Raw seed bytes never sit in state. */
+  deriveIdentity: ((roomId: string) => Promise<RoomSigningSecrets>) | null;
   screen: Screen;
   activeRoomId: string | null;
   inviteCode: string | null;
@@ -258,7 +265,7 @@ let initStarted = false;
 
 export const useApp = create<AppState>()((set, get) => ({
   ready: false,
-  seed: null,
+  deriveIdentity: null,
   screen: "landing",
   activeRoomId: null,
   inviteCode: null,
@@ -284,7 +291,35 @@ export const useApp = create<AppState>()((set, get) => ({
     initStarted = true;
     // One random seed per device; every room derives its own signing
     // key from it, so registries can never be correlated across rooms.
-    const seed = await loadDeviceSeed();
+    // The seed lives in the IndexedDB vault as a non-extractable
+    // CryptoKey when the browser supports it. When the vault is
+    // unavailable (older browsers, some privacy modes), the legacy
+    // localStorage loader keeps the old behavior as the fallback.
+    const seedKey = await loadSeedKey();
+    let deriveIdentity: (roomId: string) => Promise<RoomSigningSecrets>;
+    if (seedKey) {
+      deriveIdentity = (roomId: string) => deriveRoomSigningKeyFromSeed(seedKey, roomId);
+    } else {
+      const fallback = await loadDeviceSeed(); // localStorage, legacy
+      deriveIdentity = async (roomId: string) => {
+        const legacy = await deriveRoomSigningKey(fallback, roomId);
+        // The legacy path returns an extractable JWK; convert it to the
+        // non-extractable CryptoKey the session is built on.
+        const privKey = await crypto.subtle.importKey(
+          "jwk",
+          legacy.privJwk,
+          { name: "ECDSA", namedCurve: "P-256" },
+          false,
+          ["sign"],
+        );
+        return {
+          privKey,
+          pubJwk: legacy.pubJwk,
+          fingerprintHex: legacy.fingerprintHex,
+          fingerprint: legacy.fingerprint,
+        };
+      };
+    }
     // Burned rooms showed their ash last session; now they are gone.
     const cards = sweepBurnedRooms();
 
@@ -307,7 +342,7 @@ export const useApp = create<AppState>()((set, get) => ({
       );
     }
 
-    set({ seed, roomCards: cards, ready: true, porchCreate });
+    set({ deriveIdentity, roomCards: cards, ready: true, porchCreate });
 
     get().syncHash();
     window.addEventListener("hashchange", () => get().syncHash());
@@ -371,8 +406,8 @@ export const useApp = create<AppState>()((set, get) => ({
   /* ----------------------------------------------- create ---- */
 
   createRoom: async (localName, password, ttlSec) => {
-    const seed = get().seed;
-    if (!seed) return { ok: false, reason: "error" };
+    const deriveIdentity = get().deriveIdentity;
+    if (!deriveIdentity) return { ok: false, reason: "error" };
 
     const res = await fetch("/api/rooms", {
       method: "POST",
@@ -389,7 +424,7 @@ export const useApp = create<AppState>()((set, get) => ({
     // This room's own signing identity + session ECDH pair, and the
     // argon2id key bundle (random salt, versioned, memory-hard).
     const [identity, ecdh, bundle] = await Promise.all([
-      deriveRoomSigningKey(seed, roomId),
+      deriveIdentity(roomId),
       generateSessionEcdh(),
       createKeyBundleV2(password),
     ]);
@@ -424,7 +459,7 @@ export const useApp = create<AppState>()((set, get) => ({
     const cipher = new RoomCipher({
       roomId,
       selfId: memberId,
-      sig: { privJwk: identity.privJwk, pubJwk: identity.pubJwk },
+      sig: { priv: identity.privKey, pubJwk: identity.pubJwk },
       ecdh,
       entryKey: bundle.key,
       watermarks: roomWatermarkStore(roomId),
@@ -454,8 +489,8 @@ export const useApp = create<AppState>()((set, get) => ({
   /* ------------------------------------------------- join ---- */
 
   joinRoom: async (code, password, localName) => {
-    const seed = get().seed;
-    if (!seed) return { ok: false, reason: "error" };
+    const deriveIdentity = get().deriveIdentity;
+    if (!deriveIdentity) return { ok: false, reason: "error" };
 
     const infoRes = await fetch(`/api/rooms/${encodeURIComponent(code)}`);
     if (!infoRes.ok) {
@@ -485,7 +520,7 @@ export const useApp = create<AppState>()((set, get) => ({
     }
 
     const [identity, ecdh] = await Promise.all([
-      deriveRoomSigningKey(seed, code),
+      deriveIdentity(code),
       generateSessionEcdh(),
     ]);
     const alias = aliasFromFingerprint(identity.fingerprintHex);
@@ -510,7 +545,7 @@ export const useApp = create<AppState>()((set, get) => ({
     const cipher = new RoomCipher({
       roomId: code,
       selfId: memberId,
-      sig: { privJwk: identity.privJwk, pubJwk: identity.pubJwk },
+      sig: { priv: identity.privKey, pubJwk: identity.pubJwk },
       ecdh,
       entryKey,
       watermarks: roomWatermarkStore(code),

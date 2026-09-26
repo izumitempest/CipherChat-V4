@@ -27,54 +27,6 @@ export function fromB64(b64: string): Uint8Array<ArrayBuffer> {
   return out;
 }
 
-/* ---------------- device identity ---------------- */
-
-export interface DeviceIdentity {
-  privJwk: JsonWebKey;
-  pubJwk: JsonWebKey;
-  fingerprintHex: string; // full 64-char hex
-  fingerprint: string; // 8-char display form
-}
-
-const DEVICE_KEY = "cc.device";
-
-export async function loadDeviceIdentity(): Promise<DeviceIdentity> {
-  try {
-    const raw = localStorage.getItem(DEVICE_KEY);
-    if (raw) {
-      const { privJwk, pubJwk } = JSON.parse(raw);
-      const hex = await (
-        await import("@/lib/identity")
-      ).sha256Hex(`${pubJwk.x}|${pubJwk.y}`);
-      return {
-        privJwk,
-        pubJwk,
-        fingerprintHex: hex,
-        fingerprint: hex.slice(0, 8).toUpperCase(),
-      };
-    }
-  } catch {
-    /* fall through to generation */
-  }
-
-  const pair = await crypto.subtle.generateKey(
-    { name: "ECDSA", namedCurve: "P-256" },
-    true,
-    ["sign", "verify"],
-  );
-  const privJwk = await crypto.subtle.exportKey("jwk", pair.privateKey);
-  const pubJwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
-  localStorage.setItem(DEVICE_KEY, JSON.stringify({ privJwk, pubJwk }));
-  const { sha256Hex } = await import("@/lib/identity");
-  const hex = await sha256Hex(`${pubJwk.x}|${pubJwk.y}`);
-  return {
-    privJwk,
-    pubJwk,
-    fingerprintHex: hex,
-    fingerprint: hex.slice(0, 8).toUpperCase(),
-  };
-}
-
 /* ---------------- room key derivation ---------------- */
 
 export async function deriveRoomKey(
@@ -208,17 +160,24 @@ export function burnCanonical(
   return ["v1", "burn", roomId, senderId, messageId].join("|");
 }
 
+/** Sign a canonical string with a room's ECDSA P-256 key.
+ *  Accepts either a JWK (used by tests and by extractable flows) or a
+ *  non-extractable CryptoKey from the vault path, in which case the
+ *  signing material never exists as JSON. */
 export async function signCanonical(
-  privJwk: JsonWebKey,
+  priv: JsonWebKey | CryptoKey,
   canonical: string,
 ): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    "jwk",
-    privJwk,
-    { name: "ECDSA", namedCurve: "P-256" },
-    false,
-    ["sign"],
-  );
+  const key =
+    priv instanceof CryptoKey
+      ? priv
+      : await crypto.subtle.importKey(
+          "jwk",
+          priv,
+          { name: "ECDSA", namedCurve: "P-256" },
+          false,
+          ["sign"],
+        );
   const sig = await crypto.subtle.sign(
     { name: "ECDSA", hash: "SHA-256" },
     key,

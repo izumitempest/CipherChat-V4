@@ -75,14 +75,16 @@ export function reportProofInput(roomId: string, memberId: string, ts: number): 
   return `cc-report-v1:${roomId}:${memberId}:${ts}`;
 }
 
-/** Sign a report proof with the member's room signing key. */
+/** Sign a report proof with the member's room signing key.
+ *  Accepts either a JWK (tests) or a non-extractable CryptoKey (vault
+ *  path); the signing material's form matches where it came from. */
 export async function signReportProof(
-  privJwk: JsonWebKey,
+  priv: JsonWebKey | CryptoKey,
   roomId: string,
   memberId: string,
   ts: number = Date.now(),
 ): Promise<{ ts: number; sig: string }> {
-  const sig = await signCanonical(privJwk, reportProofInput(roomId, memberId, ts));
+  const sig = await signCanonical(priv, reportProofInput(roomId, memberId, ts));
   return { ts, sig };
 }
 

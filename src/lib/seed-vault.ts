@@ -142,7 +142,15 @@ export async function loadSeedKey(): Promise<CryptoKey | null> {
         ? await importSeed(bytes)
         : await importSeed(crypto.getRandomValues(new Uint8Array(32)));
     await writeKey(db, key);
+
+    // Read back and verify before dropping the legacy copies: a silent
+    // IndexedDB failure must not reset the user's identity on next visit.
+    const confirmed = await readKey(db);
     db.close();
+    if (!confirmed) {
+      if (bytes) bytes.fill(0);
+      return null;
+    }
     wipeLegacy();
     if (bytes) bytes.fill(0);
     return key;

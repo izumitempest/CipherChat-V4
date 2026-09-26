@@ -7,9 +7,16 @@
 // verification marks and "returned" recognition keep working.
 
 import { describe, it, expect } from "vitest";
-import { deriveRoomSigningKey } from "@/lib/room-identity";
+import { deriveRoomSigningKey, deriveRoomSigningKeyFromSeed } from "@/lib/room-identity";
 import { aliasFromFingerprint, inkFromFingerprint } from "@/lib/identity";
 import { signCanonical, verifyCanonical } from "@/lib/crypto";
+
+// Golden vector: fixed seed, fixed room. If any refactor of the
+// derivation (byte path or vault path) drifts, this fails loudly.
+const GOLDEN_SEED_B64 = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8";
+const GOLDEN_ROOM = "GOLDEN-ROOM";
+const GOLDEN_FINGERPRINT =
+  "9caf91b05763b40797dcab77d0a1b49c72860c2beed7bed8b743ee3838b8eabc";
 
 describe("per-room signing identity", () => {
   it("is stable for the same (seed, room) - survives refresh", async () => {
@@ -65,5 +72,48 @@ describe("per-room signing identity", () => {
       const k = await deriveRoomSigningKey(seed, room);
       expect(k.pubJwk.x).toMatch(/^[A-Za-z0-9_-]+$/);
     }
+  });
+
+  /* ---------------- vault-path equivalence (seed stored as a
+   * non-extractable CryptoKey in IndexedDB) ---------------- */
+
+  it("the vault path derives byte-identical identities to the byte path", async () => {
+    const seed = crypto.getRandomValues(new Uint8Array(32));
+    const asKey = await crypto.subtle.importKey("raw", seed, "HKDF", false, ["deriveBits"]);
+    for (const room of ["VAULT-A", "VAULT-B", GOLDEN_ROOM]) {
+      const legacy = await deriveRoomSigningKey(seed, room);
+      const vault = await deriveRoomSigningKeyFromSeed(asKey, room);
+      expect(vault.pubJwk.x).toBe(legacy.pubJwk.x);
+      expect(vault.pubJwk.y).toBe(legacy.pubJwk.y);
+      expect(vault.fingerprintHex).toBe(legacy.fingerprintHex);
+    }
+  });
+
+  it("the vault key's signing output verifies against its public half", async () => {
+    const seed = crypto.getRandomValues(new Uint8Array(32));
+    const asKey = await crypto.subtle.importKey("raw", seed, "HKDF", false, ["deriveBits"]);
+    const vault = await deriveRoomSigningKeyFromSeed(asKey, "SIGN-VIA-VAULT");
+    const sig = await signCanonical(vault.privKey, "payload");
+    expect(await verifyCanonical(vault.pubJwk, "payload", sig)).toBe(true);
+    const other = await deriveRoomSigningKeyFromSeed(asKey, "OTHER-VAULT-ROOM");
+    expect(await verifyCanonical(other.pubJwk, "payload", sig)).toBe(false);
+  });
+
+  it("golden vector: fixed seed and room always produce the same fingerprint", async () => {
+    const seedBytes = new Uint8Array(
+      (() => {
+        const s = atob(GOLDEN_SEED_B64);
+        const out = new Uint8Array(s.length);
+        for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+        return out;
+      })(),
+    );
+    // Byte path:
+    const legacy = await deriveRoomSigningKey(seedBytes, GOLDEN_ROOM);
+    expect(legacy.fingerprintHex).toBe(GOLDEN_FINGERPRINT);
+    // Vault path (CryptoKey, as stored non-extractably in IndexedDB):
+    const asKey = await crypto.subtle.importKey("raw", seedBytes, "HKDF", false, ["deriveBits"]);
+    const vault = await deriveRoomSigningKeyFromSeed(asKey, GOLDEN_ROOM);
+    expect(vault.fingerprintHex).toBe(GOLDEN_FINGERPRINT);
   });
 });

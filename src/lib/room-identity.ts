@@ -1,9 +1,14 @@
 // Per-room signing identity.
 //
-// The device holds ONE random 32-byte seed (localStorage, never
-// leaves the device). Each room derives its own ECDSA P-256 keypair:
+// The device seed is a 32-byte random value. Each room derives its own
+// ECDSA P-256 keypair from it:
 //
 //   scalar = HKDF-SHA256(seed, salt = roomId, info = "cc-sig-v1")
+//
+// The seed is held as a NON-EXTRACTABLE WebCrypto key in IndexedDB
+// (see seed-vault.ts), so scripts cannot read the bytes back. The
+// fallback when IndexedDB is unavailable is an in-memory seed for the
+// page load only.
 //
 // The public key (x, y) is recovered from the scalar with @noble/curves
 // and imported into WebCrypto as a JWK. Consequences:
@@ -20,6 +25,7 @@
 
 import { p256 } from "@noble/curves/nist.js";
 import { sha256Hex } from "./identity";
+import { deriveScalarFromSeedKey } from "./seed-vault";
 
 const SEED_KEY = "cc.seed";
 const encoder = new TextEncoder();
@@ -31,9 +37,20 @@ export interface RoomSigningIdentity {
   fingerprint: string; // 8-char display form
 }
 
-/** The device seed. Created on first use; the old global `cc.device`
- *  keypair (if present) is retired. Rooms get per-room keys from now
- *  on. Keys never leave the device. */
+/** The vault-path identity: the room's signing key held as a
+ *  NON-EXTRACTABLE CryptoKey, with no JSON form anywhere. The public
+ *  half stays a JWK because it is published to the room registry. */
+export interface RoomSigningSecrets {
+  privKey: CryptoKey;
+  pubJwk: JsonWebKey;
+  fingerprintHex: string;
+  fingerprint: string;
+}
+
+/** The device seed. In old versions this was stored in localStorage as
+ *  `cc.seed`; it is now migrated into the IndexedDB seed vault, so this
+ *  function exists only for tests. Rooms get per-room keys from it.
+ *  Keys never leave the device. */
 export async function loadDeviceSeed(): Promise<Uint8Array> {
   try {
     const raw = localStorage.getItem(SEED_KEY);
@@ -138,7 +155,11 @@ export async function scalarToRoomIdentity(
 }
 
 /** Derive this room's signing keypair from the device seed. Deterministic:
- *  the same (seed, roomId) always yields the same key. */
+ *  the same (seed, roomId) always yields the same key.
+ *
+ *  NOTE: this is the test/verification path; it exposes the JWK so
+ *  assertions can read d. The app uses deriveRoomSigningKeyFromSeed
+ *  (below), which returns a non-extractable CryptoKey instead. */
 export async function deriveRoomSigningKey(
   seed: Uint8Array,
   roomId: string,
@@ -150,4 +171,58 @@ export async function deriveRoomSigningKey(
     if (identity) return identity; // invalid scalar → derive again
   }
   throw new Error("could not derive a valid room signing key");
+}
+
+/** Vault path: derive the room's signing key from the non-extractable
+ *  seed key in the vault, keeping the room key non-extractable too.
+ *  Scalars pass through the same 8-attempt rejection-sampling loop as
+ *  the byte-based path, so identities (fingerprints, aliases) are
+ *  unchanged across the migration. */
+export async function deriveRoomSigningKeyFromSeed(
+  seedKey: CryptoKey,
+  roomId: string,
+): Promise<RoomSigningSecrets> {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const info = attempt === 0 ? "cc-sig-v1" : `cc-sig-v1:${attempt}`;
+    const scalar = await deriveScalarFromSeedKey(seedKey, roomId, info);
+    const identity = await scalarToRoomSigningSecrets(scalar);
+    scalar.fill(0); // derived bits are no longer needed after import
+    if (identity) return identity;
+  }
+  throw new Error("could not derive a valid room signing key");
+}
+
+/** Import a candidate scalar as a NON-EXTRACTABLE WebCrypto ECDSA key
+ *  and return it with its public half. Returns null when the scalar is
+ *  outside the valid P-256 range, same rule as scalarToRoomIdentity. */
+async function scalarToRoomSigningSecrets(
+  scalar: Uint8Array,
+): Promise<RoomSigningSecrets | null> {
+  if (scalar.every((b) => b === 0)) return null;
+  if (bytesToBigIntBE(scalar) >= p256.Point.CURVE().n) return null;
+  try {
+    const pubBytes = p256.getPublicKey(scalar, false); // 65 bytes, uncompressed
+    const x = b64url(pubBytes.subarray(1, 33));
+    const y = b64url(pubBytes.subarray(33, 65));
+    const d = b64url(scalar);
+    const privJwk: JsonWebKey = { kty: "EC", crv: "P-256", d, x, y };
+    // Non-extractable: the private half cannot be exported back out.
+    const privKey = await crypto.subtle.importKey(
+      "jwk",
+      privJwk,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["sign"],
+    );
+    const pubJwk: JsonWebKey = { kty: "EC", crv: "P-256", x, y };
+    const fingerprintHex = await sha256Hex(`${x}|${y}`);
+    return {
+      privKey,
+      pubJwk,
+      fingerprintHex,
+      fingerprint: fingerprintHex.slice(0, 8).toUpperCase(),
+    };
+  } catch {
+    return null;
+  }
 }

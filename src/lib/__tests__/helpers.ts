@@ -58,7 +58,7 @@ export async function makeRoom(
     const cipher = new RoomCipher({
       roomId,
       selfId: m.id,
-      sig: { privJwk: m.privJwk, pubJwk: m.pubJwk },
+      sig: { priv: m.privJwk, pubJwk: m.pubJwk },
       ecdh: m.ecdh,
       entryKey,
       ...extra,

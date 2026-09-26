@@ -47,9 +47,9 @@ fixed 45-frame padded transfers, so the relay cannot read a file or learn
 its size from the traffic.
 
 2.5. Your identity inside a room (an alias and a color) is derived per-room
-from a device seed that lives only in your browser's local storage. Two
-rooms cannot be linked to each other through your public keys or aliases,
-because each room sees different ones.
+from a device seed that lives in your browser's IndexedDB as a
+non-extractable WebCrypto key. Two rooms cannot be linked to each other
+through your public keys or aliases, because each room sees different ones.
 
 2.6. When you enter a password, your browser checks it against an encrypted
 "verifier" blob stored on the room. The server cannot read that blob, and a
@@ -99,9 +99,11 @@ CipherChat uses your browser's local storage to make the app usable between
 visits. On your device, and only on your device, it holds:
 
 - **Your device seed**: a random 32-byte value your browser uses to derive
-  your per-room signing keys. It never leaves the device. (Devices that ran
-  very old versions of the software may also still hold a retired device
-  keypair in local storage; it is no longer used.)
+  your per-room signing keys, held in IndexedDB as a non-extractable key
+  that scripts cannot read back. It never leaves the device. (Devices that
+  ran very old versions of the software may also still hold a retired
+  device keypair in local storage until it is deleted on first use; it is
+  no longer used.)
 - **Room cards**: for each room you've saved: the room code, an optional
   local nickname (a name only you see; others may call the room something
   else), and an unread-badge state.
@@ -120,9 +122,10 @@ visits. On your device, and only on your device, it holds:
 disk.** Decrypted content lives only in memory, and dies when the page
 unloads or the room locks. The device seed above is the one exception to
 "nothing secret is stored": it is what makes your per-room identity
-recognizable after a refresh. Clearing your browser's site data deletes it
-and everything else in this section, at the cost of your rooms no longer
-recognizing you as the same member.
+recognizable after a refresh, and it exists only as a non-extractable key
+in IndexedDB. Clearing your browser's site data deletes it and everything
+else in this section, at the cost of your rooms no longer recognizing you
+as the same member.
 
 ## 6. How to delete everything
 
