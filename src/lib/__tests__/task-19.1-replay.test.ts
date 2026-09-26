@@ -109,7 +109,7 @@ describe("watermark persistence (cross-refresh replay defense)", () => {
   });
 });
 
-describe("ACCEPTANCE — burned messages cannot be resurrected by re-injection", () => {
+describe("ACCEPTANCE - burned messages cannot be resurrected by re-injection", () => {
   it("a captured frame re-injected after the TTL burn is rejected, and a live re-injection does not duplicate", async () => {
     const roomId = "REPLAYROOM";
     const entryKey = await randomAesKey();
@@ -184,7 +184,7 @@ describe("ACCEPTANCE — burned messages cannot be resurrected by re-injection",
     expect(r.type).toBe("reject");
   });
 
-  it("broadcast helper sanity — three members, one text frame, two receivers accept", async () => {
+  it("broadcast helper sanity - three members, one text frame, two receivers accept", async () => {
     const roomId = "REPLAYROOM5";
     const entryKey = await randomAesKey();
     const [alice, bob, carol] = await makeRoom(roomId, ["m-alice", "m-bob", "m-carol"], entryKey);

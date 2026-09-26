@@ -12,7 +12,7 @@ import { aliasFromFingerprint, inkFromFingerprint } from "@/lib/identity";
 import { signCanonical, verifyCanonical } from "@/lib/crypto";
 
 describe("per-room signing identity", () => {
-  it("is stable for the same (seed, room) — survives refresh", async () => {
+  it("is stable for the same (seed, room) - survives refresh", async () => {
     const seed = crypto.getRandomValues(new Uint8Array(32));
     const a = await deriveRoomSigningKey(seed, "ROOMA");
     const b = await deriveRoomSigningKey(seed, "ROOMA");
@@ -21,7 +21,7 @@ describe("per-room signing identity", () => {
     expect(a.fingerprintHex).toBe(b.fingerprintHex);
   });
 
-  it("differs across rooms — the server's registries cannot be correlated", async () => {
+  it("differs across rooms - the server's registries cannot be correlated", async () => {
     const seed = crypto.getRandomValues(new Uint8Array(32));
     const a = await deriveRoomSigningKey(seed, "ROOMA");
     const b = await deriveRoomSigningKey(seed, "ROOMB");

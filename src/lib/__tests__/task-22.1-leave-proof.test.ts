@@ -93,7 +93,7 @@ describe("leave proof-of-possession", () => {
     expect(await verifyLeaveProof(null, proof.sig, "ROOM", "MEM", 1000, 1000)).toBe(false);
   });
 
-  it("replaying the same {ts, sig} a second time still verifies — accepted by design", async () => {
+  it("replaying the same {ts, sig} a second time still verifies - accepted by design", async () => {
     // WHY this is acceptable: a leave is idempotent. Re-leaving an
     // already-inactive member is a no-op that bumps the epoch at most
     // once per window, and nuisance rotation requires a VALID signature

@@ -58,7 +58,7 @@ describe("canonical versioning (31.5)", () => {
     expect(canonicalV2({ ...FRAME })).toBe(preReplyCanonical(FRAME));
   });
 
-  it("a pre-reply signature verifies under the current canonical — the rollout proof", async () => {
+  it("a pre-reply signature verifies under the current canonical - the rollout proof", async () => {
     const pair = await crypto.subtle.generateKey(
       { name: "ECDSA", namedCurve: "P-256" },
       true,
@@ -79,7 +79,7 @@ describe("canonical versioning (31.5)", () => {
     expect(await verifyCanonical(pub, preReplyCanonical(FRAME), newSig)).toBe(true);
   });
 
-  it("a reply is appended as a twelfth slot — and only then", () => {
+  it("a reply is appended as a twelfth slot - and only then", () => {
     const reply: ReplySnapshot = {
       id: "msg-9",
       senderId: "m-other",
@@ -122,7 +122,7 @@ describe("room-password generator (31.4)", () => {
     expect(new Set(words).size).toBe(6);
   });
 
-  it("derives its words from the CSPRNG bytes — and never from Math.random", () => {
+  it("derives its words from the CSPRNG bytes - and never from Math.random", () => {
     mathRandomCalls = 0;
     Math.random = () => {
       mathRandomCalls++;
@@ -261,7 +261,7 @@ describe("image metadata detector (31.3)", () => {
     expect(imageHasMetadata(withExif, "image/webp")).toBe(true);
   });
 
-  it("treats unparseable image bytes as suspect — fail toward the strip", () => {
+  it("treats unparseable image bytes as suspect - fail toward the strip", () => {
     expect(imageHasMetadata(new Uint8Array([1, 2, 3]), "image/jpeg")).toBe(true);
     expect(imageHasMetadata(new Uint8Array([0x89, 0x50]), "image/png")).toBe(true);
   });

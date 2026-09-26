@@ -31,12 +31,12 @@ function facts(over: Partial<EvictFacts> = {}): EvictFacts {
   };
 }
 
-describe("authorizeEviction — the server's decision to seal out a silent leaver", () => {
+describe("authorizeEviction - the server's decision to seal out a silent leaver", () => {
   it("permits eviction when every fact agrees and the grace floor has passed", () => {
     expect(authorizeEviction(facts())).toEqual({ ok: true });
   });
 
-  it("refuses eviction before the offline floor — a network blip is not a departure", () => {
+  it("refuses eviction before the offline floor - a network blip is not a departure", () => {
     expect(authorizeEviction(facts({ targetOfflineMs: EVICT_MIN_OFFLINE_MS - 1 }))).toMatchObject({
       ok: false,
       reason: "too-soon",
@@ -91,7 +91,7 @@ describe("authorizeEviction — the server's decision to seal out a silent leave
   });
 });
 
-describe("stillSilentAtExpiry — the client's gate before it acts on its own timer", () => {
+describe("stillSilentAtExpiry - the client's gate before it acts on its own timer", () => {
   it("acts when still the connected coordinator of a member who is still quietly gone", () => {
     expect(
       stillSilentAtExpiry({
@@ -148,7 +148,7 @@ describe("stillSilentAtExpiry — the client's gate before it acts on its own ti
   });
 });
 
-describe("constants — the grace is measured, not momentary", () => {
+describe("constants - the grace is measured, not momentary", () => {
   it("the client grace exceeds the server's offline floor (clock skew tolerance)", () => {
     expect(SILENT_GRACE_MS).toBeGreaterThan(EVICT_MIN_OFFLINE_MS);
   });

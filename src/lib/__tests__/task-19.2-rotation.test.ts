@@ -17,7 +17,7 @@ import { describe, it, expect } from "vitest";
 import { makeRoom, broadcast, randomAesKey } from "./helpers";
 import { KEY_GRACE_MS } from "@/lib/protocol";
 
-describe("ACCEPTANCE — the departed member cannot read the room after rotation", () => {
+describe("ACCEPTANCE - the departed member cannot read the room after rotation", () => {
   it("Mallory leaves, keeps password + roomId + live pipeline, and cannot decrypt post-rotation frames", async () => {
     const roomId = "ROTROOM";
     let now = Date.now();
@@ -56,7 +56,7 @@ describe("ACCEPTANCE — the departed member cannot read the room after rotation
     // held briefly (a legitimate member may be one key-offer behind);
     // they NEVER decrypt, and once the pending window passes they are
     // refused outright:
-    const after = await alice.cipher.sealText({ text: "after rotation — secret" });
+    const after = await alice.cipher.sealText({ text: "after rotation - secret" });
     for (const f of after) {
       const seen = await mallory.cipher.open(f);
       expect(seen.type === "reject" || seen.type === "pending").toBe(true);
@@ -287,7 +287,7 @@ describe("rotation ceremony hardening", () => {
     expect(bob.cipher.kv).toBe(2);
   });
 
-  it("parked pending frames expire — a stale undecryptable frame cannot squat the buffer", async () => {
+  it("parked pending frames expire - a stale undecryptable frame cannot squat the buffer", async () => {
     const roomId = "ROTPEND";
     let now = Date.now();
     const entryKey = await randomAesKey();

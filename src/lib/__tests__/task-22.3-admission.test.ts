@@ -10,7 +10,7 @@ import { describe, it, expect } from "vitest";
 import { decideAdmission, ROOM_MEMBER_CAP } from "@/lib/admission";
 
 describe("admission policy for the member cap", () => {
-  it("an existing member always rejoins — even when the room is full", () => {
+  it("an existing member always rejoins - even when the room is full", () => {
     expect(decideAdmission({ existingMemberId: "m1", recentlySeenCount: ROOM_MEMBER_CAP })).toBe(
       "rejoin",
     );

@@ -40,7 +40,7 @@ describe("pad / unpad primitives", () => {
     );
   });
 
-  it("fill bytes are random — two pads of the same input differ", () => {
+  it("fill bytes are random - two pads of the same input differ", () => {
     const input = new TextEncoder().encode("same input");
     const a = padToSize(input, 1024);
     const b = padToSize(input, 1024);
