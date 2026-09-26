@@ -125,10 +125,46 @@ The relay must be restarted manually after edits to
 `mini-services/relay-service/index.ts` (bun --hot does not reliably
 reload socket handlers).
 
+### Development (one command)
+
+`scripts/dev.sh` starts both services from the repo root, one terminal:
+
+```bash
+scripts/dev.sh         # web on :3000 and relay on :3003,+:3004
+scripts/dev.sh check   # validate prerequisites without starting
+scripts/dev.sh web     # only the Next.js app
+scripts/dev.sh relay   # only the relay
+```
+
+What it does:
+
+- Checks before starting: `bun` on PATH, `.env` exists and
+  `RELAY_INTERNAL_TOKEN` is set and not the placeholder, the relay's
+  `node_modules` exists, and the Prisma client is generated.
+- Starts the app (`bun run dev`) as `dev.log` and the relay as
+  `relay-dev.log`, and keeps both alive as a pair: if either exits, the
+  script prints the last 5 lines of that log and stops the other, so you
+  never run a half-dead stack.
+- `Ctrl-C` stops both.
+
+What it deliberately does not do:
+
+- Use `bun --hot` on the relay. Socket handlers do not reliably reload
+  through it, which is why the README's manual note exists. The
+  launcher restarts the whole process instead.
+- Read `.env.local`. The relay's own `dev` script does; the launcher
+  only sources `.env` because that is what exists here. If you add a
+  `.env.local`, extend the line in `start_relay`.
+- Create `prisma/db/`. `DATABASE_URL=file:./db/custom.db` is resolved
+  relative to the repo's working directory at runtime, which is the
+  repo root, so the launcher creates `db/` instead. (`prisma/db/custom.db`
+  is a leftover from earlier development and is not used.)
+
 The relay URL is configuration, not code: `NEXT_PUBLIC_RELAY_URL`
-(defaults to same-origin `/relay/`, which a reverse proxy forwards to
-the relay; see `deploy/Caddyfile`). Every variable is documented in
-`.env.example`.
+(dev: absolute `http://localhost:3003/`; production: same-origin
+`/relay/`, which Caddy forwards to the relay per `deploy/Caddyfile`).
+Every variable is documented in `.env.example` (root, dev) and
+`deploy/.env.example` (production).
 
 ### Production: one plain VPS
 

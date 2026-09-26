@@ -56,6 +56,9 @@ server.log
 # --- local runtime state + sandbox artifacts (never ship) ---
 # The live dev database (each machine pushes its own schema: bun run db:push)
 /db/
+# Stale Prisma-side db dir: `prisma db push` has been known to drop one here
+# when run with cwd pinned to the schema folder; the runtime uses /db/ above.
+/prisma/db/
 # npm lockfile materialized only inside CI for `npm audit` (bun.lock is the lock)
 package-lock.json
 # tool persistence, QA screenshots, uploaded scratch images, diagnostics
