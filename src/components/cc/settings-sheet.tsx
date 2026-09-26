@@ -335,8 +335,8 @@ export function SettingsSheet({
               Your report is signed with your room key, so it acts at
               once: the room ends for everyone, immediately. It cannot
               unsend anything: nothing is kept. To add detail, or to
-              reach an operator for anything the room itself cannot
-              fix, write to abuse@cipherchat.app.
+              reach the project author for anything the room itself cannot
+              fix, write to lilice308@gmail.com.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="mt-6 flex flex-col gap-2 sm:flex-col">

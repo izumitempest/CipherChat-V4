@@ -327,16 +327,16 @@ export function AppSettingsSheet({
                 <button
                   type="button"
                   onClick={() => {
-                    navigator.clipboard?.writeText("abuse@cipherchat.app").then(
+                    navigator.clipboard?.writeText("lilice308@gmail.com").then(
                       () => toast("Address copied"),
                       () => undefined,
                     );
                   }}
                   className="font-medium text-charcoal underline decoration-hairline underline-offset-2 hover:decoration-forest"
                 >
-                  abuse@cipherchat.app
+                  lilice308@gmail.com
                 </button>{" "}
-                reaches an operator. Reporting cannot unsend anything,
+                reaches the project author. Reporting cannot unsend anything,
                 because nothing is kept.
               </p>
             </div>

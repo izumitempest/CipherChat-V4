@@ -133,8 +133,8 @@ export function ReaderSite() {
           <span aria-hidden className="text-mute">
             ·
           </span>
-          <a href="mailto:abuse@cipherchat.app" className={egressClass}>
-            abuse@cipherchat.app
+          <a href="mailto:lilice308@gmail.com" className={egressClass}>
+            lilice308@gmail.com
           </a>
         </div>
       </footer>

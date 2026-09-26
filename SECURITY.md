@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Email **abuse@cipherchat.app** (the same address handles abuse reports;
+Email **lilice308@gmail.com** (the same address handles abuse reports;
 prefix security mail with `SECURITY:` so it is triaged first). Please
 include reproduction steps and, where relevant, the property or
 invariant you believe is broken. This codebase's security contract is

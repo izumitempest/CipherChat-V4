@@ -150,10 +150,10 @@ export function LetterSite() {
             <LegalLinks className="gap-x-2.5" />
             <Dot />
             <a
-              href="mailto:abuse@cipherchat.app"
+              href="mailto:lilice308@gmail.com"
               className={cabinetLinkClass}
             >
-              abuse@cipherchat.app
+              lilice308@gmail.com
             </a>
           </div>
           <p className="font-sans text-[11px] leading-[1.5] tracking-[0.01em] text-mute">

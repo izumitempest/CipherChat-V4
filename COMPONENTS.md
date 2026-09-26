@@ -475,8 +475,8 @@ a member's report is signed with their room key and ends the room at
 once." It opens the app's second centered modal: "**Report this room?**
 Your report is signed with your room key, so it acts at once: the room
 ends for everyone, immediately. It cannot unsend anything: nothing is
-kept. To add detail, or to reach an operator for anything the room itself
-cannot fix, write to abuse@cipherchat.app." → Send the report
+kept. To add detail, or to reach the project author for anything the room itself
+cannot fix, write to lilice308@gmail.com." → Send the report
 (terracotta, busy "Sending") / Cancel. On confirm, the store's
 `reportRoom` signs `cc-report-v1` via `RoomCipher.signReportProof()`, POSTs
 `/api/rooms/:id/report`, and runs the same local burn sequence a burn or
@@ -692,7 +692,7 @@ section is platform-aware via `useInstallPrompt`: `beforeinstallprompt`
 captured → "Install app" (our UI asks, never the browser's mini-infobar);
 iOS → the three-tap Share walkthrough; standalone → a check and silence.
 Since Task 31 the About section also carries the abuse contact: a
-Flag glyph + one short paragraph naming `abuse@cipherchat.app` (a
+Flag glyph + one short paragraph naming `lilice308@gmail.com` (a
 button that copies the address, "Address copied" toast). Round 32
 rewrote the paragraph for the graded ceiling: rooms are reported from
 their settings ("a member's report is signed with their room key and

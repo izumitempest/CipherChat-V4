@@ -225,7 +225,7 @@ to suspend (identity is per-room and derived), no history to scrub
   tallied per room by distinct IP; three independent networks burn
   the room as the backstop.
 
-Rooms can also be reported to **abuse@cipherchat.app** (also listed in
+Rooms can also be reported to **lilice308@gmail.com** (also listed in
 Settings → About). Self-hosters should publish their own contact and
 keep the operator path (`POST /terminate` on the relay's internal
 port, token-guarded) for the legal cases.

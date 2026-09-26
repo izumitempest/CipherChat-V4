@@ -1,6 +1,6 @@
-# CipherChat — Terms of Use
+# CipherChat: Terms of Use
 
-**Last updated: 2026-09-17**
+**Last updated: 2026-09-26**
 
 These Terms of Use ("Terms") apply to the CipherChat software and to any
 deployment of it that you use. By creating, joining, or otherwise using a
@@ -14,14 +14,14 @@ plain language what CipherChat does and does not protect against.
 
 ---
 
-## 1. What CipherChat is — and is not
+## 1. What CipherChat is, and is not
 
 1.1. CipherChat is free, open-source software for private, ephemeral
 conversations. A conversation takes place in a "room" identified by a secret
 link or room code and protected by a password that the participants choose.
 
 1.2. There are no accounts, no email addresses, and no phone numbers. All
-encryption keys are derived inside your browser, using a deliberately slow
+encryption keys are derived inside your browser, using a memory-hard
 key-derivation function (argon2id with 64 MB of memory). The server never
 sees your password and has no way to recover it.
 
@@ -31,18 +31,18 @@ Message history exists only in the memory of connected browsers. The server
 stores no message or file content, at rest or in transit.
 
 1.4. CipherChat is **not a service provider in the hosted sense**. The
-authors publish source code and may operate a reference deployment, but any
-deployment — including the reference deployment — is offered as-is, without
-an operator that reads, moderates, backs up, or restores your data. If you
-run your own deployment, Section 8 applies to you.
+authors publish source code. Any deployment, whether run by the authors or
+by anyone else, is offered as-is, without an operator that reads, moderates,
+backs up, or restores your data. If you run your own deployment, Section 8
+applies to you.
 
 1.5. CipherChat is not an anonymity network. The relay component can observe
 connection metadata (who connects, when, in which room, and roughly how
 much encrypted traffic flows), even though it cannot read any content. See
 the Privacy Policy and the threat model for the precise boundaries.
 
-1.6. CipherChat is not certified for any regulated use — not for medical,
-legal, financial, or governmental record-keeping — and no such fitness is
+1.6. CipherChat is not certified for any regulated use, whether medical,
+legal, financial, or governmental record-keeping, and no such fitness is
 claimed.
 
 ## 2. Acceptance of these Terms
@@ -54,7 +54,7 @@ agreed to these Terms and to the Privacy Policy.
 are authorized to accept these Terms on its behalf.
 
 2.3. Because there are no accounts, there is no click-through registration
-and no identity verification. Acceptance is evidenced simply by your use.
+and no identity verification. Acceptance is evidenced by your use.
 
 ## 3. Eligibility
 
@@ -65,10 +65,14 @@ you may not use it.
 software like this, you may use CipherChat only with the consent of a parent
 or legal guardian, and that guardian agrees to these Terms on your behalf.
 
-3.3. You must have the legal right to use encryption software in your
+3.3. Where the law of your jurisdiction sets a higher minimum age for using
+software of this kind, that higher age applies to you instead of the age in
+Section 3.1.
+
+3.4. You must have the legal right to use encryption software in your
 jurisdiction (see Section 14).
 
-## 4. No accounts, no recovery — your responsibility
+## 4. No accounts, no recovery: your responsibility
 
 4.1. A room exists as long as its link or room code and the password exist
 somewhere. **If you lose the password, nobody can restore your access.**
@@ -81,7 +85,7 @@ password through different channels.
 
 4.3. The room password is immutable for the room's lifetime. Knowledge of
 the password can never be revoked. When a member leaves, remaining members
-re-key the room under a new key the leaver will not receive — but the
+re-key the room under a new key the leaver will not receive, but the
 password itself does not change.
 
 4.4. Refreshing the page locks you out of a room until you re-enter the
@@ -97,7 +101,7 @@ You agree **not** to use CipherChat to:
 - distribute malware, or any content intended to compromise devices or
   networks;
 - send spam or unsolicited bulk communications;
-- interfere with any deployment's operation — including probing, scraping,
+- interfere with any deployment's operation, including probing, scraping,
   or attempting to circumvent rate limits, overloading servers, or
   attacking the network connections of other members;
 - impersonate another person or misrepresent your affiliation.
@@ -111,22 +115,30 @@ You further agree not to encourage or assist anyone else in doing so.
 content of any room**, because the operator holds no keys. Unlawful use may
 be technically invisible to the operator.
 
-6.2. There is no in-app report button. A report could carry no evidence the
-operator could independently verify, so a reporting mechanism would imply a
-moderation capability that does not exist.
+6.2. The only moderation action the architecture permits is ending a whole
+room. Any member can do this at any time from the room's settings: the
+report is signed with that member's per-room key and verified against the
+member registry, because members are the only people who can see the
+room's content. A report from someone outside the room is anonymous and
+does not end the room by itself; three reports from three independently
+identifiable networks end the room as a corroboration threshold. The
+authors or a deployment's operator can also end a room directly through an
+operator-only endpoint. Every one of these paths ends the room the same
+way and cannot be told apart from a creator burning it.
 
 6.3. Responsibility for what happens inside a room rests with its members.
-You choose whom you invite; verify identities with the tools the app gives
-you (safety-number verification). If a room is used for something unlawful,
-responsibility lies with the people who used it that way — not with the
+You choose whom you invite; verify identities with the fingerprint
+verification the app provides. If a room is used for something unlawful,
+responsibility lies with the people who used it that way, not with the
 authors of the software or the operator of a blind deployment.
 
-## 7. Ephemeral by design — no warranty of destruction
+## 7. Ephemeral by design: no warranty of destruction
 
-7.1. Rooms are destroyed by "burning" — by their creator, or automatically
-when their lifetime expires. Burning deletes the room's member registry
-server-side. Messages carry optional per-message lifetimes. These mechanisms
-are real, and they are irreversible.
+7.1. Rooms are destroyed by "burning": by their creator, automatically when
+their lifetime expires, through the reporting mechanism described in
+Section 6.2, or by a deployment's operator. Burning deletes the room's
+member registry server-side. Messages carry optional per-message lifetimes.
+These mechanisms are real, and they are irreversible.
 
 7.2. **No warranty is made that content is destroyed on other people's
 devices.** In particular:
@@ -135,7 +147,7 @@ devices.** In particular:
   decrypted content in memory;
 - **screenshots and photographs of the screen cannot be prevented** by any
   software;
-- "view-once" messages and files are a client-side promise, not enforcement —
+- "view-once" messages and files are a client-side promise, not enforcement:
   a recipient can photograph the screen, and a technically capable recipient
   can passively retain decrypted content without ever opening the viewer.
 
@@ -169,7 +181,7 @@ threat model, and the project's documentation are part of that work.
 9.2. **Your content remains yours.** No license is claimed over anything you
 transmit through CipherChat. Nothing you create in a room is copied,
 derived, or retained by the software other than as the relay function
-technically requires — and the relay handles only ciphertext it cannot read.
+technically requires, and the relay handles only ciphertext it cannot read.
 
 ## 10. Disclaimer of warranties
 
@@ -195,8 +207,10 @@ PUNITIVE DAMAGES, OR FOR ANY LOSS OF PROFITS, DATA, PRIVACY, GOODWILL, OR
 OTHER INTANGIBLE LOSSES, ARISING OUT OF OR RELATING TO YOUR USE OF (OR
 INABILITY TO USE) CIPHERCHAT.
 
-11.2. THE TOTAL AGGREGATE LIABILITY OF THE AUTHORS FOR ALL CLAIMS RELATING
-TO CIPHERCHAT WILL NOT EXCEED THE AMOUNT YOU PAID FOR IT, WHICH IS ZERO.
+11.2. WHERE APPLICABLE LAW DOES NOT PERMIT A FULL EXCLUSION OF LIABILITY,
+THE TOTAL AGGREGATE LIABILITY OF THE AUTHORS FOR ALL CLAIMS RELATING TO
+CIPHERCHAT IS LIMITED TO THE SMALLEST AMOUNT THAT LAW PERMITS. CIPHERCHAT
+IS PROVIDED FREE OF CHARGE; NOTHING WAS PAID FOR IT.
 
 ## 12. Indemnification
 
@@ -209,8 +223,7 @@ law.
 
 ## 13. Availability
 
-13.1. There is no service-level agreement. Deployments — including the
-reference deployment, if one is offered — are best effort.
+13.1. There is no service-level agreement. Any deployment is best effort.
 
 13.2. Rooms depend on their server existing. A deployment may be slowed,
 rate-limited, restarted, or discontinued at any time, and a discontinued
@@ -252,26 +265,25 @@ exactly what each action deletes.
 or discontinue the deployment at any time, with or without notice, to the
 extent permitted by law.
 
-16.3. Sections that by their nature should survive termination — including
-Sections 9, 10, 11, 12, and 14 — survive it.
+16.3. Sections that by their nature should survive termination, including
+Sections 9, 10, 11, 12, and 14, survive it.
 
 ## 17. Governing law
 
-17.1. These Terms are governed by the laws of **[Your Jurisdiction]**,
-without regard to conflict-of-law rules.
+17.1. These Terms are governed by the laws of the Federal Republic of
+Nigeria, without regard to conflict-of-law rules.
 
-17.2. The reference deployment, if offered, is provided as-is **without a
-governing entity**: there is no operator organization behind it, no
-registered contact, and no venue for disputes about it. If you use a
-third-party deployment, or operate your own, that deployment's terms — and
-the laws of the place it operates from — govern your use of it.
+17.2. If you use a deployment operated by someone other than the authors,
+that deployment may publish its own terms, and the laws of the place it
+operates from may also govern your use of that deployment. Where those
+terms and these Terms disagree, the deployment's terms apply to your use
+of that deployment.
 
 ## 18. Contact
 
-**Who to contact: the party operating the deployment you use.**
+18.1. **For matters concerning the software itself, including these
+documents: lilice308@gmail.com** (the author and maintainer).
 
-The party operating a self-hosted deployment is responsible for publishing
-its own contact. The reference deployment publishes none, because it is
-offered without a governing entity. For matters concerning the source code
-itself, including these documents, see the repository, where the threat
-model (DESIGN.md) is also published.
+18.2. If you use a deployment operated by someone else, contact that
+deployment's operator for matters concerning their operation of it. A
+self-hosted deployment is responsible for publishing its own contact.
