@@ -145,7 +145,7 @@ describe("canonical: the conditional 12th slot is collision-proof against field 
     }
   });
 
-  it("full injectivity over the (messageId, reply) battery — no two distinct frames share a canonical", () => {
+  it("full injectivity over the (messageId, reply) battery - no two distinct frames share a canonical", () => {
     const ids = ["abc", "abc|", `abc|${replyCanonical(R1)}`, "abc%7C", "abc\u001f", ""];
     const replies: (ReplySnapshot | undefined)[] = [undefined, R1, R2];
     const canonicals: string[] = [];
@@ -207,7 +207,7 @@ describe("report proof-of-possession", () => {
     );
   });
 
-  it("a stale timestamp (11 minutes old) does not verify — the replayed-signature refusal", async () => {
+  it("a stale timestamp (11 minutes old) does not verify - the replayed-signature refusal", async () => {
     const k = await makeKey();
     const now = 1_700_000_000_000;
     const proof = await signReportProof(k.privJwk, "ROOM", "MEM", now - 11 * 60_000);
@@ -275,7 +275,7 @@ describe("anonymous report tally", () => {
     expect(state.ips.size).toBe(1);
   });
 
-  it("three DISTINCT IPs burn — and not before", () => {
+  it("three DISTINCT IPs burn - and not before", () => {
     const a = tallyAnonymousReport(null, "1.1.1.1", 1000);
     expect(a.burn).toBe(false);
     const b = tallyAnonymousReport(a.next, "2.2.2.2", 2000);
@@ -285,7 +285,7 @@ describe("anonymous report tally", () => {
     expect(c.next.ips.size).toBe(ANONYMOUS_REPORT_IP_THRESHOLD);
   });
 
-  it("a day-old tally resets — stale grievances are not corroboration", () => {
+  it("a day-old tally resets - stale grievances are not corroboration", () => {
     const fresh = tallyAnonymousReport(null, "1.1.1.1", 1000).next;
     const later = tallyAnonymousReport(fresh, "2.2.2.2", 2000).next;
     expect(later.ips.size).toBe(2);

@@ -65,7 +65,7 @@ export function SwRegister() {
     const offerReload = () => {
       toast("A fresh seal is ready", {
         description:
-          "A new version of CipherChat is installed. Reload when your letters are safely sent — drafts are kept only in memory.",
+          "A new version of CipherChat is installed. Reload when your letters are safely sent - drafts are kept only in memory.",
         duration: Infinity,
         action: {
           label: "Reload",

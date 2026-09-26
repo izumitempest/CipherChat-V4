@@ -627,7 +627,7 @@ export const useApp = create<AppState>()((set, get) => ({
     if (session.expiresAt && session.expiresAt > Date.now()) {
       addSystemLine(
         session.roomId,
-        `This room closes in ${fmtTtlRemaining(session.expiresAt - Date.now())} — then it's gone for everyone.`,
+        `This room closes in ${fmtTtlRemaining(session.expiresAt - Date.now())} - then it's gone for everyone.`,
       );
     }
 
@@ -1470,7 +1470,7 @@ function wireRelay(
       if (!ok) {
         addSystemLine(
           roomId,
-          `A burn request claiming to be from ${author?.alias ?? "an unknown member"} was rejected — signature invalid.`,
+          `A burn request claiming to be from ${author?.alias ?? "an unknown member"} was rejected - signature invalid.`,
         );
         return;
       }
@@ -1756,7 +1756,7 @@ async function handleOpenResult(roomId: string, frame: WireFrame, result: OpenRe
         const sender = registry.find((m) => m.memberId === frame.from);
         addSystemLine(
           roomId,
-          `A message claiming to be from ${sender?.alias ?? "an unknown member"} was rejected — signature invalid.`,
+          `A message claiming to be from ${sender?.alias ?? "an unknown member"} was rejected - signature invalid.`,
         );
         touchCard(roomId, !inRoom);
       }
@@ -1806,7 +1806,7 @@ async function receiveLegacyEnvelope(roomId: string, envelope: WireEnvelope) {
   if (!payload || !sender) {
     addSystemLine(
       roomId,
-      `A message claiming to be from ${sender?.alias ?? "an unknown member"} was rejected — signature invalid.`,
+      `A message claiming to be from ${sender?.alias ?? "an unknown member"} was rejected - signature invalid.`,
     );
     touchCard(roomId, useApp.getState().activeRoomId !== roomId);
     return;
@@ -1825,7 +1825,7 @@ async function receiveLegacyEnvelope(roomId: string, envelope: WireEnvelope) {
   if (!ok) {
     addSystemLine(
       roomId,
-      `A message claiming to be from ${sender.alias} was rejected — signature invalid.`,
+      `A message claiming to be from ${sender.alias} was rejected - signature invalid.`,
     );
     touchCard(roomId, useApp.getState().activeRoomId !== roomId);
     return;

@@ -240,7 +240,7 @@ function MarksBar({
             onClick={() => onReact?.(mark)}
             disabled={!onReact}
             aria-pressed={mine}
-            aria-label={`${label} — ${who}`}
+            aria-label={`${label} - ${who}`}
             title={who}
             className={cn(
               "mark-chip relative flex h-[26px] items-center gap-1.5 rounded-full border px-2.5 font-sans text-[11.5px] font-medium tabular-nums transition duration-150 before:absolute before:-inset-x-1.5 before:-inset-y-[9px] before:content-['']",
@@ -495,7 +495,7 @@ function FileContent({
             <p className="truncate font-sans text-[13px] font-medium text-charcoal">
               {file.name}
             </p>
-            <p className="t-meta mt-0.5">Opened — the contents are gone</p>
+            <p className="t-meta mt-0.5">Opened - the contents are gone</p>
           </div>
         </div>
       );
@@ -505,14 +505,14 @@ function FileContent({
         type="button"
         onClick={() => onOpenFile(message)}
         className="group flex w-[230px] max-w-full items-center gap-3 rounded-[10px] border border-hairline bg-paper p-3 text-left transition duration-150 hover:border-forest/30 hover:bg-wash active:translate-y-px"
-        aria-label="Open sealed file — it can be opened once"
+        aria-label="Open sealed file - it can be opened once"
       >
         <span className="flex size-9 shrink-0 items-center justify-center rounded-[8px] bg-wash text-forest transition-colors duration-150 group-hover:bg-forest/10">
           <Mail className="size-4" aria-hidden />
         </span>
         <div className="min-w-0">
           <p className="font-sans text-[13px] font-medium text-charcoal">Sealed</p>
-          <p className="t-meta mt-0.5">View once — opening destroys it</p>
+          <p className="t-meta mt-0.5">View once - opening destroys it</p>
         </div>
       </button>
     );

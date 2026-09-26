@@ -135,7 +135,7 @@ test("golden path: create → join → message → reply → react → EXIF stri
   await expect(a.getByLabel("Remove attachment")).toBeVisible({ timeout: 15_000 });
   await a.getByRole("button", { name: "View once" }).click();
   await a.getByLabel("Send message").click();
-  const sealed = b.getByLabel("Open sealed file — it can be opened once");
+  const sealed = b.getByLabel("Open sealed file - it can be opened once");
   await expect(sealed).toBeVisible({ timeout: 20_000 });
   await sealed.click();
   await expect(b.locator('img[src^="blob:"]').first()).toBeVisible({ timeout: 10_000 });

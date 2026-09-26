@@ -186,7 +186,7 @@ export function TtlPicker({
             <Hourglass className="size-3 shrink-0" aria-hidden />
             {draftSec > 0
               ? draftClamped
-                ? `Capped at ${fmtTtlLong(TTL_MAX_SEC)} — the longest a letter may wait.`
+                ? `Capped at ${fmtTtlLong(TTL_MAX_SEC)} - the longest a letter may wait.`
                 : `Letters destroy themselves after ${fmtTtlLong(clampTtl(draftSec))}.`
               : `Between ${TTL_MIN_SEC} seconds and ${fmtTtlLong(TTL_MAX_SEC)}.`}
           </p>

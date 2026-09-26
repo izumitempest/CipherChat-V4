@@ -23,7 +23,7 @@ function reasonCopy(reason: JoinResult["reason"]): string {
     case "wrong-password":
       return "That password doesn't match this room.";
     case "expired":
-      return "This room's time ran out. It's gone — ask for a new one.";
+      return "This room's time ran out. It's gone - ask for a new one.";
     case "not-found":
     case "burned":
       return "This room doesn't exist, or it has been burned.";

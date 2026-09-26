@@ -75,7 +75,7 @@ export function VerificationSheet({
         <SheetHeader className="p-0 text-left">
           <SheetTitle className="t-title">Verify participants</SheetTitle>
           <SheetDescription className="mt-1 font-sans text-[13px] leading-[19px] text-mute">
-            Each person here has a fingerprint — a short code made from their
+            Each person here has a fingerprint, a short code made from their
             key. Compare it with them through another channel to be certain
             no one is impersonating them.
           </SheetDescription>

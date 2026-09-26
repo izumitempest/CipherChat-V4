@@ -163,7 +163,7 @@ function CreateRoomSheet({
     if (passRef.current) passRef.current.value = "";
     onOpenChange(false);
     toast("Room created", {
-      description: "Share the link — and the password through a different channel.",
+      description: "Share the link - and the password through a different channel.",
     });
   }
 
@@ -214,7 +214,7 @@ function CreateRoomSheet({
                   New password
                   <RefreshCw className="ml-1 inline size-3 align-[-1px]" />
                 </button>
-                — share it through a different channel than the link.
+                - share it through a different channel than the link.
               </span>
             }
             error={error}

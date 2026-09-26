@@ -145,7 +145,7 @@ function ActiveRoom({ roomId }: { roomId: string }) {
       if (expiresAt <= Date.now()) {
         clearInterval(t);
         toast(`This room's time ran out`, {
-          description: "It's closed for everyone — the letters went with it.",
+          description: "It's closed for everyone - the letters went with it.",
         });
         closeExpiredRoom(roomId);
       }
@@ -319,7 +319,7 @@ function ActiveRoom({ roomId }: { roomId: string }) {
               aria-hidden
             />
             <p className="t-meta min-w-0 flex-1 text-terracotta/85">
-              The line is down — letters pause until it returns.
+              The line is down - letters pause until it returns.
             </p>
           </div>
         </div>
@@ -359,7 +359,7 @@ function ActiveRoom({ roomId }: { roomId: string }) {
                         Invite someone to begin.
                       </p>
                       <p className="mt-1.5 max-w-[320px] font-sans text-[13px] leading-[19px] text-mute">
-                        Share the link — and send the password through a different
+                        Share the link - and send the password through a different
                         channel.
                       </p>
                       <PrimaryAction className="mt-7" onClick={copyInviteLink}>
@@ -440,7 +440,7 @@ function ActiveRoom({ roomId }: { roomId: string }) {
         <div className="settle mx-auto flex w-full max-w-[720px] items-center gap-2 px-5 pb-1.5 pt-2">
           <Hourglass className="size-3.5 shrink-0 text-terracotta" aria-hidden />
           <p className="t-meta min-w-0 flex-1">
-            Messages set to expire burn themselves when the clock runs out —
+            Messages set to expire burn themselves when the clock runs out -
             for everyone.
           </p>
           <button
@@ -658,7 +658,7 @@ function LockedRoomView({ roomId }: { roomId: string }) {
           </span>
           <p className="t-title mt-4">{card?.localName ?? "Room"}</p>
           <p className="mt-1.5 font-sans text-[13px] leading-[19px] text-mute">
-            This room is locked. Keys live only in memory — re-enter the
+            This room is locked. Keys live only in memory - re-enter the
             password to return.
           </p>
           {/* The card settles as one; the way back in follows a beat

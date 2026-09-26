@@ -118,7 +118,7 @@ function RoomListBody() {
     <>
       {roomCards.length > 0 && roomCards.some((c) => !getSession(c.roomId)) ? (
         <p className="px-4 pb-2 pt-1 text-center font-sans text-[11.5px] leading-[16px] text-mute sm:px-5">
-          Rooms lock when you refresh — re-enter each password to return.
+          Rooms lock when you refresh - re-enter each password to return.
         </p>
       ) : null}
       {body}
@@ -161,7 +161,7 @@ function RoomCardRow({
                 className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 -rotate-2 bg-ash/50"
               />
             </p>
-            <p className="t-meta mt-0.5 text-ash/70">Closed — its time ran out</p>
+            <p className="t-meta mt-0.5 text-ash/70">Closed - its time ran out</p>
           </div>
           <Clock3 className="size-4 shrink-0 text-ash/50" aria-hidden />
         </div>
@@ -185,7 +185,7 @@ function RoomCardRow({
                 className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 -rotate-2 bg-ash/50"
               />
             </p>
-            <p className="t-meta mt-0.5 text-ash/70">Burned — this room is gone</p>
+            <p className="t-meta mt-0.5 text-ash/70">Burned - this room is gone</p>
           </div>
           <Mail className="size-4 shrink-0 text-ash/50" aria-hidden />
         </div>
@@ -304,7 +304,7 @@ export function UnlockSheet({
         res.reason === "wrong-password"
           ? "That password doesn't match this room."
           : res.reason === "expired"
-            ? "This room's time ran out — it's gone."
+            ? "This room's time ran out - it's gone."
           : res.reason === "not-found" || res.reason === "burned"
             ? "This room doesn't exist, or it has been burned."
             : "Something went wrong. Try again.",
@@ -324,7 +324,7 @@ export function UnlockSheet({
         <SheetHeader className="p-0 text-left">
           <SheetTitle className="t-title">{card?.localName ?? "Room"}</SheetTitle>
           <SheetDescription className="mt-1 font-sans text-[13px] leading-[19px] text-mute">
-            This room is locked. Keys live only in memory — re-enter the
+            This room is locked. Keys live only in memory - re-enter the
             password to return.
           </SheetDescription>
         </SheetHeader>
