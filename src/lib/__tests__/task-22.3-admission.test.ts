@@ -1,7 +1,7 @@
-// Task 22.3 — ADMISSION POLICY FOR THE MEMBER CAP
+// Task 22.3: ADMISSION POLICY FOR THE MEMBER CAP
 //
 // Property: a known member (their pubkey is already in the registry)
-// always rejoins — the cap can never lock a legitimate member out of
+// always rejoins: the cap can never lock a legitimate member out of
 // their own room. A stranger is admitted only while the count of
 // recently-seen members is below the cap, so a code-holder without
 // the password cannot permanently fill the room with throwaway keys.

@@ -1,8 +1,8 @@
-// Legal — the Terms of Use and Privacy Policy, read in-app. The
+// Legal: the Terms of Use and Privacy Policy, read in-app. The
 // documents live in /public/legal as plain Markdown (single source of
 // truth, readable on GitHub too); the sheet fetches and renders them.
-// Not a centered modal — centered modals are reserved for irreversible
-// moments — so this is a surface sheet like Room settings, near-full
+// Not a centered modal (centered modals are reserved for irreversible
+// moments), so this is a surface sheet like Room settings, near-full
 // on a phone.
 
 "use client";
@@ -23,7 +23,7 @@ import { useIsDesktop } from "@/hooks/use-is-desktop";
 import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ */
-/* Store — one open document, or none.                                 */
+/* Store - one open document, or none.                                   */
 /* ------------------------------------------------------------------ */
 
 export type LegalDoc = "terms" | "privacy";
@@ -39,7 +39,7 @@ export const useLegalSheet = create<{
 }));
 
 /* ------------------------------------------------------------------ */
-/* Links — quiet inline references, forest like every trusted thing.   */
+/* Links - quiet inline references, forest like every trusted thing.  */
 /* ------------------------------------------------------------------ */
 
 const linkClass =
@@ -69,7 +69,7 @@ export function LegalLinks({ className, ...rest }: React.ComponentProps<"span">)
 }
 
 /* ------------------------------------------------------------------ */
-/* Host — mounts once, renders whichever document is open.             */
+/* Host - mounts once, renders whichever document is open.             */
 /* ------------------------------------------------------------------ */
 
 const DOCS: Record<LegalDoc, { title: string; path: string }> = {
@@ -77,7 +77,7 @@ const DOCS: Record<LegalDoc, { title: string; path: string }> = {
   privacy: { title: "Privacy Policy", path: "/legal/privacy.md" },
 };
 
-// The documents are static — fetch each once per session.
+// The documents are static, so fetch each once per session.
 const docCache = new Map<LegalDoc, string>();
 
 export function LegalSheetHost() {
@@ -90,7 +90,7 @@ export function LegalSheetHost() {
 
   // Render-time adjustment (the codebase's sanctioned pattern, see
   // SettingsSheet): when the open document changes, adopt the cached
-  // text — or clear it — before anything paints. No effect needed.
+  // text (or clear it) before anything paints. No effect needed.
   const [wasOpen, setWasOpen] = useState<LegalDoc | null>(null);
   if (open !== wasOpen) {
     setWasOpen(open);
@@ -185,7 +185,7 @@ export function LegalSheetHost() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Markdown styling — no typography plugin; every element is dressed   */
+/* Markdown styling - no typography plugin; every element is dressed   */
 /* by hand. Serif for the human text, hairlines between the sections.  */
 /* ------------------------------------------------------------------ */
 

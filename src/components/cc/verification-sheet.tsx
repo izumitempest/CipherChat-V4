@@ -1,4 +1,4 @@
-// S7 — Key verification. The hardest security-UX problem, solved for
+// S7: Key verification. The hardest security-UX problem, solved for
 // someone who has never heard of a fingerprint: compare short codes,
 // through another channel, and mark the people you've confirmed.
 
@@ -49,7 +49,7 @@ export function VerificationSheet({
     if (open) setVerifiedIds(loadVerified(roomId));
   }
 
-  // Fingerprints are computed from each public key — deterministic,
+  // Fingerprints are computed from each public key: deterministic,
   // the same for everyone who sees it.
   useEffect(() => {
     if (!open) return;

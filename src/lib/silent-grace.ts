@@ -1,7 +1,7 @@
-// Task 21.1 — Silent-departure grace.
+// Task 21.1: Silent-departure grace.
 //
 // A member whose connection silently drops (closed laptop, dead
-// signal — no clean leave) keeps the room key forever unless someone
+// signal, no clean leave) keeps the room key forever unless someone
 // acts. This module holds the decision logic for the two authorities
 // that close that gap:
 //
@@ -14,12 +14,12 @@
 //     grace timer still means anything at the moment it fires.
 //
 // Both are pure functions so the properties are unit-testable; the
-// route and the store only gather facts and obey.
+// route and the store only gather facts and apply the decision.
 
-/** How long a silent leaver stays welcome before the room re-seals
- *  (client-side grace timer). Long enough to absorb a laptop waking
- *  up or a train tunnel; short enough that a stolen key has a
- *  half-life. */
+/** How long a silent leaver stays in the room before the room rotates
+ *  its key (client-side grace timer). Long enough to absorb a laptop
+ *  waking up or a train tunnel; short enough that a stolen key stops
+ *  working soon. */
 export const SILENT_GRACE_MS = 120_000;
 
 /** Server-side floor on how long the target must have been offline
@@ -27,7 +27,7 @@ export const SILENT_GRACE_MS = 120_000;
  *  an honest coordinator's request always passes. */
 export const EVICT_MIN_OFFLINE_MS = 60_000;
 
-/** Marker for "the relay had no clock for this member" — the caller
+/** Marker for "the relay had no clock for this member": the caller
  *  could not establish the offline duration, so eviction fails
  *  closed. */
 export const OFFLINE_UNKNOWN = -1;
@@ -70,7 +70,7 @@ export function authorizeEviction(facts: EvictFacts): EvictVerdict {
   if (!facts.callerInRegistry) return { ok: false, reason: "caller-unknown" };
   if (!facts.targetInRegistry) return { ok: false, reason: "target-unknown" };
   if (facts.targetIsCaller) return { ok: false, reason: "self" };
-  // Presence authority unavailable or unfavorable — fail closed: no
+  // Presence authority unavailable or unfavorable: fail closed. No
   // eviction happens without the relay vouching that the caller is
   // live and the target is not.
   if (!facts.callerConnected) return { ok: false, reason: "caller-offline" };
@@ -96,7 +96,7 @@ export interface ExpiryFacts {
 }
 
 /** The client's gate at the moment its grace timer fires. Every
- *  condition must still hold — the grace window is a promise to keep
+ *  condition must still hold: the grace window is a promise to keep
  *  watching, not a decision made once. */
 export function stillSilentAtExpiry(facts: ExpiryFacts): boolean {
   return (

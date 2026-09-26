@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { parseRelayTarget } from "../relay";
 
-// The wiring between NEXT_PUBLIC_RELAY_URL and what reaches the wire.
+// The wiring between NEXT_PUBLIC_RELAY_URL and what actually gets
+// sent over the network.
 // socket.io-client v4 turns a URL's path into a NAMESPACE and sends
-// engine.io requests to opts.path — these tests pin the split so the
+// engine.io requests to opts.path. These tests pin the split so the
 // URL's path can never silently become a namespace the relay never
 // registered (the compose-Caddy failure the CI golden path caught).
 
@@ -12,7 +13,7 @@ describe("relay target parsing", () => {
     // handle_path /relay/* strips the prefix; the relay (server path
     // "/") then answers on "/". If this value ever reached io() as a
     // URL, the client would request the unregistered "/relay/"
-    // namespace over requests to /socket.io/ — which Caddy routes to
+    // namespace over requests to /socket.io/, which Caddy routes to
     // the web container, not the relay.
     expect(parseRelayTarget("/relay/")).toEqual({
       origin: null,

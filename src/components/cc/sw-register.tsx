@@ -1,19 +1,19 @@
-// Registers the service worker — installability without retention.
+// Registers the service worker: installability without retention.
 // The worker itself caches only static shell assets; conversations
 // never touch it (they never leave browser memory).
 //
 // Dev is exempt from REGISTRATION: hot-reload edits and a caching
 // worker serve each other stale chunks, which has broken QA more
 // than once. The message ROUTES below stay attached in every
-// environment — they are inert without a worker.
+// environment; they are inert without a worker.
 //
 // Update flow (Task 22): when a freshly deployed worker takes over,
 // the page shows ONE persistent toast offering a reload. It never
-// reloads on its own — a half-written draft outranks freshness.
+// reloads on its own: a half-written draft outranks freshness.
 //
 // Notification taps (Task 25): the worker (or the page-level
-// notification fallback) asks for a room; the hash router opens it —
-// locked rooms show their unlock sheet, which is a first-class state.
+// notification fallback) asks for a room; the hash router opens it.
+// Locked rooms show their unlock sheet, which is a first-class state.
 
 "use client";
 
@@ -52,10 +52,10 @@ export function SwRegister() {
     // The truth this whole flow hangs on, captured once at load and
     // never mutated: did this page load WITH a controller? If it did,
     // any later takeover is an update. If it did not, what follows is
-    // the first install claiming a virgin page — silent, always, no
+    // the first install claiming a virgin page: silent, always, no
     // matter which of controllerchange or the worker's activate
     // message wins the race. (The mutable-flag version fired the "new
-    // version installed" toast on fresh browser profiles — CI caught
+    // version installed" toast on fresh browser profiles. CI caught
     // it blocking the golden path's reply click: a visitor who never
     // had a version, told one was installed, with a duration:
     // Infinity toast parked over their conversation.)
@@ -75,7 +75,7 @@ export function SwRegister() {
     };
 
     const onControllerChange = () => {
-      if (!loadedWithController) return; // first install claiming the page — silent
+      if (!loadedWithController) return; // first install claiming the page, silent
       if (prompted) return; // one prompt per page load
       prompted = true;
       offerReload();
@@ -105,7 +105,7 @@ export function SwRegister() {
         navigator.serviceWorker
           ?.register("/sw.js", { scope: "/", updateViaCache: "none" })
           .catch(() => {
-            /* Quiet by design — installability is an enhancement, never
+            /* Quiet by design: installability is an enhancement, never
              * a message the user needs to see. */
           });
       }, 1200);

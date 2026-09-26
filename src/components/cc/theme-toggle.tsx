@@ -4,7 +4,7 @@ import { useSyncExternalStore } from "react";
 import { useTheme } from "next-themes";
 import { Moon, Sun } from "lucide-react";
 
-/* Hydrated? Server says no, client says yes — read through
+/* Hydrated? Server says no, client says yes. Read through
  * useSyncExternalStore so no effect or setState is involved. */
 const emptySubscribe = () => () => {};
 function useHydrated() {
@@ -15,7 +15,7 @@ function useHydrated() {
   );
 }
 
-/** Nightfall toggle — the same desk, by lamplight. CSS decides which
+/** Nightfall toggle: the same desk, by lamplight. CSS decides which
  *  icon shows, so there is no hydration guesswork at all. The turn:
  *  after hydration, the icon pair is keyed by the resolved theme, so
  *  a switch remounts the span and the new icon swings in from a

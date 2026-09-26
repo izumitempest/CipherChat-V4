@@ -1,6 +1,6 @@
-// S4 — The desk. A stack of open letters: local name, who's there,
+// S4: the desk. A stack of open letters: local name, who's there,
 // quiet unread dot, last touch. Locked rooms ask for their password
-// again — that's the product, not an error.
+// again; that's the product, not an error.
 //
 // One instance serves both breakpoints: the full screen on mobile,
 // the sidebar on desktop.
@@ -69,7 +69,7 @@ function RoomListBody() {
 
   const body = roomCards.length === 0 ? (
     <div className="settle relative flex flex-1 flex-col items-center justify-center px-6 py-12">
-      {/* The watermark — the ghost of the drop, pressed
+      {/* The watermark: the ghost of the drop, pressed
           into the paper at almost-nothing: the desk, waiting for
           letters. Sits behind the copy; never intercepts a touch. */}
       <InkMark
@@ -141,13 +141,12 @@ function RoomCardRow({
   const members = useApp((s) => s.members[card.roomId]?.length ?? 0);
   const isOpen = useApp((s) => s.activeRoomId === card.roomId);
   const count = Math.max(1, members || card.lastMembers || 1);
-  /* The letters settle onto the desk, one behind the next —
+  /* The letters settle onto the desk, one behind the next:
      a 30ms step, capped, so a long desk never drags. */
   const settleDelay = { animationDelay: `${Math.min(index, 8) * 30}ms` };
 
   if (card.closed || (card.expiresAt && card.expiresAt <= Date.now())) {
-    // The clock ran out — same quiet register as ash, honest about
-    // why: time, not fire.
+    // The clock ran out. Quiet and factual about why: time, not fire.
     return (
       <li className="settle" style={settleDelay}>
         <div
@@ -211,7 +210,7 @@ function RoomCardRow({
             </p>
             {card.unread && !locked ? (
               card.unreadCount && card.unreadCount > 0 ? (
-                /* Letters that landed while the room was away — counted,
+                /* Letters that landed while the room was away, counted,
                    never stored beyond the number itself. The pill pops
                    in once when it appears and beats softly as the count
                    rises; under its row's hover it firms up, quietly. */
@@ -282,7 +281,7 @@ export function UnlockSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Secret field, uncontrolled: the typed password exists only as the
-  // input's DOM property — never React state, never the value
+  // input's DOM property, never React state, never the value
   // attribute. Read once at submit; wiped on close and on unmount.
   const passRef = useRef<HTMLInputElement>(null);
 

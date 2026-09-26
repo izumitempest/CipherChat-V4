@@ -1,4 +1,4 @@
-// Room lifetime — the creator decides how long the room exists, at
+// Room lifetime: the creator decides how long the room exists, at
 // creation and (with the creator token) later. Pure constants and
 // helpers shared by the REST routes and the client UI; enforcement
 // itself lives in the routes (expired rooms are refused and swept).
@@ -7,7 +7,7 @@ import { fmtTtlShort } from "./format";
 
 /** Shortest room lifetime (5 minutes). */
 export const ROOM_TTL_MIN_SEC = 300;
-/** Longest (30 days) — rooms are letters, not archives. */
+/** Longest (30 days): rooms are meant to expire, not to be archives. */
 export const ROOM_TTL_MAX_SEC = 2_592_000;
 
 /** What a creator is offered outright. 0 = no expiry ("until burned"). */

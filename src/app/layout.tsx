@@ -27,7 +27,7 @@ export const metadata: Metadata = {
   // to the public origin in production; the dev default only silences
   // the resolver warning.
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
-  title: "CipherChat — a conversation that leaves no trace",
+  title: "CipherChat - a conversation that leaves no trace",
   description:
     "End-to-end encrypted, ephemeral rooms. No accounts, no history, no trace. Messages are encrypted in your browser and destroyed on schedule.",
   applicationName: "CipherChat",
@@ -41,7 +41,7 @@ export const metadata: Metadata = {
     apple: "/icons/apple-touch-icon.png",
   },
   openGraph: {
-    title: "CipherChat — a conversation that leaves no trace",
+    title: "CipherChat - a conversation that leaves no trace",
     description:
       "End-to-end encrypted, ephemeral rooms. No accounts, no history, no trace. Messages are encrypted in your browser and destroyed on schedule.",
     siteName: "CipherChat",
@@ -51,13 +51,13 @@ export const metadata: Metadata = {
         url: "/og.png",
         width: 1200,
         height: 630,
-        alt: "The CipherChat split seal — a wax seal cracked along one diagonal with an ember glowing in the fracture — beside the wordmark.",
+        alt: "The CipherChat split seal - a wax seal cracked along one diagonal with an ember glowing in the fracture - beside the wordmark.",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "CipherChat — a conversation that leaves no trace",
+    title: "CipherChat - a conversation that leaves no trace",
     description:
       "End-to-end encrypted, ephemeral rooms. No accounts, no history, no trace.",
     images: ["/og.png"],
@@ -95,10 +95,10 @@ export default function RootLayout({
       >
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
           {children}
-          {/* Paper grain — the whole world is paper, even at night */}
+          {/* Paper grain - the whole world is paper, even at night */}
           <div className="grain" aria-hidden="true" />
           {/* Toasts seat below the header and any on-stage notice
-              (--toast-top, globals.css) — the top of the screen is
+              (--toast-top, globals.css). The top of the screen is
               never spoken for twice. */}
           <Toaster
             position="top-center"

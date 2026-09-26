@@ -1,13 +1,13 @@
 // The install offer, made polite. The browser fires
 // `beforeinstallprompt` when it is willing (Android Chrome, desktop
-// Chrome/Edge); we catch it, keep it, and let OUR UI make the ask —
+// Chrome/Edge); we catch it, keep it, and let OUR UI make the ask,
 // never the browser's mini-infobar. iOS Safari never fires it: there,
 // installing is a hand movement (Share → Add to Home Screen), so the
 // settings sheet teaches the steps instead.
 //
 // `standalone` knows whether this IS already the installed app (the
 // sheet then says so, and stops offering). Platform facts are read
-// through useSyncExternalStore — no effect-setState, no hydration
+// through useSyncExternalStore: no effect-setState, no hydration
 // guesswork (the same discipline as the theme toggle).
 
 "use client";

@@ -1,4 +1,4 @@
-// Task 19.6 — HARDENING (P2)
+// Task 19.6: HARDENING (P2)
 //
 // Properties:
 //  - The relay rate-limits every socket: sustained 20 frames/sec with
@@ -31,7 +31,7 @@ describe("relay per-socket token bucket (20 frames/sec)", () => {
     for (let i = 0; i < RELAY_FRAME_BURST; i++) {
       expect(bucket.tryTake()).toBe(true);
     }
-    // The very next frame is over budget:
+    // The next frame is over budget:
     expect(bucket.tryTake()).toBe(false);
     // One second of refill = 20 more frames, not more:
     now += 1000;

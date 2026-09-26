@@ -7,7 +7,7 @@ import {
   ROOM_TTL_DEFAULT_SEC,
 } from "@/lib/room-ttl";
 
-// Crockford base32, no I/L/O/U — codes that survive being read aloud
+// Crockford base32, no I/L/O/U: codes that survive being read aloud
 const ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 function makeRoomId(len = 10): string {
@@ -37,9 +37,9 @@ function clientIp(request: Request): string {
   return request.headers.get("x-real-ip") ?? "local";
 }
 
-// POST /api/rooms — create a room. The server never learns the password:
+// POST /api/rooms. Create a room. The server never learns the password:
 // the client derives the key locally and later stores only a verifier blob.
-// Body: { ttlSec?: number } — the room's lifetime chosen by its creator
+// Body: { ttlSec?: number } - the room's lifetime chosen by its creator
 // (0 = no expiry, "until burned"). Expired rooms are swept here: this is
 // the one write-heavy moment on the calendar, so the janitor rides along.
 export async function POST(request: Request) {
@@ -52,7 +52,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid-ttl" }, { status: 400 });
   }
   // The janitor: rooms whose time ran out leave now (members cascade).
-  // Cheap and idempotent — no cron, no timer, just tidiness on the way in.
+  // Cheap and idempotent: no cron, no timer, just tidiness on the way in.
   await db.room.deleteMany({ where: { expiresAt: { lt: new Date() } } });
   for (let attempt = 0; attempt < 5; attempt++) {
     const id = makeRoomId();

@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="assets/banner.svg" alt="CipherChat — a conversation that leaves no trace" width="880" />
+<img src="assets/banner.svg" alt="CipherChat: a conversation that leaves no trace" width="880" />
 
 <br />
 
-<a href="https://readme-typing-svg.demolab.com"><img src="https://readme-typing-svg.demolab.com?font=Georgia&size=18&pause=1600&color=C85A40&center=true&vCenter=true&random=false&width=620&lines=A+room+is+a+link+and+a+password.;The+server+relays+ciphertext+it+cannot+read.;Keys+are+derived+and+held+in+your+browser.;No+accounts.+No+history.+No+trace.;Burn+it+when+you%27re+done." alt="CipherChat, one true line at a time" width="620" /></a>
+<a href="https://readme-typing-svg.demolab.com"><img src="https://readme-typing-svg.demolab.com?font=Georgia&size=18&pause=1600&color=C85A40&center=true&vCenter=true&random=false&width=620&lines=A+room+is+a+link+and+a+password.;The+server+relays+ciphertext+it+cannot+read.;Keys+are+derived+and+held+in+your+browser.;No+accounts.+No+history.+No+trace.;Burn+it+when+you%27re+done." alt="CipherChat principles, one line at a time" width="620" /></a>
 
 <p>
   <img src="https://img.shields.io/badge/license-MIT-3A4F41?style=flat-square" alt="License: MIT" />
@@ -37,15 +37,15 @@ browser. The server is a blind relay that cannot read a single frame.
   5 seconds to 24 hours; the steps live in `TTL_STEPS`,
   `src/lib/types.ts`) and destroy themselves on schedule. The creator
   can burn the whole room for everyone.
-- **Ink marks.** Mark any message with one of four quiet margin marks
+- **Ink marks.** Mark any message with one of four margin marks
   (✓ acknowledged · ✦ noted · ♥ warmly received · ☾ later). Marks are
-  encrypted, signed, uniform-sized frames. The relay cannot even tell
+  encrypted, signed, uniform-sized frames. The relay cannot tell
   a mark happened.
-- **Captioned files.** Attach a file with words. The caption rides the
-  file's meta frame, canonical-signed like any text message.
+- **Captioned files.** Attach a file with words. The caption is carried on
+  the file's meta frame, canonical-signed like any text message.
 - **Refresh locks every room.** Keys live only in memory. Reload the page
   and each room must be unlocked again with its password.
-- **Honest identity.** You are a derived alias and a fingerprint others
+- **Verifiable identity.** You are a derived alias and a fingerprint others
   can verify out-of-band. Your signing key is per-room: the same device
   in two rooms is two different, unlinkable identities.
 
@@ -61,7 +61,7 @@ browser. The server is a blind relay that cannot read a single frame.
 | Silent-departure grace | a member whose connection drops without a clean leave is removed **2 minutes** later while anyone remains connected. The clock lives on the remaining clients: the relay's live presence (token-guarded, server-to-server) is the connection authority the eviction route consults, the epoch ledger makes the rotation durable, and the departed member simply re-enters with the password when they return |
 | Departure proof | leaving requires a signature from the member's registered key. A room-code holder cannot trigger nuisance rotations in your name |
 | Rejoin after rotation | the current key arrives ECDH-wrapped and encrypted under the password-derived entry key, so only a joiner who proved the password can open it |
-| Forgery | messages are signed inside the encrypted payload and verified against the REST member registry; forgeries render as a quiet rejection line |
+| Forgery | messages are signed inside the encrypted payload and verified against the REST member registry; forgeries render as a plain rejection line |
 | Verifiability | fingerprints derive from registered public keys; verification marks live on your device |
 
 The constants behind these rows (KDF parameters, replay windows, the
@@ -74,12 +74,12 @@ they protect: replay, rotation, padding, KDF, identity, hardening,
 silent-departure grace, departure proofs, admission, reply integrity,
 canonical collision-proofing, report grading, passphrase CSPRNG source.
 The per-round inventory and the current count live in `CHANGES.md`
-(this section deliberately does not restate them; duplicated counts
-rot). Run the suite with `bun run test`.
+(this section does not restate them; duplicated counts
+go stale). Run the suite with `bun run test`.
 
 ## What CipherChat does NOT protect against
 
-Read this part. It is the product's spine.
+Read this part. These are the main limitations.
 
 - **Metadata.** The relay sees who talks to whom, when, and how much.
   Frame sizes are uniform, so it cannot read file sizes or distinguish
@@ -101,7 +101,7 @@ Read this part. It is the product's spine.
   out-of-band or push nuisance rotations. Group E2EE keeps outsiders
   out; it cannot police participants.
 - **The password cannot be changed** for the room's lifetime. Password
-  knowledge is permanent. That is exactly why rotation keys are random
+  knowledge is permanent. That is why rotation keys are random
   and password-independent.
 - **Endpoint compromise.** Malware, XSS, or physical access to your
   device reads everything. No browser app can prevent that.
@@ -139,7 +139,7 @@ cp .env.example .env        # set RELAY_INTERNAL_TOKEN (openssl rand -hex 24)
 docker compose up -d        # app + relay + Caddy with automatic TLS
 ```
 
-That is the whole self-host story: `deploy/` contains the web Dockerfile
+That is the whole self-host setup: `deploy/` contains the web Dockerfile
 (Next.js standalone output + Prisma), the relay Dockerfile, and the
 compose file that wires them behind Caddy. `docker compose down -v`
 removes the database volume too. Burn your rooms first if you mean it.
@@ -153,7 +153,7 @@ rotate-on-leave, rejoin, file, view-once, burn.
 
 `tests/e2e/golden-path.spec.ts` (Playwright) drives the whole product
 through one conversation with **two browser contexts** (same origin,
-isolated storage), which retires the two-origins trick manual QA needed:
+isolated storage), which removes the two-origins trick manual QA needed:
 create → join → message → reply → react → GPS-tagged JPEG through the
 EXIF strip (byte-verified in the receiver's viewer) → view-once (opened,
 no download, spent propagates) → leave → rotation → rejoin (fresh joiner
@@ -172,7 +172,7 @@ bunx playwright test                # against a running dev stack (base URL
 
 - **verify**: lint → `tsc --noEmit` (the relay included) → the full
   property suite → the dependency audit → production build. The audit
-  is split honestly: the **runtime tree** gate is blocking (exceptions
+  is split by scope: the **runtime tree** gate is blocking (exceptions
   enumerated per advisory in `scripts/audit-gate.mjs` + `AUDIT.md`),
   the full-tree view is advisory and dispositioned per advisory.
 - **e2e**: builds the production compose stack on the runner (web +
@@ -187,7 +187,7 @@ the golden path is the product contract.
 Pushing a tag (`v*`) fires `.github/workflows/release.yml`: the
 property suite runs first, then a GitHub release is created from
 `RELEASE_NOTES.md`. A red suite means no release, the same rule as
-CI. Tags containing a hyphen (rc, beta) are marked prerelease
+in CI. Tags containing a hyphen (rc, beta) are marked prerelease
 automatically. If you would rather create a release without the
 workflow:
 
@@ -198,7 +198,7 @@ gh release create v1.0.0-rc1 --prerelease \
 
 ### Performance note
 
-Room unlocking is deliberately slow (argon2id, 64 MB). On a desktop this
+Room unlocking is slow by design (argon2id, 64 MB). On a desktop this
 takes ~1 second; on a low-end Android it can take 5 to 8 seconds. That is
 the cost of grinding resistance, not a bug. The sealing screen says so.
 

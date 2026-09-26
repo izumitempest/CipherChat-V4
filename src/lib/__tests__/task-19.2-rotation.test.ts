@@ -1,10 +1,10 @@
-// Task 19.2 — REAL KEY ROTATION ON LEAVE (P0)
+// Task 19.2: REAL KEY ROTATION ON LEAVE (P0)
 //
-// Property: when a member leaves, the remaining members seal the room
+// Property: when a member leaves, the remaining members encrypt the room
 // under a NEW RANDOM key, delivered pairwise over ephemeral ECDH and
 // signed. The departed member holds the password, the room id, a live
-// socket, and can read the key version off the wire — and STILL cannot
-// decrypt any post-rotation frame. Password knowledge is not enough,
+// socket, and can read the key version from the plain frame metadata,
+// and STILL cannot decrypt any post-rotation frame. Password knowledge is not enough,
 // because the new key is not derived from the password.
 //
 // Additional properties: forged rotation offers (from a
@@ -33,7 +33,7 @@ describe("ACCEPTANCE — the departed member cannot read the room after rotation
 
     // Mallory leaves: every remaining member's registry drops her.
     for (const m of [alice, bob]) m.cipher.registry.delete("m-mallory");
-    // (Mallory keeps HER registry — she still sees everyone's keys,
+    // (Mallory keeps HER registry: she still sees everyone's keys,
     //  the room id, and her own in-memory password-derived entry key.)
 
     // The deterministic coordinator (lowest memberId among remaining)
@@ -42,7 +42,7 @@ describe("ACCEPTANCE — the departed member cannot read the room after rotation
     expect(offerFrames.length).toBe(1); // one offer, addressed to Bob
     expect(offerFrames[0].to).toBe("m-bob");
 
-    // The relay broadcasts everything — Mallory receives the offer too.
+    // The relay broadcasts everything; Mallory receives the offer too.
     const results = await broadcast(offerFrames, [alice, bob, mallory], "m-alice");
     // Bob installed the new key:
     expect(results[0]).toMatchObject({ type: "offer-installed", rotation: true });
@@ -72,7 +72,7 @@ describe("ACCEPTANCE — the departed member cannot read the room after rotation
     }
 
     // Mallory cannot re-enter by re-deriving from the password: her
-    // entry key is version 1; the room is on version 2 — and the v2
+    // entry key is version 1; the room is on version 2, and the v2
     // key was NEVER derived from the password.
     expect(mallory.cipher.getKey(2)).toBeUndefined();
   });
@@ -103,7 +103,7 @@ describe("rotation ceremony hardening", () => {
     const entryKey = await randomAesKey();
     const [alice, bob] = await makeRoom(roomId, ["m-alice", "m-bob"], entryKey);
 
-    // Bob (memberId m-bob is NOT the coordinator — m-alice sorts first)
+    // Bob (memberId m-bob is NOT the coordinator; m-alice sorts first)
     // forges a rotation offer by hand (a malicious client would not use
     // the guarded helper):
     const rogueOffers = await bob.cipher.sealKeyOffer({
@@ -175,7 +175,7 @@ describe("rotation ceremony hardening", () => {
     await bob.cipher.open(offers[0]);
     expect(bob.cipher.kv).toBe(2);
 
-    // The in-flight kv-1 frame arrives AFTER rotation — grace saves it:
+    // The in-flight kv-1 frame arrives AFTER rotation; grace saves it:
     const during = await bob.cipher.open(inFlight[0]);
     expect(during.type).toBe("text");
 
@@ -199,11 +199,11 @@ describe("rotation ceremony hardening", () => {
     expect(bob.cipher.kv).toBe(2);
 
     // EVERY remaining member refreshes: fresh ciphers, same entry key,
-    // kv back at 1 — and Mallory keeps her live session, holding the
+    // kv back at 1. Mallory keeps her live session, holding the
     // password, kv1, AND kv2.
     const [alice2, bob2] = await makeRoom(roomId, ["m-alice", "m-bob"], entryKey, { now: () => now });
 
-    // The ledger says epoch 2 → the coordinator re-seals PAST it:
+    // The ledger says epoch 2 → the coordinator rotates PAST it:
     const offers2 = await alice2.cipher.rotateAsCoordinator(2);
     expect(alice2.cipher.kv).toBe(3);
     expect(offers2.length).toBe(1);
@@ -211,7 +211,7 @@ describe("rotation ceremony hardening", () => {
     expect(r).toMatchObject({ type: "offer-installed", rotation: true });
     expect(bob2.cipher.kv).toBe(3);
 
-    // Mallory — password, roomId, live pipeline, kv1 + kv2 — cannot
+    // Mallory, with password, roomId, live pipeline, kv1 + kv2, cannot
     // read the post-refresh traffic:
     const secret = await alice2.cipher.sealText({ text: "after the refresh" });
     const seen = await mallory.cipher.open(secret[0]);
@@ -238,8 +238,8 @@ describe("rotation ceremony hardening", () => {
     expect(alice.cipher.kv).toBe(5);
     expect(bob.cipher.kv).toBe(8);
 
-    // Each receives the other's offer — entry-sealed, so readable by
-    // any password holder at any version:
+    // Each receives the other's offer. It is encrypted under the entry
+    // key, so readable by any password holder at any version:
     const ra = await alice.cipher.open(b[0]); // kv 8 > 5 → installs
     const rb = await bob.cipher.open(a[0]); // kv 5 < 8 → ignored
     expect(ra).toMatchObject({ type: "offer-installed" });
@@ -258,7 +258,7 @@ describe("rotation ceremony hardening", () => {
     const [alice, bob] = await makeRoom(roomId, ["m-alice", "m-bob"], entryKey);
 
     // A malicious member pushes a chosen key at kv 2^53 (beyond
-    // MAX_SAFE_INTEGER) — installing it would make every future
+    // MAX_SAFE_INTEGER). Installing it would make every future
     // rotation compute newKv === kv, bricking the room:
     const huge = await alice.cipher.sealKeyOffer({
       to: "m-bob",
@@ -300,7 +300,7 @@ describe("rotation ceremony hardening", () => {
     const parked = await bob.cipher.open(fresh[0]);
     expect(parked.type).toBe("pending");
 
-    // Time passes beyond the pending window — the frame is refused:
+    // Time passes beyond the pending window; the frame is refused:
     now += 6000;
     const expired = await bob.cipher.open(structuredClone(fresh[0]));
     expect(expired.type).toBe("reject");
@@ -323,7 +323,7 @@ describe("rotation ceremony hardening", () => {
     for (const [id, entry] of alice.cipher.registry) {
       newbie.cipher.registry.set(id, { ...entry });
     }
-    // And the newcomer appears in the members' registries — with the
+    // And the newcomer appears in the members' registries, with the
     // SAME signing + ECDH keys the newcomer's cipher actually holds:
     for (const m of [alice, bob]) {
       m.cipher.registry.set("m-new", {
@@ -333,7 +333,7 @@ describe("rotation ceremony hardening", () => {
       });
     }
 
-    // Existing member delivers the current key to the newcomer —
+    // Existing member delivers the current key to the newcomer:
     // ECDH-wrapped AND wrapped under the password-derived entry key:
     const deliver = await alice.cipher.deliverKeyTo("m-new");
     expect(deliver).toHaveLength(1);

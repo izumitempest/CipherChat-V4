@@ -4,7 +4,7 @@ import { IpRateLimiter } from "@/lib/rate-limit";
 import { verifyLeaveProof } from "@/lib/leave-proof";
 import { roomExpired } from "@/lib/room-ttl";
 
-// POST /api/rooms/:roomId/leave — a member leaves, PROVING POSSESSION of
+// POST /api/rooms/:roomId/leave. A member leaves, PROVING POSSESSION of
 // the room signing key: the request carries {memberId, ts, sig}, and we
 // verify the signature against the pubkey registered for that member
 // before writing anyone out. A bare memberId (a server-issued handle a
@@ -56,7 +56,7 @@ export async function POST(
     return NextResponse.json({ error: "bad-proof" }, { status: 403 });
   }
   // Idempotent: replaying a captured proof against an already-inactive
-  // member is a no-op — the epoch bumps at most once per departure
+  // member is a no-op. The epoch bumps at most once per departure
   // (nuisance rotation would require a VALID signature from the
   // member's own key, i.e. the victim's own leave button).
   if (member.active) {

@@ -1,28 +1,28 @@
-// The Vanishing Ink — CipherChat's mark.
+// The Vanishing Ink, CipherChat's mark.
 //
 // A drop of ink, seated on the page, its top fraying into three
 // flecks that lift away. The writing is the drop; the ephemerality
-// is the flecks; and the last fleck — the smallest, almost gone —
+// is the flecks; and the last fleck (the smallest, almost gone)
 // is still warm (ember): the heat of the conversation leaving, not
-// the paper burning. The silhouette is deliberately hand-fallen:
+// the paper charring effect. The silhouette is irregular by design:
 // the bulb's sides wobble a few percent off a compass circle, the
 // tail leans a hair, and the detach edge is ragged, the way real
 // ink parts when it lifts.
 //
 // Variants:
-//   intact (default) — the seated drop with its flecks rising.
+//   intact (default) - the seated drop with its flecks rising.
 //                      Brand, landing, desk, centrepieces. With
-//                      `breathe`, the flecks quietly rise and fade
+//                      `breathe`, the flecks rise and fade
 //                      on a loop: the mark is always evaporating.
-//   scattered         — the drop has lifted off: only its outline
+//   scattered         - the drop has lifted off: only its outline
 //                      remains, rising away, while seven flecks
 //                      flee outward and the ember flares once.
 //                      Burn and destruction contexts only.
-//   fleck             — one four-pointed fleck alone, filled with
+//   fleck             - one four-pointed fleck alone, filled with
 //                      currentColor so it can carry any member ink
 //                      (--ink-0..7) or a watermark tone. Typing
 //                      dots, sender shards, quiet accents.
-//   ghost             — the drop's outline stroked in currentColor,
+//   ghost             - the drop's outline stroked in currentColor,
 //                      flecks filled. Watermarks at whisper
 //                      opacity; never intercepts a touch. With
 //                      `draw`, the outline inks itself onto the
@@ -33,12 +33,12 @@
 // Geometry: hand-tuned beziers on a 96×96 grid. The drop is drawn
 // upright (bulb centre ~(48,55), tail fraying at y≈25) and the
 // whole assembly is rotated 21° and scaled about (48,48), so the
-// flecks rise up-and-right — off the line of text, the direction
+// flecks rise up-and-right, off the line of text, the direction
 // writing leaves in.
 
 import { cn } from "@/lib/utils";
 
-/* The drop — a closed teardrop, joint radii wobbling (33.4 / 36.4 /
+/* The drop: a closed teardrop, joint radii wobbling (33.4 / 36.4 /
  * 62.8 against nominal bulbs), the top edge ragged where it parts. */
 const DROP =
   "M 46.3 29.4 C 45.1 35.2, 39.9 38.6, 36.9 43.6 C 33.7 48.9, 33.2 56.1, 36.4 61.7 " +
@@ -46,7 +46,7 @@ const DROP =
   "C 62.8 49.9, 59.5 45.0, 55.9 41.0 C 53.3 38.3, 51.5 35.0, 51.0 31.4 " +
   "L 49.7 29.5 L 48.1 31.1 Z";
 
-/* A four-pointed fleck — quadratics pulled toward the centre make
+/* A four-pointed fleck. Quadratics pulled toward the centre make
  * the edges kiss in, a glint rather than a square. */
 function fleckPath(cx: number, cy: number, r: number, lean = 0): string {
   const k = r * 0.42; // control pull
@@ -58,14 +58,14 @@ function fleckPath(cx: number, cy: number, r: number, lean = 0): string {
   );
 }
 
-/* The three rising flecks — the ink leaving, scattered on a zigzag
+/* The three rising flecks. The ink leaving, scattered on a zigzag
  * as flecks are when they catch the air: up, up-right, up. Sizes
  * fall as they climb; the last is the ember (see intact render). */
 const FLECK_1 = fleckPath(46.0, 21.5, 6.2);
 const FLECK_2 = fleckPath(56.0, 11.5, 4.7);
 const FLECK_3 = fleckPath(49.0, 3.2, 3.9);
 
-/* The lone fleck the `fleck` variant carries — big enough to hold
+/* The lone fleck the `fleck` variant carries, big enough to hold
  * a member ink at 9px, tilted the way the drop leans. */
 const LONE_FLECK = fleckPath(48, 48, 27, 2.5);
 
@@ -83,9 +83,9 @@ const SCATTER: { d: string; ember?: boolean; fx: string; fy: string; delay: stri
 
 /* The seated assembly: rotate + a breath of scale + a nudge, all
  * baked into one attribute transform (px origins, viewBox
- * units — see the CSS notes in globals.css). Hand-checked: the
- * flecks land at (51.6,27.5) (67.0,26.1) (63.0,14.5) final —
- * each with 2.5–3 units of clear air between edges. */
+ * units, see the CSS notes in globals.css). Hand-checked: the
+ * flecks land at (51.6,27.5) (67.0,26.1) (63.0,14.5) final, with
+ * each at 2.5–3 units of clear air between edges. */
 const SEAT = "translate(44 61) rotate(21) scale(1.12) translate(-48 -48)";
 
 export function InkMark({
@@ -161,7 +161,7 @@ export function InkMark({
             <path d={FLECK_3} fill="currentColor" className="ghost-fleck ghost-fleck-3" />
           </>
         ) : scattered ? (
-          /* the drop has left — its outline rises after it */
+          /* the drop has left; its outline rises after it */
           <>
             <path
               d={DROP}
@@ -182,13 +182,13 @@ export function InkMark({
               className="ink-lift-off"
               style={{ animationDelay: "260ms" } as React.CSSProperties}
             />
-            {/* the ember flares once as the ink departs, then dies */}
+            {/* the ember flares once as the ink departs, then is destroyed */}
             <path
               d={FLECK_3}
               fill="var(--ember)"
               className="ember-flare"
             />
-            {/* fleeing flecks — drift set per fleck via --fx/--fy */}
+            {/* fleeing flecks; drift set per fleck via --fx/--fy */}
             {SCATTER.map((f, i) => (
               <path
                 key={i}
@@ -206,10 +206,10 @@ export function InkMark({
             ))}
           </>
         ) : (
-          /* intact — the seated drop, its flecks rising. The flecks
+          /* intact: the seated drop, its flecks rising. The flecks
              carry numbered classes so globals.css can stagger the
              evaporating loop (and stack the hero's landing splash)
-             without inline delays — one inline animation-delay would
+             without inline delays. One inline animation-delay would
              bind every animation in a multi-animation shorthand. */
           <>
             <path d={DROP} fill={ink} />

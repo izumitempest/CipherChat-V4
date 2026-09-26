@@ -10,13 +10,13 @@
 //
 //   same device, same room  → same key (verification marks survive
 //                             refresh; "returned" recognition works)
-//   same device, two rooms  → DIFFERENT pubkeys, different aliases —
-//                             the server's member registries cannot be
+//   same device, two rooms  → DIFFERENT pubkeys, different aliases.
+//                             The server's member registries cannot be
 //                             correlated across rooms, undoing the V3
 //                             linkability regression
 //
 // The session ECDH keypair (used for key delivery) is separate and
-// regenerated on every page load — see protocol.ts.
+// regenerated on every page load; see protocol.ts.
 
 import { p256 } from "@noble/curves/nist.js";
 import { sha256Hex } from "./identity";
@@ -32,7 +32,7 @@ export interface RoomSigningIdentity {
 }
 
 /** The device seed. Created on first use; the old global `cc.device`
- *  keypair (if present) is retired — rooms get per-room keys from now
+ *  keypair (if present) is retired. Rooms get per-room keys from now
  *  on. Keys never leave the device. */
 export async function loadDeviceSeed(): Promise<Uint8Array> {
   try {
@@ -50,7 +50,7 @@ export async function loadDeviceSeed(): Promise<Uint8Array> {
   try {
     localStorage.setItem(SEED_KEY, JSON.stringify(Array.from(seed)));
   } catch {
-    /* private mode — seed lives for this page load only */
+    /* private mode: seed lives for this page load only */
   }
   return seed;
 }
@@ -87,8 +87,8 @@ async function hkdf(
 }
 
 /** Big-endian unsigned integer decode (for 32-byte candidate
- *  scalars). BigInt() calls instead of literals — the repo targets
- *  ES2017. */
+ *  scalars). BigInt() calls instead of literals, because the repo
+ *  targets ES2017. */
 function bytesToBigIntBE(bytes: Uint8Array): bigint {
   let n = BigInt(0);
   for (let i = 0; i < bytes.length; i++) n = (n << BigInt(8)) | BigInt(bytes[i]);
@@ -97,16 +97,16 @@ function bytesToBigIntBE(bytes: Uint8Array): bigint {
 
 /** Build a room signing identity from a candidate scalar, or null when
  *  the scalar is outside the valid P-256 private range. The range check
- *  is EXPLICIT — a P-256 private scalar must be an integer in [1, n-1]
- *  — rather than an incidental side effect of @noble/curves throwing.
+ *  is EXPLICIT (a P-256 private scalar must be an integer in [1, n-1]),
+ *  rather than an incidental side effect of @noble/curves throwing.
  *  Deterministic: the same scalar always yields the same identity.
  *  (Async only because the WebCrypto importKey proof is.) */
 export async function scalarToRoomIdentity(
   scalar: Uint8Array,
 ): Promise<RoomSigningIdentity | null> {
-  // all-zero (or empty) scalar — not a valid private key
+  // all-zero (or empty) scalar: not a valid private key
   if (scalar.every((b) => b === 0)) return null;
-  // d must be < n (the P-256 subgroup order) — checked, not thrown
+  // d must be < n (the P-256 subgroup order): checked, not thrown
   if (bytesToBigIntBE(scalar) >= p256.Point.CURVE().n) return null;
   try {
     // noble recovers the public point from the (now provably in-range)

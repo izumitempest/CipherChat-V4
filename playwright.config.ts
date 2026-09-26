@@ -2,12 +2,12 @@ import { defineConfig } from "@playwright/test";
 
 // The E2E golden path runs against a REAL stack, never a mock:
 //
-//   locally   — the dev server + relay behind the sandbox gateway
-//               (http://127.0.0.1:81), because the socket.io path only
-//               routes through the gateway origin here.
-//   in CI     — the production compose stack (web + relay + Caddy) on
-//               the Actions runner, via E2E_BASE_URL=http://localhost
-//               with CADDY_SITE=http://localhost (plain HTTP on :80).
+//   locally:   the dev server + relay behind the sandbox gateway
+//              (http://127.0.0.1:81), because the socket.io path only
+//              routes through the gateway origin here.
+//   in CI:     the production compose stack (web + relay + Caddy) on
+//              the Actions runner, via E2E_BASE_URL=http://localhost
+//              with CADDY_SITE=http://localhost (plain HTTP on :80).
 //
 // Two browser contexts, same origin: contexts have isolated storage,
 // which retires the two-origins trick the manual QA needed (tabs share

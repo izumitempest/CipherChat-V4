@@ -1,4 +1,4 @@
-// The room lifetime picker — the creator's clock. Presets in days
+// The room lifetime picker: the creator's clock. Presets in days
 // and hours, "Until burned" for those who mean it, and a custom row
 // (minutes / hours / days, clamped to the sanctioned range) for
 // everything in between. Seated at creation and, for the creator,
@@ -132,7 +132,7 @@ export function RoomTtlPicker({
         >
           <Flame className="size-3.5" aria-hidden />
           Until burned
-          <span className="font-normal text-mute">— no clock, only the match</span>
+          <span className="font-normal text-mute">- no clock, only the match</span>
         </button>
       </div>
 
@@ -196,7 +196,7 @@ export function RoomTtlPicker({
           <p className="t-meta mt-2">
             {draftSec > 0
               ? draftClamped
-                ? `Capped into ${fmtRoomTtlLong(clampRoomTtl(draftSec))} — rooms live between 5 minutes and 30 days.`
+                ? `Capped into ${fmtRoomTtlLong(clampRoomTtl(draftSec))}. Rooms live between 5 minutes and 30 days.`
                 : `The room closes after ${fmtRoomTtlLong(clampRoomTtl(draftSec))}.`
               : `Between 5 minutes and 30 days.`}
           </p>
@@ -204,7 +204,7 @@ export function RoomTtlPicker({
       ) : (
         <p className="t-meta">
           {value === 0
-            ? "The room exists until you burn it — or the server does."
+            ? "The room exists until you burn it, or the server does."
             : `The room closes after ${fmtRoomTtlLong(value)}. Everyone is shown the clock.`}
         </p>
       )}

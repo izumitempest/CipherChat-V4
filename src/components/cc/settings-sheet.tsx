@@ -1,6 +1,6 @@
-// S9 — Room settings. Minimal: a private label, a default lifetime,
+// S9 - Room settings. Minimal: a private label, a default lifetime,
 // the people here. Burn sits at the bottom, separated by whitespace
-// instead of a section header — never adjacent to anything tappable.
+// instead of a section header, never adjacent to anything tappable.
 
 "use client";
 
@@ -92,7 +92,7 @@ export function SettingsSheet({
   const [reporting, setReporting] = useState(false);
 
   // Re-seed the local fields each time the sheet opens (the
-  // render-time adjustment pattern — no effects needed).
+  // render-time adjustment pattern, no effects needed).
   const [wasOpen, setWasOpen] = useState(false);
   if (open !== wasOpen) {
     setWasOpen(open);
@@ -170,7 +170,7 @@ export function SettingsSheet({
                         toast(v === 0 ? "The room now lives until burned" : "Room lifetime changed", {
                           description:
                             v === 0
-                              ? "The clock is off — only the match remains."
+                              ? "The clock is off; only the match remains."
                               : `Everyone will see it close in ${fmtTtlRemaining(v * 1000)}.`,
                         });
                       } else {
@@ -193,7 +193,7 @@ export function SettingsSheet({
                 </p>
               )}
               {isCreator ? (
-                <p className="t-meta">Only you can change this — the clock belongs to the room's creator.</p>
+                <p className="t-meta">Only you can change this. The clock belongs to the room's creator.</p>
               ) : null}
             </div>
 
@@ -248,12 +248,12 @@ export function SettingsSheet({
                 />
               </div>
               <p className="t-meta">
-                What you agree to, and what the server does — and does not — hold.
+                What you agree to, and what the server does (and does not) hold.
               </p>
             </div>
           </div>
 
-          {/* Burn — separated by whitespace, not a header. Somber. */}
+          {/* Burn - separated by whitespace, not a header. Somber. */}
           <div className="mt-12 pb-2">
             {isCreator ? (
               <DestructiveAction full onClick={() => setConfirmBurn(true)}>
@@ -271,7 +271,7 @@ export function SettingsSheet({
             </p>
           </div>
 
-          {/* Report abuse — the graded path (Task 32): a member's
+          {/* Report abuse: the graded path (Task 32). A member's
               report is SIGNED with the room key and ends the room at
               once; a stranger's needs three networks' corroboration.
               Members only (the creator already holds burn); separated
@@ -295,7 +295,7 @@ export function SettingsSheet({
         </SheetContent>
       </Sheet>
 
-      {/* Irreversible — the only centered modals in the product. */}
+      {/* Irreversible - the only centered modals in the product. */}
       <Dialog open={confirmBurn} onOpenChange={setConfirmBurn}>
         <DialogContent className="max-w-[400px] rounded-[18px] border-hairline bg-paper p-6 shadow-float">
           <DialogHeader className="p-0 text-left">
@@ -326,7 +326,7 @@ export function SettingsSheet({
         </DialogContent>
       </Dialog>
 
-      {/* Report — also irreversible, also centered. */}
+      {/* Report - also irreversible, also centered. */}
       <Dialog open={confirmReport} onOpenChange={setConfirmReport}>
         <DialogContent className="max-w-[400px] rounded-[18px] border-hairline bg-paper p-6 shadow-float">
           <DialogHeader className="p-0 text-left">
@@ -334,7 +334,7 @@ export function SettingsSheet({
             <DialogDescription className="mt-2 font-sans text-[13.5px] leading-[20px] text-charcoal/80">
               Your report is signed with your room key, so it acts at
               once: the room ends for everyone, immediately. It cannot
-              unsend anything — nothing is kept. To add detail, or to
+              unsend anything: nothing is kept. To add detail, or to
               reach an operator for anything the room itself cannot
               fix, write to abuse@cipherchat.app.
             </DialogDescription>

@@ -1,5 +1,5 @@
 // Inputs. Paper surfaces, hairline borders, forest focus. Errors are
-// neutral charcoal — only actions carry color.
+// neutral charcoal. Only actions carry color.
 
 "use client";
 
@@ -64,18 +64,18 @@ export const TextField = forwardRef<
   );
 });
 
-/* The secret field is UNCONTROLLED by design — it accepts no `value`
+/* The secret field is UNCONTROLLED by design: it accepts no `value`
  * or `defaultValue`. React mirrors a controlled input's text into the
  * DOM `value` *attribute* on every keystroke, which puts the plaintext
  * in the Elements panel, in React DevTools state, and in reach of any
- * DOM-attribute scan — even while the field renders as bullets. By
+ * DOM-attribute scan, even while the field renders as bullets. By
  * staying uncontrolled the attribute is never written at all: the
  * typed secret exists only as the live DOM `value` *property*, the
  * irreducible minimum (the page must be able to read it to encrypt
  * with it; `$0.value` in the user's own console is a fact of the
  * platform, true of every site, and defends nothing to fake-hide).
  * Parents read the field at submit time through the forwarded ref and
- * seed/wipe it imperatively — `el.value = …` sets the property only,
+ * seed/wipe it imperatively. `el.value = …` sets the property only,
  * never the attribute. */
 export const PasswordField = forwardRef<
   HTMLInputElement,
@@ -94,7 +94,7 @@ export const PasswordField = forwardRef<
           "h-12 w-full rounded-[8px] border border-hairline bg-paper pl-3.5 pr-12 font-sans text-[15px] text-charcoal placeholder:text-mute/70 transition-colors duration-150 focus:border-forest/45 focus:outline-none focus:ring-2 focus:ring-forest/15 disabled:opacity-50",
           className,
         )}
-        // "off" is advisory — Chrome still offers to save these
+        // "off" is advisory: Chrome still offers to save these
         // ephemeral room passwords to its on-disk manager, which is
         // exactly what "keys live only in memory" forbids.
         // "new-password" is the documented suppressor.

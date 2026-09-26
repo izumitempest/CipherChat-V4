@@ -1,4 +1,4 @@
-// CipherChat — shared types. The wire format is deliberately minimal:
+// CipherChat shared types. The wire format is minimal:
 // the server relays opaque envelopes and can read none of them.
 
 export interface WireEnvelope {
@@ -8,7 +8,7 @@ export interface WireEnvelope {
   senderId: string;
   ts: number;
   iv: string; // base64
-  ct: string; // base64 — AES-GCM over Payload
+  ct: string; // base64, AES-GCM over Payload
   ttlSec?: number;
   viewOnce?: boolean;
   kind: "text" | "file";
@@ -34,9 +34,9 @@ export interface Payload {
 /* ---------------- replies ---------------- */
 
 /** A quoted reply's snapshot of its target. The target's id and this
- *  summary travel INSIDE the encrypted, signed frame body — the
- *  canonical signature covers them, so a quote is exactly as
- *  authentic as the words it quotes. The snippet is a copy, not a
+ *  summary travel INSIDE the encrypted, signed frame body, and the
+ *  canonical signature covers them, so a quote carries the same
+ *  signature guarantee as the words it quotes. The snippet is a copy, not a
  *  reference: if the original burns, the quote still reads (the
  *  words were already shown to the room). */
 export interface ReplySnapshot {
@@ -50,14 +50,14 @@ export interface ReplySnapshot {
   file?: boolean;
 }
 
-/** Cap for a quoted snippet — enough to recognise the message,
+/** Cap for a quoted snippet: enough to recognise the message,
  *  short enough to stay a hint rather than a copy. */
 export const REPLY_SNIPPET_MAX = 120;
 
 /** Build the quote snapshot for a reply. View-once targets are
- *  never summarised by their contents — the quote says "sealed",
- *  keeping the sealed card's own rule that nothing shows before
- *  opening. */
+ *  never summarised by their contents: the quote says "Sealed
+ *  message", matching the view-once card's own rule that nothing
+ *  shows before opening. */
 export function makeReplySnapshot(target: MessageView): ReplySnapshot {
   if (target.viewOnce) {
     return { id: target.id, senderId: target.senderId ?? "", snippet: "Sealed message" };
@@ -78,7 +78,7 @@ export function makeReplySnapshot(target: MessageView): ReplySnapshot {
   };
 }
 
-/** Shape guard used on both sealing and verification paths so the
+/** Shape guard used on both the encrypt and verify paths so the
  *  canonical string is always built from the same slots. */
 export function isReplySnapshot(v: unknown): v is ReplySnapshot {
   if (!v || typeof v !== "object") return false;
@@ -93,7 +93,7 @@ export function isReplySnapshot(v: unknown): v is ReplySnapshot {
 /** Accept only the shape a reply snapshot may have, capped so a
  *  hostile or corrupted body cannot smuggle a bloated payload into
  *  the view layer. Applied AFTER signature verification (the
- *  signature binds the raw bytes) — a snapshot that fails this
+ *  signature binds the raw bytes). A snapshot that fails this
  *  check is simply dropped and the message renders unquoted. */
 export function sanitizeReplySnapshot(r: unknown): ReplySnapshot | undefined {
   if (!r || typeof r !== "object") return undefined;
@@ -117,7 +117,7 @@ export interface MemberPublic {
   alias: string;
   colorIdx: number;
   pubkey: JsonWebKey;
-  /** session ECDH public key (raw b64) — used for pairwise key delivery */
+  /** session ECDH public key (raw b64); used for pairwise key delivery */
   ecdhPub?: string;
   connected?: boolean;
   joinedAt?: number;
@@ -148,15 +148,15 @@ export interface MessageView {
   spent?: boolean;
   /** the quoted target, when this message is a reply */
   replyTo?: ReplySnapshot;
-  /** ink margin marks — mark glyph → memberIds of everyone who set it */
+  /** ink margin marks: mark glyph → memberIds of everyone who set it */
   marks?: Partial<Record<ReactionMark, string[]>>;
 }
 
 /* ---------------- ink reactions ---------------- */
 
-/** The four quiet margin marks. These exact strings travel on the wire
- *  (inside the encrypted, signed body) and key the local view state —
- *  they are product vocabulary, not decoration. */
+/** The four quiet margin marks. These exact strings travel inside the
+ *  encrypted, signed body and key the local view state; they are
+ *  product vocabulary, not decoration. */
 export const REACTION_MARKS = ["✓", "✦", "♥", "☾"] as const;
 export type ReactionMark = (typeof REACTION_MARKS)[number];
 
@@ -184,15 +184,15 @@ export interface RoomCard {
   lastMembers: number;
   unread: boolean;
   /** letters that landed while the room was away (this device's
-   *  memory of them is a number — content is never stored) */
+   *  memory of them is a number; content is never stored) */
   unreadCount?: number;
-  locked: boolean; // true after refresh — derived, not stored
+  locked: boolean; // true after refresh; derived, not stored
   burned: boolean;
   /** when the room's time runs out (ms epoch), chosen by its
-   *  creator — undefined = no expiry, until burned */
+   *  creator; undefined = no expiry, until burned */
   expiresAt?: number;
-  /** true when the room's lifetime elapsed while it sat on this
-   *  desk — shown for the session, swept on next load (like ash) */
+  /** true when the room's lifetime elapsed while the room sat closed
+   *  on this device; shown for the session, swept on next load */
   closed?: boolean;
 }
 
@@ -200,12 +200,12 @@ export interface RoomCard {
 
 /** Message lifetime in seconds. 0 = off. Presets cover the common
  *  choices; anything else is a custom value (5s – 24h, clamped
- *  where it is entered) — the wire carries the number as-is. */
+ *  where it is entered). The frame carries the number as-is. */
 export type TtlChoice = number;
 
 /** The shortest lifetime a custom expiry may be set to. */
 export const TTL_MIN_SEC = 5;
-/** The longest — a day; letters that outlive that aren't letters. */
+/** The longest lifetime: a day. */
 export const TTL_MAX_SEC = 86400;
 
 export const TTL_STEPS: { value: TtlChoice; label: string; short: string }[] = [

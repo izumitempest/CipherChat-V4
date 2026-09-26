@@ -4,11 +4,11 @@ import { IpRateLimiter, ROOM_INFO_PER_MIN } from "@/lib/rate-limit";
 import { ROOM_MEMBER_CAP } from "@/lib/admission";
 import { parseRoomTtlSec, roomExpired } from "@/lib/room-ttl";
 
-// GET /api/rooms/:roomId — public room info for the invite surface.
+// GET /api/rooms/:roomId. Public room info for the invite surface.
 // Returns only what a stranger at an invite link needs. No secrets.
 // Rate-limited per IP: this endpoint is an existence/epoch oracle, so
 // unbounded scraping is refused rather than served. A room whose time
-// has run out is reported as gone — because it is.
+// has run out is reported as gone, because it is.
 const infoLimiter = new IpRateLimiter({ limit: ROOM_INFO_PER_MIN, windowMs: 60_000 });
 
 function clientIp(request: Request): string {
@@ -47,7 +47,7 @@ export async function GET(
   });
 }
 
-// PATCH /api/rooms/:roomId — the creator adjusts the room's lifetime
+// PATCH /api/rooms/:roomId. The creator adjusts the room's lifetime
 // while it lives. Requires the creator token (held only by the room's
 // creator, never on the server beyond the hash-comparable original).
 // Body: { creatorToken: string, ttlSec: number } (0 = until burned).

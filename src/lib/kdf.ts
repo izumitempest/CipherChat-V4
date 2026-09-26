@@ -27,7 +27,7 @@ export interface KeyBundleV2 {
   t: number;
   p: number;
   salt: string; // b64, 16 random bytes
-  iv: string; // b64 — known-plaintext check
+  iv: string; // b64, known-plaintext check
   ct: string; // b64
 }
 
@@ -55,7 +55,7 @@ async function deriveArgon2(
 }
 
 /** Create a version-2 bundle for a new room. Returns the derived entry
- *  key and the blob the server will store (and anyone can fetch — the
+ *  key and the blob the server will store (and anyone can fetch; the
  *  salt is not secret, only memory-hard). */
 export async function createKeyBundleV2(
   password: string,

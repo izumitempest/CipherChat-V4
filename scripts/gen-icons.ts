@@ -1,4 +1,4 @@
-// One-off brand asset generator — renders the Vanishing Ink to the
+// One-off brand asset generator: renders the Vanishing Ink to the
 // PWA icons, the apple-touch icon and the OG card, using sharp
 // (already in node_modules). No AI image generation anywhere: every
 // pixel is the same crisp SVG geometry the app renders.
@@ -11,7 +11,7 @@
 //   public/icons/icon-maskable-512.png   (full-bleed, mark inside the
 //                                         80% maskable safe zone)
 //   public/icons/apple-touch-icon.png    (180×180, opaque paper)
-//   public/og.png                        (1200×630 — mark + wordmark)
+//   public/og.png                        (1200×630, mark + wordmark)
 //
 // The brand hexes are hardcoded here on purpose: these files are
 // standalone assets consumed outside the app's CSS variable system.
@@ -25,20 +25,20 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ICONS_DIR = path.join(ROOT, "public", "icons");
 
 /* ---- The Vanishing Ink geometry (mirrors src/components/cc/mark.tsx;
-   keep the two in sync — this is the same 96×96 hand-tuned set) ---- */
+   keep the two in sync: this is the same 96×96 hand-tuned set) ---- */
 
 const FOREST = "#3A4F41";
 const EMBER = "#E8A87C";
 const PAPER = "#F4F1EB";
 
-/** The drop — a closed teardrop, the top edge ragged where it parts. */
+/** The drop: a closed teardrop, the top edge ragged where it parts. */
 const DROP =
   "M 46.3 29.4 C 45.1 35.2, 39.9 38.6, 36.9 43.6 C 33.7 48.9, 33.2 56.1, 36.4 61.7 " +
   "C 39.5 67.2, 46.4 70.7, 52.3 68.8 C 58.2 66.9, 62.6 61.4, 62.7 55.5 " +
   "C 62.8 49.9, 59.5 45.0, 55.9 41.0 C 53.3 38.3, 51.5 35.0, 51.0 31.4 " +
   "L 49.7 29.5 L 48.1 31.1 Z";
 
-/** A four-pointed fleck — quadratics pulled toward the centre. */
+/** A four-pointed fleck: quadratics pulled toward the centre. */
 function fleck(cx: number, cy: number, r: number, lean = 0): string {
   const k = r * 0.42;
   return (
@@ -109,7 +109,7 @@ async function main() {
     const s = await stat(path.join(ICONS_DIR, f));
     console.log(`  ${f.padEnd(24)} ${s.size} bytes`);
   }
-  console.log("The Vanishing Ink seated on every tile.");
+  console.log("Wrote PWA icons, apple-touch icon and og.png.");
 }
 
 main();

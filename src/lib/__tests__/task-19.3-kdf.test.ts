@@ -1,4 +1,4 @@
-// Task 19.3 — KDF UPGRADE: argon2id (P1)
+// Task 19.3: KDF UPGRADE: argon2id (P1)
 //
 // Property: new rooms derive their entry key with argon2id (m=64MB,
 // t=3, p=1) via hash-wasm, with a random 16-byte salt in a VERSIONED
@@ -22,7 +22,7 @@ describe("argon2id key bundles (v2)", () => {
     expect(bundle.m).toBe(ARGON2_PARAMS.m);
     expect(bundle.t).toBe(ARGON2_PARAMS.t);
     expect(bundle.p).toBe(ARGON2_PARAMS.p);
-    expect(bundle.m).toBe(65536); // 64 MB — the whole point
+    expect(bundle.m).toBe(65536); // 64 MB of memory hardness
     expect(bundle.salt.length).toBeGreaterThanOrEqual(16);
   });
 
@@ -31,7 +31,7 @@ describe("argon2id key bundles (v2)", () => {
     const b = await createKeyBundleV2("same password");
     expect(a.bundle.salt).not.toBe(b.bundle.salt);
     const ka = await crypto.subtle.exportKey("raw", a.key).catch(() => null);
-    // (non-extractable keys are fine — distinctness is proven by the
+    // (non-extractable keys are fine; distinctness is proven by the
     // verifier check below: b's verifier must fail under a's key)
     void ka;
     const okA = await unlockWithBundle("same password", JSON.stringify(a.bundle), "ROOM", 1);

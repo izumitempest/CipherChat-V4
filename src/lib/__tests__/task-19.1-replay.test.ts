@@ -1,7 +1,8 @@
-// Task 19.1 — REPLAY PROTECTION (P0)
+// Task 19.1: REPLAY PROTECTION (P0)
 //
 // Property: a captured frame, re-injected by the relay (or anyone who
-// captured traffic), must be rejected — before AND after its message
+// captured traffic), must be rejected, both before AND after its
+// message
 // burned. Burned messages must not resurrect. Live duplicates must not
 // double-render. Fresh frames from the same sender must keep flowing.
 
@@ -24,18 +25,18 @@ describe("replay guard (per-sender monotonic counters + timestamp window + id de
       id: "f1",
     };
     expect(g.check(meta)).toBe(true);
-    expect(g.check(meta)).toBe(false); // same id — dedup
+    expect(g.check(meta)).toBe(false); // same id: dedup
   });
 
   it("rejects counters at or below the highest seen for (sender, session)", () => {
     const g = createReplayGuard();
     const now = Date.now();
     expect(g.check({ senderId: "A", sessionTag: "s1", counter: 5, ts: now, id: "a" })).toBe(true);
-    // same counter, different id — replay
+    // same counter, different id: replay
     expect(g.check({ senderId: "A", sessionTag: "s1", counter: 5, ts: now, id: "b" })).toBe(false);
-    // lower counter, different id — reorder/replay
+    // lower counter, different id: reorder/replay
     expect(g.check({ senderId: "A", sessionTag: "s1", counter: 4, ts: now, id: "c" })).toBe(false);
-    // higher counter — fresh
+    // higher counter: fresh
     expect(g.check({ senderId: "A", sessionTag: "s1", counter: 6, ts: now, id: "d" })).toBe(true);
   });
 
@@ -114,12 +115,12 @@ describe("ACCEPTANCE — burned messages cannot be resurrected by re-injection",
     const entryKey = await randomAesKey();
     const [alice, bob] = await makeRoom(roomId, ["m-alice", "m-bob"], entryKey);
 
-    // Alice seals a message that will burn in 5 seconds.
+    // Alice encrypts a message that will burn in 5 seconds.
     const frames = await alice.cipher.sealText({ text: "vanishes soon", ttlSec: 5 });
     expect(frames).toHaveLength(1);
     const captured = frames[0];
 
-    // Live delivery — Bob renders it once.
+    // Live delivery: Bob renders it once.
     const first = await bob.cipher.open(captured);
     expect(first.type).toBe("text");
 
@@ -136,7 +137,7 @@ describe("ACCEPTANCE — burned messages cannot be resurrected by re-injection",
       expect(resurrected.reason).toBe("replay");
     }
 
-    // Fresh frames from Alice still flow — the guard did not over-block.
+    // Fresh frames from Alice still flow: the guard did not over-block.
     const fresh = await alice.cipher.sealText({ text: "still alive" });
     const ok = await bob.cipher.open(fresh[0]);
     expect(ok.type).toBe("text");

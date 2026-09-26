@@ -8,7 +8,7 @@ import {
 import { decideAdmission } from "@/lib/admission";
 import { roomExpired } from "@/lib/room-ttl";
 
-// POST /api/rooms/:roomId/members — join (or re-join after a refresh).
+// POST /api/rooms/:roomId/members. Join (or re-join after a refresh).
 // Identity is the public key: same key = same alias, same color.
 // Keys are PER-ROOM (derived from the device seed), so the registry
 // cannot be correlated across rooms.
@@ -90,11 +90,11 @@ export async function POST(
   }
 
   // Cap trade-off, stated honestly: the cap is a freshness-windowed
-  // SOFT cap — it counts only active members seen within
+  // SOFT cap. It counts only active members seen within
   // MEMBER_FRESH_WINDOW_MS, so it exists to stop a code-holder without
   // the password from permanently locking the room with throwaway
   // keys. A coordinated attacker with many IPs and keys can still
-  // exceed it (presence noise, not a confidentiality issue — matching
+  // exceed it (presence noise, not a confidentiality issue, matching
   // the Task 19 acceptance review's assessment).
   const recentlySeenCount = await db.member.count({
     where: {
@@ -121,7 +121,7 @@ export async function POST(
   return NextResponse.json({ memberId: member.id, epoch: room.epoch, rejoined: false }, { status: 201 });
 }
 
-// GET /api/rooms/:roomId/members — the registry used by the key
+// GET /api/rooms/:roomId/members. The registry used by the key
 // verification panel. Public keys only; the server cannot forge them.
 export async function GET(
   _request: Request,

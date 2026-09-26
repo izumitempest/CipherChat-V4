@@ -1,7 +1,7 @@
-// Per-room composer drafts — memory-only, like the keys. A letter in
+// Per-room composer drafts, memory-only like the keys. A message in
 // progress stays with its room across room switches and returns when
 // the room is reopened; a refresh wipes it with everything else
-// (that is the product's honest memory model, not a bug).
+// (memory-only is deliberate, not a bug).
 
 const drafts = new Map<string, string>();
 

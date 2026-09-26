@@ -1,10 +1,10 @@
-# CipherChat production — one plain VPS, TLS from a stock compose file.
+# CipherChat production: one plain VPS, TLS from a stock compose file.
 #
 #   cp .env.example .env      # set RELAY_INTERNAL_TOKEN, CADDY_SITE
 #   docker compose up -d
 #   → https://<CADDY_SITE>
 #
-# `docker compose down -v` also removes the database volume — that is
+# `docker compose down -v` also removes the database volume. That is
 # the self-host story's off-switch. Burn first if you mean it.
 
 name: cipherchat
@@ -23,7 +23,7 @@ services:
       RELAY_INTERNAL_TOKEN: ${RELAY_INTERNAL_TOKEN:?set RELAY_INTERNAL_TOKEN in deploy/.env}
       # The API tier asks the relay container (not localhost) for presence.
       RELAY_PRESENCE_URL: http://relay:3004
-      # Public origin — resolves OG/social image URLs.
+      # Public origin. Resolves OG/social image URLs.
       NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost}
       NODE_ENV: production
       HOSTNAME: 0.0.0.0
@@ -43,7 +43,7 @@ services:
     restart: unless-stopped
     expose:
       - "3003" # socket.io relay (only Caddy reaches it)
-      - "3004" # internal presence — only the web service should ask
+      - "3004" # internal presence; only the web service should ask
 
   caddy:
     image: caddy:2

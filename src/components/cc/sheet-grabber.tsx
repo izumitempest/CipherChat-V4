@@ -1,4 +1,4 @@
-/** A quiet grabber at the top of a bottom sheet — a fold in the paper,
+/** A grabber at the top of a bottom sheet: a fold in the paper,
  *  not a handle that promises dragging. */
 export function SheetGrabber() {
   return (

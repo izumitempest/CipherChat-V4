@@ -9,12 +9,12 @@ export const RELAY_FRAME_BURST = 64;
 export const ROOM_CREATE_PER_MIN = 5;
 /** hard cap on a single socket message (memory-DoS guard) */
 export const FRAME_SIZE_CAP_BYTES = 131_072; // 128 KB
-/** room-info reads per minute per IP (GET room info — the invite
+/** room-info reads per minute per IP (GET room info: the invite
  *  surface and the existence/epoch oracle) */
 export const ROOM_INFO_PER_MIN = 30;
 /** member joins per minute per IP (registry writes) */
 export const MEMBER_JOIN_PER_MIN = 12;
-/** member-cap freshness window — only members whose lastSeenAt falls
+/** member-cap freshness window: only members whose lastSeenAt falls
  *  within this window count against the cap (see lib/admission.ts) */
 export const MEMBER_FRESH_WINDOW_MS = 15 * 60_000;
 

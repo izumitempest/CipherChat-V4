@@ -1,12 +1,12 @@
-// Admission policy for the member cap — pure, so the cap's properties
-// are testable without a database.
+// Admission policy for the member cap. Pure logic, so the cap's
+// properties are testable without a database.
 //
 // The cap's purpose (stated honestly): stop a code-holder WITHOUT the
 // password from permanently locking the room with throwaway keys. It
 // counts only members seen within the freshness window
 // (MEMBER_FRESH_WINDOW_MS), so abandoned memberships age out instead
-// of squatting seats forever. A coordinated attacker with many IPs
-// and keys can still exceed it — that is presence noise, not a
+// of holding a seat forever. A coordinated attacker with many IPs
+// and keys can still exceed it: that is presence noise, not a
 // confidentiality issue (matching the Task 19 acceptance review's
 // assessment). A KNOWN member (pubkey already registered) always
 // rejoins: the cap can never lock a legitimate member out of their

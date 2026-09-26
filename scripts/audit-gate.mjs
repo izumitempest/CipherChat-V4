@@ -1,15 +1,15 @@
 #!/usr/bin/env node
-// The BLOCKING half of CipherChat's dependency audit — see AUDIT.md.
+// The BLOCKING half of CipherChat's dependency audit, see AUDIT.md.
 //
 // What ships is the standalone runtime tree; what that tree may not carry
 // is an un-dispositioned critical/high advisory.
 //
 // Two sources, one verdict (since the Round 35 engine switch):
 //
-//   1. FINDINGS come from `bun audit --json` — bound to the EXACT
+//   1. FINDINGS come from `bun audit --json`, bound to the EXACT
 //      versions pinned in bun.lock, the lockfile the project actually
 //      installs from. (The previous engine audited npm's fresh
-//      re-resolution of the same ranges, which can drift from the pins —
+//      re-resolution of the same ranges, which can drift from the pins,
 //      and, run without a materialized lockfile, failed VACUOUSLY
 //      green: npm's ENOLOCK error object is valid JSON with no
 //      `vulnerabilities` key, which the old parser read as "clean".
@@ -19,7 +19,7 @@
 //      (`npm install --package-lock-only`, owned by this script): a
 //      package marked `"dev": true` there is reachable only through
 //      devDependencies and never ships. The split is the one remaining
-//      approximation — npm re-resolves ranges to derive it — and is
+//      approximation (npm re-resolves ranges to derive it) and is
 //      stated as such in AUDIT.md. Versions and advisories are
 //      lockfile-exact; only the classification rides on npm.
 //
@@ -94,8 +94,8 @@ try {
 } catch {
   die("bun audit --json did not produce parseable output.");
 }
-// Shape check: a plain object of module -> advisory[]. Anything else —
-// including an {error: …} payload — is a gate failure, never "clean".
+// Shape check: a plain object of module -> advisory[]. Anything else,
+// including an {error: …} payload, is a gate failure, never "clean".
 if (
   typeof audit !== "object" ||
   audit === null ||
@@ -130,7 +130,7 @@ if (typeof packages !== "object" || packages === null) {
 const runtimeModules = new Set();
 for (const [path, p] of Object.entries(packages)) {
   if (!path.startsWith("node_modules/")) continue;
-  if (p?.dev) continue; // reachable only via devDependencies — never ships
+  if (p?.dev) continue; // reachable only via devDependencies, never ships
   const name = path.slice("node_modules/".length).split("/node_modules/").pop();
   runtimeModules.add(name);
 }
@@ -148,7 +148,7 @@ for (const [module, advisories] of Object.entries(audit)) {
   for (const a of advisories) {
     const severity = String(a?.severity ?? "");
     if (!GATE.has(severity)) continue;
-    if (!runtimeModules.has(module)) continue; // dev chain — advisory gate's turf
+    if (!runtimeModules.has(module)) continue; // dev chain, the advisory gate's turf
     const ghsa = (String(a?.url ?? "").match(/GHSA-[a-z0-9-]+/) ?? [])[0] ?? String(a?.id ?? "?");
     const key = `${module}|${ghsa}`;
     if (seen.has(key)) continue;

@@ -2,12 +2,12 @@
 // per-room message memory, member registries, the relay wiring, and
 // the choreography of enter / unlock / send / burn.
 //
-// SECURITY MODEL (protocol v2 — see lib/protocol.ts + lib/room-protocol.ts):
+// SECURITY MODEL (protocol v2, see lib/protocol.ts + lib/room-protocol.ts):
 //   Every frame the relay carries is padded to a uniform size and
 //   encrypted; typing, receipts, burns, key offers and file chunks all
 //   ride the same indistinguishable frames. Replay protection, the
 //   member-registry eviction gate, signature checks and the ECDH key
-//   rotation ceremony all live in RoomCipher — this store is a thin
+//   rotation ceremony all live in RoomCipher; this store is a thin
 //   adapter that turns OpenResults into UI.
 
 import { create } from "zustand";
@@ -73,7 +73,7 @@ import { ROOM_TTL_DEFAULT_SEC } from "@/lib/room-ttl";
 import { dropDraft } from "@/lib/drafts";
 import { fmtTtlRemaining } from "@/lib/format";
 
-export const FILE_LIMIT = 2 * 1024 * 1024; // 2 MB — nothing is stored anywhere
+export const FILE_LIMIT = 2 * 1024 * 1024; // 2 MB; nothing is stored anywhere
 
 export interface SealingState {
   roomId: string;
@@ -91,7 +91,7 @@ export interface JoinResult {
     | "error";
 }
 
-/** Someone is writing — transient, expires by its own clock. */
+/** Someone is writing. Transient, expires by its own clock. */
 export interface TypingSignal {
   memberId: string;
   alias: string;
@@ -104,7 +104,7 @@ interface AppState {
   screen: Screen;
   activeRoomId: string | null;
   inviteCode: string | null;
-  /** The porch's hand-off: /?app=1&create=1#/new arrived —
+  /** The porch's hand-off: /?app=1&create=1#/new arrived,
    *  consumed (and cleaned from the URL) during init, so the
    *  landing can open the create form on its first render. */
   porchCreate: boolean;
@@ -130,7 +130,7 @@ interface AppState {
   enterRoom: (session: RoomSession, localName: string, rejoined: boolean) => Promise<void>;
   /** Creator-only: change the room's lifetime while it lives. */
   adjustRoomTtl: (roomId: string, ttlSec: number) => Promise<{ ok: boolean; reason?: string }>;
-  /** The room's time ran out while we were in it — mark and step out. */
+  /** The room's time ran out while we were in it: mark and step out. */
   closeExpiredRoom: (roomId: string) => void;
   sendMessage: (
     text: string,
@@ -253,7 +253,7 @@ function cancelBurns(roomId: string, messages: MessageView[]) {
 
 const MIN_SEAL_MS = 1700; // the vault moment takes at least this long, on purpose
 
-// Set synchronously at the top of init() — see the comment there.
+// Set synchronously at the top of init(); see the comment there.
 let initStarted = false;
 
 export const useApp = create<AppState>()((set, get) => ({
@@ -290,8 +290,8 @@ export const useApp = create<AppState>()((set, get) => ({
 
     // The porch's seal gesture ends here: /?app=1&create=1#/new
     // arrives expecting the create form already out. Read once,
-    // here — client-side, post-hydration, beside the hash routing
-    // it accompanies — and cleaned from the URL so a refresh
+    // here (client-side, post-hydration, beside the hash routing
+    // it accompanies), and cleaned from the URL so a refresh
     // never re-opens the sheet at the user.
     const search = new URLSearchParams(window.location.search);
     const porchCreate = search.get("create") === "1";
@@ -338,7 +338,7 @@ export const useApp = create<AppState>()((set, get) => ({
         patchRoomCard(roomId, { unread: false, unreadCount: 0 });
         set({ roomCards: loadRoomCards() });
       }
-      // No keys in memory — the room is locked. A first-class state,
+      // No keys in memory: the room is locked. A first-class state,
       // never an error.
       return;
     }
@@ -472,7 +472,7 @@ export const useApp = create<AppState>()((set, get) => ({
 
     set({ sealing: { roomId: code, label: "Sealing the room" } });
     const started = Date.now();
-    // The entry key (version 1) — argon2id for new rooms, PBKDF2 for
+    // The entry key (version 1): argon2id for new rooms, PBKDF2 for
     // rooms created before the upgrade. The bundle decides.
     const entryKey = await unlockWithBundle(password, info.verifier, code, info.epoch);
     await new Promise((r) =>
@@ -548,7 +548,7 @@ export const useApp = create<AppState>()((set, get) => ({
 
     // The server's epoch is the rotation LEDGER (it persists; keys do
     // not). If the room has rotated before and we are back at the
-    // password-derived key — a rejoin after refresh, or a fresh join —
+    // password-derived key (a rejoin after refresh, or a fresh join),
     // the current key must arrive via ECDH offers. Give live members a
     // moment to deliver; if nobody does (everyone refreshed), the
     // coordinator re-seals past the ledger so keys any departed member
@@ -619,10 +619,10 @@ export const useApp = create<AppState>()((set, get) => ({
     });
     set({ roomCards: loadRoomCards() });
 
-    // Fresh message memory — there is no backlog, ever.
+    // Fresh message memory: there is no backlog, ever.
     set((s) => ({ messages: { ...s.messages, [session.roomId]: [] } }));
 
-    // A room with a clock announces it once, on entry — everyone
+    // A room with a clock announces it once, on entry; everyone
     // deserves to know when the door closes.
     if (session.expiresAt && session.expiresAt > Date.now()) {
       addSystemLine(
@@ -656,7 +656,7 @@ export const useApp = create<AppState>()((set, get) => ({
       const { members } = (await res.json()) as { members: MemberPublic[] };
       set((s) => ({ members: { ...s.members, [roomId]: members } }));
 
-      // Keep the cipher's registry in sync — it is the eviction gate.
+      // Keep the cipher's registry in sync; it is the eviction gate.
       const cipher = getCipher(roomId);
       if (cipher) {
         const seen = new Set<string>();
@@ -677,7 +677,7 @@ export const useApp = create<AppState>()((set, get) => ({
         }
       }
     } catch {
-      /* offline — the registry stays as-is */
+      /* offline: the registry stays as-is */
     }
   },
 
@@ -715,7 +715,7 @@ export const useApp = create<AppState>()((set, get) => ({
       frames = await cipher.sealText({ text: trimmed, ttlSec, reply });
     }
     // The first frame's id IS the message id (text frame, or the file
-    // meta frame) — the relay acks it and the view flips to "sent".
+    // meta frame); the relay acks it and the view flips to "sent".
     const id = frames[0].id;
 
     const kind = file ? "file" : "text";
@@ -768,7 +768,7 @@ export const useApp = create<AppState>()((set, get) => ({
     if (now - last < TYPING_EMIT_THROTTLE_MS) return;
     typingLastEmit.set(roomId, now);
     // Typing rides the same uniform encrypted frames as everything
-    // else — the relay cannot even tell WHEN someone is typing.
+    // else; the relay cannot even tell WHEN someone is typing.
     void cipher.sealTyping().then((frames) => {
       const relay = getRelay();
       for (const f of frames) relay.emit("message:send", { roomId, envelope: f });
@@ -805,7 +805,7 @@ export const useApp = create<AppState>()((set, get) => ({
     const session = getSession(roomId);
     const cipher = getCipher(roomId);
     if (!session || !cipher || !isReactionMark(mark)) return;
-    // Optimistic local toggle — the frame carries the same transition
+    // Optimistic local toggle; the frame carries the same transition
     // for everyone else.
     useApp.setState((s) => ({
       messages: {
@@ -823,7 +823,7 @@ export const useApp = create<AppState>()((set, get) => ({
 
   /** Retire one of your own letters ahead of its clock. The announce
    *  is signed inside the encrypted frame, so only the author can do
-   *  this — nobody else can burn a message they did not write. */
+   *  this; nobody else can burn a message they did not write. */
   burnMessage: async (roomId, messageId) => {
     const { activeRoomId } = get();
     const target = roomId ?? activeRoomId;
@@ -883,9 +883,9 @@ export const useApp = create<AppState>()((set, get) => ({
 
   /** Report this room for abuse, as a member: the report is signed
    *  with the room's signing key (cc-report-v1), so the server treats
-   *  it as credible and burns the room at once — the graded-report
+   *  it as credible and burns the room at once: the graded-report
    *  fix for Round 31's anonymous kill switch, where a room ID alone
-   *  (the weakest credential, one that rides in every forwarded
+   *  (the weakest credential, one carried in every forwarded
    *  invite link) could end the room. Members are the only credible
    *  content reporters; a stranger's report now needs corroboration
    *  from three distinct networks. */
@@ -905,12 +905,12 @@ export const useApp = create<AppState>()((set, get) => ({
         }),
       });
     } catch {
-      /* best effort — the room may already be gone; the relay's
+      /* best effort: the room may already be gone; the relay's
        * room:burned (sent by the server's terminate call) still
        * reaches us and runs the same burn sequence */
     }
     // Same local burn sequence a creator's burn or a relay announce
-    // triggers — a reported room is indistinguishable from a burned
+    // triggers: a reported room is indistinguishable from a burned
     // one, by design.
     set({ burn: { roomId } });
   },
@@ -933,10 +933,10 @@ export const useApp = create<AppState>()((set, get) => ({
             body: JSON.stringify({ memberId: session.memberId, ts: proof.ts, sig: proof.sig }),
           });
         } catch {
-          /* best effort — receivers rotate on the announce regardless */
+          /* best effort: receivers rotate on the announce regardless */
         }
       }
-      // No cipher (locked/refreshed tab): skip the REST call entirely —
+      // No cipher (locked/refreshed tab): skip the REST call entirely;
       // the server now demands a proof we cannot make without the key.
       // The relay announce below still tells receivers, who handle a
       // keyless departure via the silent-eviction grace path.
@@ -1034,7 +1034,7 @@ export const useApp = create<AppState>()((set, get) => ({
 }));
 
 /* ==================================================================
-   Relay wiring — one socket, registered once, drives the whole house
+   Relay wiring: one socket, registered once, drives the whole house
    ================================================================== */
 
 function onMessageBurn(roomId: string, messageId: string) {
@@ -1120,8 +1120,8 @@ function setResealing(roomId: string, value: boolean) {
 /* ==================================================================
    Silent-departure grace (Task 21.1)
 
-   A member whose connection silently drops — no clean leave, just a
-   closed laptop — keeps the room key until the room re-seals. Every
+   A member whose connection silently drops (no clean leave, just a
+   closed laptop) keeps the room key until the room re-seals. Every
    unlocked client quietly watches each offline member; when the
    grace window expires, the CONNECTED COORDINATOR (smallest memberId
    among live members) asks the server to write them out. The server
@@ -1167,7 +1167,7 @@ function clearAllGrace() {
   silentGrace.clear();
 }
 
-/** The shared body of every confirmed departure — clean leave or
+/** The shared body of every confirmed departure, clean leave or
  *  silent expiry alike. REST is the identity authority: the relay
  *  event only SUGGESTS the departure; the registry confirms it
  *  before anyone is evicted or any key rotates. */
@@ -1181,7 +1181,7 @@ async function confirmDeparture(roomId: string, memberId: string, alias: string,
   );
   clearTyping(roomId, memberId);
   cancelGraceTimer(roomId, memberId);
-  if (stillMember) return; // forged or racy — the "leaver" is still registered
+  if (stillMember) return; // forged or racy: the "leaver" is still registered
 
   // Evict the leaver everywhere.
   useApp.setState((s) => ({
@@ -1196,7 +1196,7 @@ async function confirmDeparture(roomId: string, memberId: string, alias: string,
 
   // Those who stay re-seal the room: if this client is the
   // deterministic coordinator, generate a RANDOM new key and deliver
-  // it pairwise over ECDH. The leaver never receives it — not through
+  // it pairwise over ECDH. The leaver never receives it: not through
   // the password, not through the wire.
   if (cipher && cipher.expectedCoordinator() === session.memberId) {
     const offerFrames = await cipher.rotateAsCoordinator();
@@ -1217,7 +1217,7 @@ async function fireSilentEviction(roomId: string, memberId: string) {
   const okToAct = stillSilentAtExpiry({
     selfConnected: getRelay().connected,
     memberPresent: !!member && !!registryEntry,
-    // The member's own connected STATE (false = quietly gone) — not a
+    // The member's own connected STATE (false = quietly gone), not a
     // comparison result. The UI list and the cipher registry are kept
     // in sync by the same presence handler.
     memberConnected: member?.connected ?? registryEntry?.connected ?? true,
@@ -1231,16 +1231,16 @@ async function fireSilentEviction(roomId: string, memberId: string) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ memberId, callerId: session.memberId }),
     });
-    if (!res.ok) return; // the server's facts disagreed — let it be
+    if (!res.ok) return; // the server's facts disagreed; let it be
 
     // Announce to the room. Receivers REST-confirm before acting,
-    // exactly as with member:left — the relay event carries no
+    // exactly as with member:left: the relay event carries no
     // authority of its own.
     getRelay().emit("member:expired", { roomId, memberId, alias: member.alias });
-    // Our own emit does not echo back — run the confirmation locally.
+    // Our own emit does not echo back; run the confirmation locally.
     await confirmDeparture(roomId, memberId, member.alias, `${member.alias} drifted away.`);
   } catch {
-    /* offline — the next unlock restarts the grace clock via room:state */
+    /* offline: the next unlock restarts the grace clock via room:state */
   }
 }
 
@@ -1287,8 +1287,8 @@ function wireRelay(
     // poisoned by a forged join. (Adversarial review 19-10, finding 1.)
     //
     // The relay sees exactly who is live right now: registry members
-    // absent from its list are OFFLINE — the honest away-dot after a
-    // refresh, and the starting point of the silent-departure grace.
+    // absent from its list are OFFLINE (the away-dot after a
+    // refresh), the starting point of the silent-departure grace.
     const liveIds = new Set(members.map((m) => m.memberId));
     set((s) => {
       const registry = s.members[roomId] ?? [];
@@ -1308,7 +1308,7 @@ function wireRelay(
         if (cur) cipher.registry.set(live.memberId, { ...cur, connected: true });
       }
       // Unknown members wait for the REST refresh that member:joined
-      // triggers — a forged relay join never enters the registry.
+      // triggers: a forged relay join never enters the registry.
       for (const [id, cur] of cipher.registry) {
         if (!liveIds.has(id)) {
           cipher.registry.set(id, { ...cur, connected: false });
@@ -1324,7 +1324,7 @@ function wireRelay(
       const session = getSession(roomId);
       if (!session) return;
 
-      // The relay join broadcast carries NO authentication — key
+      // The relay join broadcast carries NO authentication; key
       // material from it is never trusted. The REST registry (keyed by
       // pubkey, so a forged memberId cannot overwrite a real member)
       // is the only identity authority: refresh from it, then act on
@@ -1334,7 +1334,7 @@ function wireRelay(
         (m) => m.memberId === member.memberId,
       );
       if (!confirmed) {
-        return; // forged or unconfirmed join — no registry entry, no key
+        return; // forged or unconfirmed join: no registry entry, no key
       }
 
       set((s) => ({
@@ -1358,7 +1358,7 @@ function wireRelay(
           colorIdx: confirmed.colorIdx,
         });
         // If the room has rotated past the password-derived key, hand
-        // the newcomer the CURRENT key — ECDH-wrapped and sealed under
+        // the newcomer the CURRENT key, ECDH-wrapped and sealed under
         // the entry key, so only a joiner who proved the password can
         // open it. Every member sends; the joiner keeps the highest.
         if (cipher.kv > 1 && confirmed.memberId !== session.memberId) {
@@ -1395,8 +1395,8 @@ function wireRelay(
         const cur = cipher.registry.get(memberId);
         if (cur) cipher.registry.set(memberId, { ...cur, connected });
       }
-      // Connected again — the grace clock for this member stops.
-      // Quietly gone — it starts (never for ourselves: our own
+      // Connected again: the grace clock for this member stops.
+      // Quietly gone: it starts (never for ourselves: our own
       // disconnects are visible to us, not departures).
       if (connected) cancelGraceTimer(roomId, memberId);
       else startGraceTimer(roomId, memberId);
@@ -1408,7 +1408,7 @@ function wireRelay(
     async ({ roomId, memberId, alias }: { roomId: string; memberId: string; alias: string }) => {
       const session = getSession(roomId);
       if (!session) return;
-      // The relay event is unauthenticated — confirmDeparture()
+      // The relay event is unauthenticated. confirmDeparture()
       // re-checks the REST registry before evicting or rotating, so a
       // forged member:left cannot force a rotation or evict a live
       // member. (Adversarial review 19-10, finding 2.)
@@ -1434,8 +1434,8 @@ function wireRelay(
     patchView(target, id, { status: "sent" });
   });
 
-  // NOTE: the legacy `message:spent` relay event is deliberately NOT
-  // handled anymore — it carried no authentication, so anyone who knew
+  // NOTE: the legacy `message:spent` relay event is intentionally NOT
+  // handled anymore: it carried no authentication, so anyone who knew
   // the room id could spoil view-once files for everyone. v2 clients
   // spend via cipher-verified encrypted frames. (Review 19-10, finding 3.)
 
@@ -1500,7 +1500,7 @@ function wireRelay(
         await receiveFrame(roomId, envelope as WireFrame);
         return;
       }
-      // v1 envelopes only decode in v1 rooms — a v2 room accepting
+      // v1 envelopes only decode in v1 rooms; a v2 room accepting
       // them would let any password-holder bypass replay defense,
       // uniform padding and the registry gate. (Review 19-10, finding 4.)
       if (!session.legacy) return;
@@ -1508,7 +1508,7 @@ function wireRelay(
     },
   );
 
-  // Legacy typing whispers from pre-upgrade clients — display only,
+  // Legacy typing whispers from pre-upgrade clients: display only,
   // and only for senders the REST registry actually knows.
   relay.on(
     "member:typing",
@@ -1530,7 +1530,7 @@ function wireRelay(
   );
 
   // A member who is stuck on an old key version asks for delivery.
-  // Answer with the current key — wrapped so only password-holders
+  // Answer with the current key, wrapped so only password-holders
   // can open it. (Relay rate-limits these.)
   relay.on("key:request", ({ roomId, from }: { roomId: string; from: string }) => {
     const session = getSession(roomId);
@@ -1547,7 +1547,7 @@ function wireRelay(
 }
 
 /* ------------------------------------------------------------------
-   v2 receive path — every security decision lives in the cipher
+   v2 receive path: every security decision lives in the cipher
    ------------------------------------------------------------------ */
 
 async function receiveFrame(roomId: string, frame: WireFrame) {
@@ -1559,7 +1559,7 @@ async function receiveFrame(roomId: string, frame: WireFrame) {
   await handleOpenResult(roomId, frame, result);
 
   // A frame we could not yet decrypt may mean we are a joiner (or a
-  // reconnecter) waiting for key delivery — ask for it, quietly.
+  // reconnecter) waiting for key delivery; ask for it, quietly.
   if (result.type === "pending" && cipher.kv === 1) {
     const now = Date.now();
     const last = keyReqLastEmit.get(roomId) ?? 0;
@@ -1606,7 +1606,7 @@ async function handleOpenResult(roomId: string, frame: WireFrame, result: OpenRe
       clearTyping(roomId, sender.memberId);
       touchCard(roomId, !inRoom, 1);
       // A letter for a room the user isn't looking at rises as a
-      // notice — banner while the app is open, system notification
+      // notice: banner while the app is open, system notification
       // while it's hidden. What it says follows the preview setting.
       if (!view.self && !inRoom) {
         notifyIncoming({
@@ -1650,7 +1650,7 @@ async function handleOpenResult(roomId: string, frame: WireFrame, result: OpenRe
     case "react": {
       // A margin mark on a message. If the target is gone (expired, or
       // sent before this member joined), the mark simply has nothing
-      // to annotate — quietly ignored.
+      // to annotate: quietly ignored.
       clearTyping(roomId, result.senderId);
       useApp.setState((s) => ({
         messages: {
@@ -1760,7 +1760,7 @@ async function handleOpenResult(roomId: string, frame: WireFrame, result: OpenRe
         );
         touchCard(roomId, !inRoom);
       }
-      // Other rejections (replay, registry, kv, shape) are silent —
+      // Other rejections (replay, registry, kv, shape) are silent;
       // they are the protocol defending itself, not user-actionable.
       return;
     }
@@ -1783,7 +1783,7 @@ function legacySeenOnce(id: string): boolean {
 }
 
 /* ------------------------------------------------------------------
-   Legacy receive path — rooms created before protocol v2
+   Legacy receive path: rooms created before protocol v2
    ------------------------------------------------------------------ */
 
 async function receiveLegacyEnvelope(roomId: string, envelope: WireEnvelope) {

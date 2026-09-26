@@ -1,7 +1,8 @@
-// Task 20.1 — FILE MESSAGE CAPTIONS
+// Task 20.1: FILE MESSAGE CAPTIONS
 //
 // Bug found in QA round 20: text typed alongside a file attachment was
-// silently dropped — the wire FileMetaBody carried no caption, and the
+// silently dropped. The FileMetaBody protocol shape carried no caption,
+// and the
 // bubble rendered FileContent exclusively. These tests pin the fix:
 //
 //   1. the caption round-trips through sealFile → open exactly;
@@ -102,8 +103,8 @@ describe("file message captions", () => {
     const dataB64 = Buffer.from("secret attachment").toString("base64");
     // Mallory re-seals a meta frame with the SAME messageId and file, but
     // her own caption, signed with HER key while claiming to be m-a via
-    // the replayable counter shape — the canonical binds senderId, so a
-    // frame sealed by mallory cannot carry alice's senderId. Instead the
+    // the replayable counter shape. The canonical binds senderId, so a
+    // frame encrypted by mallory cannot carry alice's senderId. Instead the
     // direct probe: mallory seals her own and relabels `from`.
     const aliceFrames = await alice.cipher.sealFile({
       ...(await fileArgs(dataB64)),

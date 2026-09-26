@@ -1,4 +1,4 @@
-# CipherChat CI — red means no merge.
+# CipherChat CI: red blocks the merge.
 #
 # lint → types → property tests → dependency audit → production build.
 # The test suite is the security contract: every property test is named
@@ -27,11 +27,11 @@ jobs:
 
       # The relay is a separate package: its own package.json and
       # bun.lock inside mini-services/relay-service. Root tsc
-      # deliberately typechecks it (tsconfig includes **/*.ts — the
+      # deliberately typechecks it (tsconfig includes **/*.ts; the
       # relay is part of the security surface, so it rides the same
       # gate), which means CI must install its dependencies too.
       # Run #1 failed exactly here: TS2307 'Cannot find module
-      # socket.io' — the sandbox never caught it because the relay's
+      # socket.io'. The sandbox never caught it because the relay's
       # node_modules existed locally.
       - name: Relay dependencies
         run: bun install --frozen-lockfile
@@ -50,7 +50,7 @@ jobs:
         run: bun run test
 
       # ---- Dependency audit: two gates, one policy (see AUDIT.md) ----
-      # BLOCKING: the runtime tree — what the standalone build ships.
+      # BLOCKING: the runtime tree, i.e. what the standalone build ships.
       # Findings come from `bun audit` over bun.lock (the exact installed
       # pins); the runtime/dev split comes from a package-lock the gate
       # materializes itself. Exceptions live ONLY in
@@ -58,15 +58,15 @@ jobs:
       # dispositioned in AUDIT.md, so a NEW advisory against an excepted
       # module still fails the gate. The gate fails closed: an error
       # payload or a missing lockfile is red, never a vacuous green.
-      - name: Dependency audit (runtime tree — blocking)
+      - name: Dependency audit (runtime tree, blocking)
         run: node scripts/audit-gate.mjs
 
-      # ADVISORY, non-blocking: the full tree — dev, lint, and build
+      # ADVISORY, non-blocking: the full tree. Dev, lint, and build
       # chains that never ship in the standalone runtime image. Every
       # current finding is dispositioned in AUDIT.md; red here is a
       # review prompt, not a ship stopper. `bun audit` reads bun.lock
-      # directly — no lockfile materialization needed.
-      - name: Dependency audit (full tree — advisory)
+      # directly, so no lockfile materialization needed.
+      - name: Dependency audit (full tree, advisory)
         run: bun audit --audit-level=high
         continue-on-error: true
 
@@ -78,7 +78,7 @@ jobs:
           bunx prisma db push --accept-data-loss --skip-generate
           bun run build
 
-  # The compose E2E — the production stack (web + relay + Caddy) built
+  # The compose E2E: the production stack (web + relay + Caddy) built
   # and run on the runner, with the golden path driven through it. This
   # is the job that makes the first real CI run ALSO be the compose
   # E2E: one act, both last-mile items. The suite has already run in
@@ -101,7 +101,7 @@ jobs:
         run: bunx playwright install --with-deps chromium
 
       # CADDY_SITE=http://localhost → plain HTTP on :80 (no auto-HTTPS
-      # redirect): the E2E target. The token is random per run — the
+      # redirect): the E2E target. The token is random per run, and the
       # relay's internal presence/terminate port is never exposed.
       - name: Build and start the compose stack
         run: |
@@ -116,7 +116,7 @@ jobs:
           #   - an impossible room id 404s through the whole chain:
           #     Caddy → web → Prisma engine loads → SQLite answers
           #     (the same read-only probe the container healthcheck
-          #     uses). A 5xx here means a broken tier — this is the
+          #     uses). A 5xx here means a broken tier. This is the
           #     check that would have caught the Prisma engine
           #     mismatch in seconds, instead of a 60s Playwright
           #     timeout with a "room could not be created" alert.

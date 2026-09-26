@@ -1,7 +1,7 @@
 // Proof-of-possession for departure.
 //
 // The leave endpoint writes a member out of the registry and bumps the
-// epoch (rotating the room key for everyone who stays) — so it must
+// epoch (rotating the room key for everyone who stays), so it must
 // not accept a bare memberId, which is only a server-issued handle
 // that a relay observer or a stranger with the invite code could have
 // learned. The departing client signs the canonical string below with
@@ -15,7 +15,7 @@
 import { signCanonical, verifyCanonical } from "./crypto";
 
 /** Replay window for a leave proof. A captured {ts, sig} is refused
- *  outside it — and inside it, replay is harmless by construction
+ *  outside it. Inside it, replay is harmless by construction
  *  (leaving is idempotent; only the member's own key can sign). */
 export const LEAVE_PROOF_TOLERANCE_MS = 10 * 60_000;
 
@@ -36,7 +36,7 @@ export async function signLeaveProof(
 }
 
 /** Verify a departure proof against a registered pubkey. Returns
- *  false — never throws — for a non-JWK pubkey, malformed base64, a
+ *  false (never throws) for a non-JWK pubkey, malformed base64, a
  *  wrong signature, or a timestamp outside the tolerance window. */
 export async function verifyLeaveProof(
   pubJwk: unknown,

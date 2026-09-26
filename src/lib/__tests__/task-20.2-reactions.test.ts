@@ -1,10 +1,10 @@
-// Task 20.2 — INK REACTIONS (encrypted margin marks)
+// Task 20.2: INK REACTIONS (encrypted margin marks)
 //
-// Property: a mark on a message is as authentic as the words it
-// annotates. The mark glyph rides the canonical-signed top-level text
+// Property: a mark on a message carries the same signature guarantee
+// as the words it annotates. The mark glyph rides the canonical-signed top-level text
 // field; the target rides the canonical-signed messageId field. Frames
 // are uniform control size, so the relay cannot even tell that a mark
-// happened — let alone which mark, or on what.
+// happened, let alone which mark, or on what.
 
 import { describe, it, expect } from "vitest";
 import { CONTROL_FRAME_BYTES, fromB64 } from "@/lib/protocol";

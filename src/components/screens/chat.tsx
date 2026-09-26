@@ -1,4 +1,4 @@
-// S5 — The room. S8 — the empty room, which is the product speaking,
+// S5: the room. S8: the empty room, which is the product speaking,
 // not an apology. And the locked state, which is a first-class moment:
 // never an error, never a dead end.
 
@@ -58,7 +58,7 @@ function ActiveRoom({ roomId }: { roomId: string }) {
   const isCreator = !!session?.creatorToken;
 
   /* The line-down note is held through its exit by render-time state
-   * (the sanctioned no-effect pattern) and released on animation end —
+   * (the sanctioned no-effect pattern) and released on animation end,
    * never by a timer. It unrolls in, rolls away, and never shoves the
    * letters beneath it. */
   const [lineNote, setLineNote] = useState<"gone" | "down" | "lifting">(
@@ -75,7 +75,7 @@ function ActiveRoom({ roomId }: { roomId: string }) {
   const [verifyOpen, setVerifyOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [viewing, setViewing] = useState<MessageView | null>(null);
-  /* The message being answered. Memory-only like everything else —
+  /* The message being answered. Memory-only like everything else:
    *  a room switch releases it with the rest of the room's state. */
   const [replyTarget, setReplyTarget] = useState<MessageView | null>(null);
   const [replyRoomChecked, setReplyRoomChecked] = useState(roomId);
@@ -83,13 +83,13 @@ function ActiveRoom({ roomId }: { roomId: string }) {
     setReplyRoomChecked(roomId);
     setReplyTarget(null);
   }
-  // The timer explained once — the flag lives on this device.
+  // The timer explained once; the flag lives on this device.
   const [hintRoom, setHintRoom] = useState<string | null>(() =>
     !ttlHintSeen() && (getSession(roomId)?.defaultTtl ?? 0) > 0
       ? roomId
       : null,
   );
-  // Adjusting state when the room prop changes — the sanctioned way,
+  // Adjusting state when the room prop changes: the sanctioned way,
   // no effect needed. A room that already expires its letters
   // explains itself once, quietly.
   const [hintRoomChecked, setHintRoomChecked] = useState(roomId);
@@ -106,7 +106,7 @@ function ActiveRoom({ roomId }: { roomId: string }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const groups = useMessageGroups(messages);
 
-  /* The jump affordance — present only when the newest line is out
+  /* The jump affordance, present only when the newest line is out
    * of sight. Counts what arrived below the fold while reading. */
   const [showJump, setShowJump] = useState(false);
   const [newBelow, setNewBelow] = useState(0);
@@ -130,7 +130,7 @@ function ActiveRoom({ roomId }: { roomId: string }) {
   }, [readScroll]);
 
   /* The room's clock, watched while you sit in it: when the time
-   * runs out, the room closes itself — a quiet word, then the desk.
+   * runs out, the room closes itself: a quiet word, then the desk.
    * (The server refuses re-entry on its own; this is the in-room
    * courtesy, so nobody types into a room that's already gone.) */
   const closeExpiredRoom = useApp((s) => s.closeExpiredRoom);
@@ -168,7 +168,7 @@ function ActiveRoom({ roomId }: { roomId: string }) {
     const grew = messages.length - prevCountRef.current;
     prevCountRef.current = messages.length;
     const last = messages[messages.length - 1];
-    // Something arrived below the fold while reading — count it,
+    // Something arrived below the fold while reading: count it,
     // stay put, and let the pill carry the news.
     if (grew > 0 && !nearBottomRef.current && last && !last.self && last.kind !== "system") {
       setNewBelow((n) => n + grew);
@@ -180,7 +180,7 @@ function ActiveRoom({ roomId }: { roomId: string }) {
     }
   }, [messages]);
 
-  // Mark the invite as shown (an external-system update — the
+  // Mark the invite as shown (an external-system update; the
   // auto-open itself is decided by the initial state above).
   useEffect(() => {
     if (inviteOpen && isCreator) {
@@ -190,7 +190,7 @@ function ActiveRoom({ roomId }: { roomId: string }) {
 
   // Escape from a quiet composer returns to the desk. Sheets, menus,
   // dialogs and the file viewer own the key first (they prevent it);
-  // a composer holding words — or a reply in progress — never loses
+  // a composer holding words, or a reply in progress, never loses
   // them to a stray Escape.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -207,7 +207,7 @@ function ActiveRoom({ roomId }: { roomId: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [navigate, replyTarget]);
 
-  // A letter that burns while being read must not linger on screen —
+  // A letter that burns while being read must not linger on screen:
   // the viewer follows the message out, decided during render (the
   // sanctioned adjustment pattern). Likewise the reply target: you
   // cannot answer what is no longer here. (The viewing copy was
@@ -226,7 +226,7 @@ function ActiveRoom({ roomId }: { roomId: string }) {
     setReplyTarget(null);
   }
 
-  /* Jump to a quoted message — scroll it into the middle of the
+  /* Jump to a quoted message: scroll it into the middle of the
    * view and let it announce itself with a soft ring of forest,
    * once. If the original is no longer in this session's memory
    * (expired, burned, or from before we joined), say so quietly. */
@@ -259,17 +259,17 @@ function ActiveRoom({ roomId }: { roomId: string }) {
   }, []);
 
   // A room that already expires its letters explains itself once.
-  // (Handled during render above — the state adjusts when the room
+  // (Handled during render above: the state adjusts when the room
   // prop changes, which is the sanctioned no-effect pattern.)
 
-  // The hint never lingers — it states its fact and leaves.
+  // The hint never lingers: it states its fact and leaves.
   useEffect(() => {
     if (!ttlHint) return;
     const t = setTimeout(dismissTtlHint, 10_000);
     return () => clearTimeout(t);
   }, [ttlHint, dismissTtlHint]);
   const solo = members.filter((m) => m.connected !== false).length <= 1;
-  /* Empty means no LETTERS — system lines (the room's closing note,
+  /* Empty means no LETTERS: system lines (the room's closing note,
      the rotation notes) don't make a conversation. A fresh TTL room
      always carries its entry line, and the desk's empty states must
      still take their seat around it. */
@@ -296,7 +296,7 @@ function ActiveRoom({ roomId }: { roomId: string }) {
         onSettings={() => setSettingsOpen(true)}
       />
 
-      {/* The line is down — letters pause. Quiet and factual, like
+      {/* The line is down; letters pause. Quiet and factual, like
           the system lines it sits above; it leaves when the courier
           returns. */}
       {lineNote !== "gone" ? (
@@ -336,7 +336,7 @@ function ActiveRoom({ roomId }: { roomId: string }) {
           <div className="mx-auto w-full max-w-[720px] px-4 pb-5 pt-4">
             {empty ? (
               <>
-                {/* System lines stay in the log — the room's closing
+                {/* System lines stay in the log: the room's closing
                     note still reads, above the quiet of no letters. */}
                 <TimeAwareMessages
                   groups={groups.filter((g) => g.message.kind === "system")}
@@ -345,7 +345,7 @@ function ActiveRoom({ roomId }: { roomId: string }) {
                 />
                 {solo && isCreator ? (
                   /* The creator's empty room: the verb is the invite.
-                     Behind the copy, the ghost of the drop —
+                     Behind the copy, the ghost of the drop,
                      the mark the room will carry, waiting. */
                   <div className="settle relative flex flex-col items-center px-6 pb-16 pt-[16vh] text-center">
                     <InkMark
@@ -372,7 +372,7 @@ function ActiveRoom({ roomId }: { roomId: string }) {
                     </div>
                   </div>
                 ) : (
-                  /* S8 — the joiner's empty room: the product statement,
+                  /* S8: the joiner's empty room: the product statement,
                      over the same quiet watermark. */
                   <div className="settle relative flex flex-col items-center px-6 pb-16 pt-[16vh] text-center">
                     <InkMark
@@ -432,7 +432,7 @@ function ActiveRoom({ roomId }: { roomId: string }) {
         ) : null}
       </div>
 
-      {/* Reserved strip — someone is writing, quietly. The space is
+      {/* Reserved strip: someone is writing, quietly. The space is
           always there so nothing jumps when a whisper begins. */}
       <TypingLine roomId={roomId} />
 
@@ -475,8 +475,7 @@ function ActiveRoom({ roomId }: { roomId: string }) {
 
 /* ------------------------------------------ message flow ---- */
 
-/** Messages between long silences get a quiet timestamp divider —
- *  the machine noting the passage of time, nothing more. */
+/** Messages between long silences get a quiet timestamp divider. */
 function TimeAwareMessages({
   groups,
   onOpenFile,
@@ -568,7 +567,7 @@ function TypingLine({ roomId }: { roomId: string }) {
     <div className="mx-auto flex h-[26px] w-full max-w-[720px] items-center justify-center px-5">
       {content ? (
         <p className="t-meta settle" aria-live="polite">
-          {/* Three flecks of the writer's ink, rising and fading —
+          {/* Three flecks of the writer's ink, rising and fading,
              the same vanishing the mark carries, small enough to
              stay a whisper. Decoration only; the sentence stays
              the aria-live text. */}
@@ -614,7 +613,7 @@ function LockedRoomView({ roomId }: { roomId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // The re-entered password never becomes React state and never
-  // appears as the field's value attribute — it exists only as the
+  // appears as the field's value attribute. It exists only as the
   // DOM property, read once here at submit.
   const passRef = useRef<HTMLInputElement>(null);
 
@@ -636,7 +635,7 @@ function LockedRoomView({ roomId }: { roomId: string }) {
       );
       return;
     }
-    // Unlocked — the entry key is derived; the plaintext has no
+    // Unlocked: the entry key is derived; the plaintext has no
     // further business in this (or any) input.
     if (passRef.current) passRef.current.value = "";
   }
@@ -663,7 +662,7 @@ function LockedRoomView({ roomId }: { roomId: string }) {
             password to return.
           </p>
           {/* The card settles as one; the way back in follows a beat
-              later — the locked moment gets the same choreography as
+              later: the locked moment gets the same choreography as
               every other entrance in the app. */}
           <div className="settle mt-5 space-y-4" style={{ animationDelay: "120ms" }}>
             <Field label="Room password" htmlFor="cc-locked-pass" error={error}>

@@ -1,4 +1,4 @@
-// Task 19.4 — PER-ROOM SIGNING KEYS (P1)
+// Task 19.4: PER-ROOM SIGNING KEYS (P1)
 //
 // Property: the device holds one random seed; each room gets its own
 // ECDSA P-256 keypair derived via HKDF(seed, roomId). Same device, two

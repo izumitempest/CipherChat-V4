@@ -1,21 +1,21 @@
 // Notifications, in the app's voice. Two channels, one promise:
 // nothing about a letter is revealed further than the user chose.
 //
-//   In-app  — while CipherChat is open and the user is elsewhere
-//             (another room, the desk, the landing), a notice rises
-//             at the top of the shell. It is IN FLOW: the app moves
-//             down to make room — nothing is ever covered.
-//   Native  — when the app is hidden (another tab, backgrounded,
-//             installed-PWA), the service worker raises a system
-//             notification. Tapping it returns to the room.
+//   In-app:  while CipherChat is open and the user is elsewhere
+//            (another room, the desk, the landing), a notice rises
+//            at the top of the shell. It is IN FLOW: the app moves
+//            down to make room; nothing is ever covered.
+//   Native:  when the app is hidden (another tab, backgrounded,
+//            installed-PWA), the service worker raises a system
+//            notification. Tapping it returns to the room.
 //
 // What a notification says is a preference, not a guess:
-//   "content" — the letter's text, truncated
-//   "sender"  — only who wrote, and where (the default: the brand
-//               keeps its mouth shut until asked)
-//   "none"    — "A new letter arrived"
+//   "content": the letter's text, truncated
+//   "sender":  only who wrote, and where (the default: the notice
+//              says nothing until the user asks)
+//   "none":    "A new letter arrived"
 //
-// The preference applies to BOTH channels — the OS notification
+// The preference applies to BOTH channels. The OS notification
 // shade is exactly where ephemerality is easiest to forget.
 
 import { useNoticeStack } from "@/store/notices";
@@ -41,7 +41,7 @@ export function saveNotifyPreview(pref: NotifyPreview): void {
   try {
     localStorage.setItem(PREVIEW_KEY, pref);
   } catch {
-    /* Private mode / storage wiped — the default still applies. */
+    /* Private mode / storage wiped; the default still applies. */
   }
 }
 
@@ -55,7 +55,7 @@ export interface IncomingNotice {
   roomName: string;
   /** Sender alias, e.g. "Quiet Heron". */
   alias: string;
-  /** Sender ink index (1..8) — the banner carries their colour. */
+  /** Sender ink index (1..8); the banner carries their colour. */
   colorIdx: number;
   /** Decrypted preview text, if the channel may show it. */
   text?: string | null;
@@ -70,7 +70,7 @@ function truncate(s: string, max = PREVIEW_MAX): string {
 }
 
 /** One line for the in-app banner (sender shown separately).
- *  A file is never quoted — the act, not the contents. */
+ *  A file is never quoted; the act is named, not the contents. */
 export function bannerLine(n: IncomingNotice, pref: NotifyPreview): string {
   if (n.isFile) return pref === "none" ? "A file arrived" : "Sent a file";
   if (pref === "content" && n.text) return truncate(n.text);
@@ -100,7 +100,7 @@ export function describeNotice(
 }
 
 /* ------------------------------------------------------------------ */
-/* Where a notice goes — pure, so it can be tested without a browser  */
+/* Where a notice goes: pure, so it can be tested without a browser */
 /* ------------------------------------------------------------------ */
 
 export type NoticeChannel = "none" | "banner" | "native";
@@ -115,7 +115,7 @@ export function decideNoticeChannel(opts: {
 }
 
 /* ------------------------------------------------------------------ */
-/* Native plumbing — every entry point guarded; a notification is a   */
+/* Native plumbing: every entry point guarded; a notification is a   */
 /* courtesy, never a crash.                                            */
 /* ------------------------------------------------------------------ */
 
@@ -198,7 +198,7 @@ export async function showNativeNotice(
   }
 }
 
-/** The full decision — call from the receive path. */
+/** The full decision; call from the receive path. */
 export function notifyIncoming(n: IncomingNotice): void {
   const channel = decideNoticeChannel({
     hidden: typeof document !== "undefined" && document.hidden,
@@ -213,7 +213,7 @@ export function notifyIncoming(n: IncomingNotice): void {
 }
 
 /* ------------------------------------------------------------------ */
-/* The launcher badge — total unread letters, capped like a stamp      */
+/* The launcher badge: total unread letters, capped at 99             */
 /* ------------------------------------------------------------------ */
 
 export function clampBadgeCount(n: number): number {
@@ -232,6 +232,6 @@ export function syncBadge(count: number): void {
       void nav.clearAppBadge?.();
     }
   } catch {
-    /* Not supported — decoration only. */
+    /* Not supported; decoration only. */
   }
 }

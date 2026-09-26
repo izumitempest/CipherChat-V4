@@ -1,7 +1,7 @@
-// Task 22.2 — SCALAR RANGE HANDLING IN ROOM IDENTITY DERIVATION
+// Task 22.2: SCALAR RANGE HANDLING IN ROOM IDENTITY DERIVATION
 //
 // Property: a derived room signing key is only accepted when its
-// scalar is a VALID P-256 private scalar — an integer in [1, n-1].
+// scalar is a VALID P-256 private scalar: an integer in [1, n-1].
 // The check is EXPLICIT (bigint comparison), not an incidental
 // side effect of a library throwing, so the validity of every
 // identity ever registered is auditable in one pure function.
@@ -13,7 +13,7 @@ import { signCanonical, verifyCanonical } from "@/lib/crypto";
 
 const N = p256.Point.CURVE().n;
 
-// BigInt() calls instead of literals — the repo targets ES2017.
+// BigInt() calls instead of literals, because the repo targets ES2017.
 function b64urlToBigInt(s: string): bigint {
   const b64 = s.replace(/-/g, "+").replace(/_/g, "/");
   const raw = atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4));

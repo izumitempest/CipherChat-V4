@@ -34,7 +34,7 @@ export default function CipherChatApp() {
     void init();
   }, [init]);
 
-  // ?join=CODE — an invite link's first landing.
+  // ?join=CODE - an invite link's first landing.
   const searchParams = useSearchParams();
   useEffect(() => {
     if (!ready) return;
@@ -51,7 +51,7 @@ export default function CipherChatApp() {
   if (!ready) {
     return (
       <div className="flex min-h-dvh items-center justify-center">
-        {/* The mark breathes while the desk is unlocked — the app
+        {/* The mark breathes while the desk is unlocked. The app
             is alive from the first frame. */}
         <InkMark size={44} breathe className="opacity-60" />
       </div>
@@ -70,7 +70,7 @@ export default function CipherChatApp() {
 
 /* The desk and the room need an exact viewport fit (their own inner
  * scroll); landing and invite are pages that grow. The wrapper picks
- * its height accordingly — and the notice stack rides above both,
+ * its height accordingly, and the notice stack rides above both,
  * in flow, so a banner never covers anything: the app steps down. */
 function Shell() {
   const screen = useApp((s) => s.screen);
@@ -91,7 +91,7 @@ function Shell() {
   );
 }
 
-/* The launcher badge — the sum of unread letters, kept in step with
+/* The launcher badge: the sum of unread letters, kept in step with
  * the desk. Cleared the moment the rooms are read (or swept). */
 function BadgeSync() {
   const roomCards = useApp((s) => s.roomCards);
@@ -133,8 +133,8 @@ function Screens() {
       </div>
       <main className="min-w-0 flex-1">
         {inRoom ? (
-          /* Keyed by room: switching letters is switching pages —
-             the room takes its seat with the same entrance every
+          /* Keyed by room: switching letters is switching pages.
+             The room takes its seat with the same entrance every
              screen gets, and its scroll state starts fresh. */
           <ChatScreen key={activeRoomId} roomId={activeRoomId} />
         ) : (

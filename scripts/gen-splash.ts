@@ -1,7 +1,7 @@
-// iOS splash-screen generator — composes the Vanishing Ink and the
+// iOS splash-screen generator: composes the Vanishing Ink and the
 // serif wordmark onto paper for every current iPhone/iPad launch
 // resolution, using sharp (the same pipeline that renders the icons
-// and og.png — no AI image generation, no re-drawn paths).
+// and og.png: no AI image generation, no re-drawn paths).
 //
 //   bun scripts/gen-splash.ts
 //
@@ -22,13 +22,13 @@
 //
 // The composition mirrors og.png's recipe (see gen-icons.ts): flat
 // paper, the mark, and the wordmark set in Georgia with the same
-// charcoal ink — but arranged as a vertical lockup: the mark's visual
+// charcoal ink, but arranged as a vertical lockup: the mark's visual
 // centre seated at 42% of the screen height, "CipherChat" beneath.
 //
 // The mark geometry is NOT re-declared here: the inner group is read
 // verbatim from public/logo.svg (the single source of truth) and
 // seated inside a nested <svg> box. Its var(--forest, …) fills carry
-// hex fallbacks, which librsvg resolves — verified: the drop renders
+// hex fallbacks, which librsvg resolves. Verified: the drop renders
 // #3A4F41, not black. The box is placed by MEASUREMENT, not by eye:
 // the script renders the mark once, scans the alpha channel for the
 // true ink bounds, and centers those bounds on the target point.
@@ -42,7 +42,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SPLASH_DIR = path.join(ROOT, "public", "splash");
 const LOGO = path.join(ROOT, "public", "logo.svg");
 
-/* Brand hexes — standalone assets live outside the CSS variable
+/* Brand hexes: standalone assets live outside the CSS variable
  * system (same policy as gen-icons.ts). */
 const PAPER = "#F4F1EB";
 const WORD_INK = "#33342E"; // the wordmark's charcoal, as in og.png
@@ -57,7 +57,7 @@ const WORD_F_FRAC = 0.095;
 const MARK_AT_Y = 0.42;
 const BASELINE_AIR = 0.85;
 
-/** [cssW, cssH, dpr, human label] — the iPhone/iPad matrix the
+/** [cssW, cssH, dpr, human label]: the iPhone/iPad matrix the
  *  apple-splash.tsx link component mirrors. Keep the two in sync. */
 const DEVICES: ReadonlyArray<readonly [number, number, number, string]> = [
   [320, 568, 2, "iPhone SE (1st gen)"],
@@ -75,8 +75,8 @@ const DEVICES: ReadonlyArray<readonly [number, number, number, string]> = [
   [1024, 1366, 2, "iPad Pro 12.9"],
 ];
 
-/** Read public/logo.svg and return its inner group — the mark as
- *  drawn, comments and all — for nesting inside the composition. */
+/** Read public/logo.svg and return its inner group: the mark as
+ *  drawn, comments and all, for nesting inside the composition. */
 async function loadMarkInner(): Promise<string> {
   const src = await readFile(LOGO, "utf8");
   const m = src.match(/<svg[^>]*>([\s\S]*)<\/svg\s*>/);
@@ -86,8 +86,8 @@ async function loadMarkInner(): Promise<string> {
 
 /** Render the mark alone at 10× and scan the alpha channel for the
  *  true ink bounds in logo.svg's 96×96 viewBox units. The mark is
- *  taller than it is wide (the flecks climb), so the measured box —
- *  not the square viewBox — is what gets centered. */
+ *  taller than it is wide (the flecks climb), so the measured box,
+ *  not the square viewBox, is what gets centered. */
 async function measureMark(inner: string): Promise<{
   minX: number; minY: number; maxX: number; maxY: number;
   cx: number; cy: number; w: number; h: number;
@@ -139,7 +139,7 @@ async function main() {
   const rows: string[] = [];
 
   for (const [cssW, cssH, dpr, label] of DEVICES) {
-    // Real pixel canvas — composed at final size, like og.png.
+    // Real pixel canvas, composed at final size, like og.png.
     const W = cssW * dpr;
     const H = cssH * dpr;
 
@@ -182,9 +182,9 @@ async function main() {
   console.log(rows.join("\n"));
   console.log(`  ${"total".padEnd(25)} ${String(total).padStart(7)} bytes (${(total / 1024).toFixed(0)} KB)`);
   if (total > 900 * 1024) {
-    console.warn("  WARNING: total exceeds the 900 KB budget — tighten palette quality.");
+    console.warn("  WARNING: total exceeds the 900 KB budget. Tighten palette quality.");
   }
-  console.log("The ink finds its seat on every screen.");
+  console.log("Wrote splash screens for all device sizes.");
 }
 
 main();

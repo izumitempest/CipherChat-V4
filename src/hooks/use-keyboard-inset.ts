@@ -1,7 +1,7 @@
 // The keyboard, made visible to CSS. Mobile browsers do not agree on
 // what the on-screen keyboard does to the page: Android Chrome can
 // resize the layout viewport (we ask for it via `interactive-widget=
-// resizes-content`), but iOS Safari overlays it — fixed-position bottom
+// resizes-content`), but iOS Safari overlays it. Fixed-position bottom
 // sheets and dvh-tall shells stay put and the keyboard rises over
 // whatever you were typing into.
 //
@@ -17,7 +17,7 @@
 //   inset = layoutViewportHeight - visualViewport.height - visualViewport.offsetTop
 //
 // On Android with resizes-content both terms shrink together, the
-// inset reads ~0 and the native dvh resize does the work — the two
+// inset reads ~0 and the native dvh resize does the work. The two
 // mechanisms never double-count.
 
 "use client";
@@ -44,9 +44,9 @@ export function useKeyboardInset() {
         root.style.setProperty("--kb-inset", "0px");
         return;
       }
-      // documentElement.clientHeight is the layout viewport height —
+      // documentElement.clientHeight is the layout viewport height:
       // unlike window.innerHeight it does not shrink when iOS shows
-      // the keyboard, which is precisely the difference we measure.
+      // the keyboard, which is exactly the difference we measure.
       const layoutH = root.clientHeight;
       const covered = layoutH - vv.height - vv.offsetTop;
       const max = Math.round(layoutH * 0.6);

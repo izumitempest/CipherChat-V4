@@ -36,7 +36,7 @@ export function InviteSheet({
   const [qr, setQr] = useState<string | null>(null);
   const link = `${window.location.origin}/?join=${roomId}`;
 
-  /* The code carries the link only — the password still travels
+  /* The code carries the link only: the password still travels
    * through another channel. Rendered once, on paper, always light. */
   useEffect(() => {
     if (!open || qr) return;
@@ -88,8 +88,8 @@ export function InviteSheet({
         <SheetHeader className="p-0 text-left">
           <SheetTitle className="t-title">Invite to this room</SheetTitle>
           <SheetDescription className="mt-1 font-sans text-[13px] leading-[19px] text-mute">
-            Send the link and the password through different channels —
-            whoever holds both can enter.
+            Send the link and the password through different channels.
+            Whoever holds both can enter.
             {session?.expiresAt && session.expiresAt > Date.now() ? (
               <>
                 {" "}
@@ -102,7 +102,7 @@ export function InviteSheet({
 
         <div className="mt-5 space-y-5">
           {/* Label row carries the actions; the value box below wraps
-              freely — a long password never bends the layout. */}
+              freely, so a long password never bends the layout. */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between gap-3">
               <p className="font-sans text-[13px] font-medium tracking-[0.01em] text-charcoal">
@@ -161,18 +161,18 @@ export function InviteSheet({
               </span>
             </div>
             <p className="t-meta">
-              The password lives in this room&rsquo;s memory only — it is never sent to us.
+              The password lives in this room’s memory only. It is never sent to us.
             </p>
           </div>
 
-          {/* In person — hold the code up; the password still travels
+          {/* In person: hold the code up; the password still travels
               separately, by word of mouth or another channel. */}
           <div className="space-y-1.5">
             <p className="font-sans text-[13px] font-medium tracking-[0.01em] text-charcoal">
               In person
             </p>
             <div className="flex items-center gap-4 rounded-[12px] border border-hairline bg-paper p-3.5">
-              {/* Always daylight paper — a code is a physical object; it
+              {/* Always daylight paper: a code is a physical object; it
                   does not turn dark at night, and scanners agree. */}
               <span className="flex size-[108px] shrink-0 items-center justify-center overflow-hidden rounded-[6px] border border-hairline bg-[#F4F1EB]">
                 {qr ? (
@@ -191,7 +191,7 @@ export function InviteSheet({
                 )}
               </span>
               <p className="t-meta max-w-[180px] leading-[17px]">
-                Hold this up to scan — it opens the invite. The password
+                Hold this up to scan. It opens the invite. The password
                 still travels separately.
               </p>
             </div>

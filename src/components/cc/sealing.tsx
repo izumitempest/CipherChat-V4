@@ -1,6 +1,6 @@
-// S3 — the key derivation moment. A vault door, not a loading bar:
+// S3: the key derivation moment. A vault door, not a loading bar:
 // a full-surface state with a slow, physical progress indicator while
-// a deliberately slow derivation runs. This is where the user decides
+// a slow derivation runs. This is where the user decides
 // the encryption is real.
 
 "use client";
@@ -41,7 +41,7 @@ export function Sealing({
             stroke="var(--hairline)"
             strokeWidth="3"
           />
-          {/* the press — fills with weight */}
+          {/* the press, filling with weight */}
           <circle
             cx="48"
             cy="48"
@@ -67,9 +67,9 @@ export function Sealing({
           <InkMark size={30} />
         </div>
       </div>
-      {/* Three wax shards — tiny fragments of the seal, still
+      {/* Three wax shards, tiny fragments of the seal, still
           settling in the whisper cadence while the derivation does
-          its real, deliberately slow work. */}
+          its real, intentionally slow work. */}
       <div className="mt-6 flex items-center justify-center gap-2" aria-hidden>
         <InkMark variant="fleck" size={9} className="typing-dot text-forest/45" />
         <InkMark

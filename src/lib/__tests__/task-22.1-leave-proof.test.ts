@@ -1,9 +1,9 @@
-// Task 22.1 — LEAVE PROOF-OF-POSSESSION
+// Task 22.1: LEAVE PROOF-OF-POSSESSION
 //
 // Property: writing a member out of the registry (and rotating the
 // room key out from under everyone) requires a valid ECDSA signature
 // from that member's OWN room signing key over the canonical departure
-// string — memberId alone proves nothing. A stranger who learns the
+// string; memberId alone proves nothing. A stranger who learns the
 // roomId and a memberId can no longer force a rotation by "leaving"
 // as someone else.
 
@@ -97,7 +97,7 @@ describe("leave proof-of-possession", () => {
     // WHY this is acceptable: a leave is idempotent. Re-leaving an
     // already-inactive member is a no-op that bumps the epoch at most
     // once per window, and nuisance rotation requires a VALID signature
-    // from the victim's own key — a captured proof only ever removes
+    // from the victim's own key. A captured proof only ever removes
     // the victim, which their own leave button does anyway.
     const k = await makeKey();
     const proof = await signLeaveProof(k.privJwk, "ROOM", "MEM", 1000);

@@ -1,4 +1,4 @@
-// S1 — Landing. One decision in five seconds: create, or join.
+// S1: landing. One decision in five seconds: create, or join.
 // No feature list, no marketing density. Below the fold, a single
 // line of trust copy.
 
@@ -33,7 +33,7 @@ export function LandingScreen() {
    * ?create=1 during init (URL cleaned, flag raised), and the
    * landing answers by having the form already out. First render
    * happens after init (the ready gate), so the initial value is
-   * simply the flag — no effect, no cascade. */
+   * simply the flag: no effect, no cascade. */
   const porchCreate = useApp((s) => s.porchCreate);
   const [createOpen, setCreateOpen] = useState(porchCreate);
 
@@ -50,12 +50,12 @@ export function LandingScreen() {
       </header>
 
       <main className="mx-auto flex w-full max-w-[440px] flex-1 flex-col items-center justify-center px-6 py-16 [@media(max-height:720px)]:py-9">
-        {/* Entrance — the ink falls. The drop releases from above
+        {/* Entrance: the ink falls. The drop releases from above
             with a lean, strikes the paper (~220ms: squash), and its
             flecks splash upward as the stain bleeds outward beneath
             it; a beat later the evaporating loop takes over. Hover
             the mark at rest: the flecks lift, the ember warms.
-            Classes and staggers live in globals.css — the choreo
+            Classes and staggers live in globals.css; the choreo
             needs multi-animation shorthands inline styles can't
             express. */}
         <div className="hero-mark relative">
@@ -130,7 +130,7 @@ function CreateRoomSheet({
   const [ttl, setTtl] = useState<number>(ROOM_TTL_DEFAULT_SEC);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // The passphrase is never React state — it is seeded straight into
+  // The passphrase is never React state. It is seeded straight into
   // the field's DOM property (never its attribute), read here only at
   // submit, and dies with the input node when the sheet unmounts.
   const passRef = useRef<HTMLInputElement>(null);
@@ -158,8 +158,8 @@ function CreateRoomSheet({
       setError("The room could not be created. Check your connection and try again.");
       return;
     }
-    // Created — the plaintext's job is done; wipe it, then close (the
-    // unmount would take it anyway — this is the belt to that braces).
+    // Created: the plaintext's job is done; wipe it, then close (the
+    // unmount would take it anyway; this is the belt to that braces).
     if (passRef.current) passRef.current.value = "";
     onOpenChange(false);
     toast("Room created", {
@@ -184,7 +184,7 @@ function CreateRoomSheet({
               portal children in a later commit than the parent's
               open-state change, so a parent effect can fire before
               the input exists. As part of the content, this runs
-              exactly when the field it seeds comes to life — and
+              exactly when the field it seeds comes to life, and
               again on every reopen, since closing unmounts the
               content. Property assignment only: the value attribute
               stays absent for the field's whole life. */}
@@ -227,7 +227,7 @@ function CreateRoomSheet({
             />
           </Field>
 
-          {/* The room's clock — chosen once here, adjustable later
+          {/* The room's clock, chosen once here, adjustable later
               by the creator alone. */}
           <div className="space-y-2">
             <p className="font-sans text-[13px] font-medium tracking-[0.01em] text-charcoal">
@@ -247,7 +247,7 @@ function CreateRoomSheet({
 
 /* Mounts (and remounts) with the sheet content, seeding the secret
  * field's DOM property with a fresh CSPRNG passphrase. Rendering null,
- * it costs nothing — it exists purely so the seeding effect runs at
+ * it costs nothing; it exists purely so the seeding effect runs at
  * the exact moment its target input comes to life. */
 function SeedPassphrase({
   passRef,

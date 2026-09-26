@@ -3,24 +3,25 @@ import { db } from "@/lib/db";
 import { IpRateLimiter } from "@/lib/rate-limit";
 import { authorizeEviction, OFFLINE_UNKNOWN } from "@/lib/silent-grace";
 
-// POST /api/rooms/:roomId/evict — seal out a SILENT leaver.
+// POST /api/rooms/:roomId/evict. Lock out a SILENT leaver.
 //
 // A member whose connection dropped without a clean leave keeps the
 // room key until the room re-seals. This endpoint is the server half
 // of that re-seal: the connected coordinator (smallest memberId
 // among live members) asks us to write the silent member out of the
-// registry and bump the epoch — the rotation ledger.
+// registry and bump the epoch (the rotation ledger).
 //
-// Authority split (adversarial review 19-10 rules preserved):
-//   - THIS route stays the only registry writer (identity authority)
-//   - the relay's live presence snapshot is the only connection
-//     authority — we ask it directly, server-to-server, and we fail
-//     CLOSED if it cannot vouch for both the caller (live) and the
-//     target (gone long enough)
+// Graded authority (adversarial review 19-10 rules preserved):
+//   - THIS route remains the only registry writer, the authoritative
+//     source for identity. The relay's live presence snapshot is the
+//     authoritative source for connections. We ask it directly,
+//     server-to-server, and we FAIL CLOSED without the token or when
+//     it cannot vouch for both the caller (live) and the target
+//     (gone long enough)
 //
 // An abuser who knows only the roomId gains nothing beyond a
-// nuisance rotation while someone is away — the same accepted risk
-// class as an insider nuisance-rotating, and the member simply
+// nuisance rotation while someone is away. This is the same accepted
+// risk class as an insider nuisance-rotating, and the member simply
 // re-enters with the password afterwards.
 
 const evictLimiter = new IpRateLimiter({ limit: 30, windowMs: 60_000 });
@@ -40,7 +41,7 @@ interface PresenceSnapshot {
 }
 
 async function fetchPresence(roomId: string): Promise<PresenceSnapshot | null> {
-  if (!PRESENCE_TOKEN) return null; // fail closed — no token, no authority
+  if (!PRESENCE_TOKEN) return null; // fail closed: no token, no authority
   try {
     const res = await fetch(`${PRESENCE_URL_BASE}/presence/${encodeURIComponent(roomId)}`, {
       headers: { "x-internal-token": PRESENCE_TOKEN },
@@ -50,7 +51,7 @@ async function fetchPresence(roomId: string): Promise<PresenceSnapshot | null> {
     if (!res.ok) return null;
     return (await res.json()) as PresenceSnapshot;
   } catch {
-    return null; // relay unreachable — fail closed
+    return null; // relay unreachable, so fail closed
   }
 }
 
@@ -73,8 +74,8 @@ export async function POST(
 
   const room = await db.room.findUnique({ where: { id: roomId } });
   if (!room || room.burned) {
-    // Indistinguishable from success to unauthenticated callers —
-    // the room's existence is not confirmed to strangers.
+    // Indistinguishable from success to unauthenticated callers.
+    // The room's existence is not confirmed to strangers.
     return NextResponse.json({ ok: true });
   }
 
@@ -91,8 +92,8 @@ export async function POST(
   if (typeof offlineSince === "number" && Number.isFinite(offlineSince)) {
     targetOfflineMs = Math.max(0, now - offlineSince);
   } else if (target) {
-    // The relay never saw them this process — but the registry's
-    // lastSeenAt is an honest fallback clock (set at their last join).
+    // The relay never saw them in this process, but the registry's
+    // lastSeenAt is a usable fallback clock (set at their last join).
     targetOfflineMs = Math.max(0, now - target.lastSeenAt.getTime());
   }
 
@@ -107,7 +108,7 @@ export async function POST(
     targetOfflineMs,
   });
   if (!verdict.ok) {
-    // 409 — the request was understood, the state disagrees.
+    // 409: the request was understood, the state disagrees.
     return NextResponse.json({ error: verdict.reason }, { status: 409 });
   }
 

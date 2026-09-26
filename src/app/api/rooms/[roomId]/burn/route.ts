@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
-// POST /api/rooms/:roomId/burn — creator-only termination.
+// POST /api/rooms/:roomId/burn. Creator-only termination.
 // Destroys the room and its member registry for everyone, unrecoverably.
 // The socket layer announces it; every client runs the burn sequence.
 export async function POST(

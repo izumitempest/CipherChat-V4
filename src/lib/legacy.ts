@@ -1,4 +1,4 @@
-// Legacy support — rooms created before protocol v2 derive their keys
+// Legacy support: rooms created before protocol v2 derive their keys
 // with PBKDF2-SHA256 (750k iterations, deterministic salt). This module
 // exists only so pre-upgrade rooms and old clients keep working; new
 // rooms use argon2id bundles (see kdf.ts) and never touch this path.

@@ -2,7 +2,7 @@
 
 ---
 Task ID: 0
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: Master plan for CipherChat — end-to-end encrypted, ephemeral messaging app (warm paper/forest aesthetic, NOT cyber/hacker)
 
 Work Log:
@@ -25,7 +25,7 @@ Stage Summary — ARCHITECTURE DECIDED:
 
 ---
 Task ID: 1, 2, 3, 4, 5 (partial)
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: Design foundation, backend, client libs, all screens, integration
 
 Work Log:
@@ -45,7 +45,7 @@ Stage Summary:
 
 ---
 Task ID: 6
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: QA via agent-browser — golden path, two-member E2E, responsiveness, dark mode
 
 Work Log:
@@ -88,7 +88,7 @@ Stage Summary:
 
 ---
 Task ID: 7-a, 7-b, 8
-Agent: lead (Z.ai Code) + frontend-styling-expert (7-a)
+Agent: lead (Izumi) + frontend-styling-expert (7-a)
 Task: Polish pass, re-verification, deliverables
 
 Work Log:
@@ -104,7 +104,7 @@ Stage Summary:
 
 ---
 Task ID: 9, 10, 11, 12
-Agent: lead (Z.ai Code) — webDevReview round 1 (cron)
+Agent: lead (Izumi) — webDevReview round 1 (cron)
 Task: QA sweep + feature round (typing indicators, drag-drop/paste attach, time-gap dividers, char limit, sheet grabbers)
 
 Work Log (current status / done / verified):
@@ -129,7 +129,7 @@ Priority recommendations for next phase:
 
 ---
 Task ID: 13, 14, 15
-Agent: lead (Z.ai Code) — webDevReview round 2 (cron)
+Agent: lead (Izumi) — webDevReview round 2 (cron)
 
 Task: Status assessment + QA sweep + feature round (scroll-to-bottom affordance, message copy menu, PWA service worker, invite sheet layout fix)
 
@@ -161,7 +161,7 @@ Priority recommendations for next phase:
 
 ---
 Task ID: 16, 17
-Agent: lead (Z.ai Code) — webDevReview round 3 (user-reported bug)
+Agent: lead (Izumi) — webDevReview round 3 (user-reported bug)
 
 Task: Fix "on mobile, the keyboard covers the modal/bottom popup" + explain the apparent loop
 
@@ -198,7 +198,7 @@ Priority recommendations for next phase:
 
 ---
 Task ID: 18
-Agent: lead (Z.ai Code) — user request (documentation)
+Agent: lead (Izumi) — user request (documentation)
 
 Task: Write a detailed markdown reference of all available components, how they work, and what they do
 
@@ -239,7 +239,7 @@ Stage Summary:
 
 ---
 Task ID: 19 (19-0 … 19-11)
-Agent: lead (Z.ai Code) + general-purpose subagent (19-10 adversarial review)
+Agent: lead (Izumi) + general-purpose subagent (19-10 adversarial review)
 Task: Security hardening pass per external acceptance review — replay protection, REAL key rotation on leave, argon2id KDF, per-room identity, uniform padding, relay/API hardening, honest documentation. RULE honored: failing tests written FIRST (all six property files were red before any implementation existed), and every fix since has shipped with its test.
 
 Current project status / assessment:
@@ -272,7 +272,7 @@ Priority recommendations for next phase:
 
 ---
 Task ID: 20 (20-0 … 20-c)
-Agent: lead (Z.ai Code) + frontend-styling-expert subagent (20-c, styling pass)
+Agent: lead (Izumi) + frontend-styling-expert subagent (20-c, styling pass)
 Task: webDevReview round 20 — QA + bug fix + features + styling per standing brief (fix bugs first, then mandatory styling details + mandatory features)
 
 Current project status / assessment (at round start):
@@ -323,7 +323,7 @@ Stage Summary:
 
 ---
 Task ID: 21 (21-0 … 21-4)
-Agent: lead (Z.ai Code) + frontend-styling-expert subagent (21-3)
+Agent: lead (Izumi) + frontend-styling-expert subagent (21-3)
 Task: webDevReview round 21 — QA + bug fixes + features + mandatory styling, per standing brief. Top priority from round 20's recommendations: presence-driven rotation grace (the documented "silent leaver retains keys" gap).
 
 Current project status / assessment (at round start):
@@ -437,7 +437,7 @@ Stage Summary:
 
 ---
 Task ID: 22-a / 22-e / 22-f
-Agent: orchestrator (Z.ai Code)
+Agent: orchestrator (Izumi)
 Task: Task 20 "Exit the sandbox" — env/deploy/CI/SW layer (22-a), full two-origin QA (22-e), docs + handover (22-f). Reviewer's Task 20 = internal Task 22 (20/21 were taken by captions/reactions/silent-grace).
 
 Work Log:
@@ -460,7 +460,7 @@ Stage Summary:
 
 ---
 Task ID: 23
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: Brand-new logo (The Vanishing Ink), creator-chosen room TTL (presets + custom + until-burned), and message TTL with seconds + custom lifetimes
 
 Work Log:
@@ -477,7 +477,7 @@ Stage Summary:
 
 ---
 Task ID: 24
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: "Add cool animations to the UI and even the logo" — a full motion pass over The Vanishing Ink brand and every surface, with reduced-motion discipline held throughout.
 
 Work Log:
@@ -526,7 +526,7 @@ Stage Summary:
 
 ---
 Task ID: 25
-Agent: lead (Z.ai Code) + general-purpose subagent (25-b)
+Agent: lead (Izumi) + general-purpose subagent (25-b)
 Task: Fix the notification overlap at the top of the screen; implement proper in-app and native notifications; turn CipherChat into an Android/iOS application (installable PWA + Capacitor scaffold)
 
 Work Log:
@@ -547,7 +547,7 @@ Stage Summary:
 
 ---
 Task ID: 26
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: Security review triggered by the user pasting the live DOM of the create-sheet password input (`<input id="cc-new-pass" type="text" value="quill-grove-harbor-orchard">`) with the prompt "I'm sure you can find out the breach here" — find and fix the breach.
 
 Work Log:
@@ -568,7 +568,7 @@ Stage Summary:
 
 ---
 Task ID: 27
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: User challenge follow-up — "while typing using DevTools, in sensitive fields like passwords, the value=\"\" tag always reveals it. Can't that be hidden or removed?" Remove the DevTools value-attribute mirror from all password fields.
 
 Work Log:
@@ -586,7 +586,7 @@ Stage Summary:
 
 ---
 Task ID: 28
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: User request — "write all the changes and additions that were made in a doc. Be detailed and specific as possible. When done, suggest improvements/additions."
 
 Work Log:
@@ -600,7 +600,7 @@ Stage Summary:
 
 ---
 Task ID: 29-g
-Agent: docs-agent (Z.ai Code)
+Agent: docs-agent (Izumi)
 Task: Documentation for round 29 (quoted replies + in-app media viewers)
 
 Work Log:
@@ -618,7 +618,7 @@ Stage Summary:
 
 ---
 Task ID: 29
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: User request — "Add being able to reply to specific messages, add in app viewers for view once docs and picture and every other type of media instead of downloading it which defeats the whole point. Add all the improvements. As long as there's no security compromise."
 
 Work Log:
@@ -637,7 +637,7 @@ Stage Summary:
 
 ---
 Task ID: 30
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: User request — "update changes.md". Bring CHANGES.md current with everything after the last docs round (29-g), verify every claim, and keep the doc's standards (specific, honest, cross-referenced).
 
 Work Log:
@@ -657,7 +657,7 @@ Stage Summary:
 
 ---
 Task ID: 31
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: User round — "The Last Mile: verify the artifact users will actually touch" (their Task 31 spec: CI for real + remove ignoreBuildErrors; compose E2E with the :3004 check first; EXIF strip; 6-word passphrase; canonical versioning proof; abuse surface). Framed by their full analysis of Tasks 20–30: ship-readiness 4/10, EXIF elevated from residual to obligation, the invisible-substitution lesson (randomness/entropy gets a named checklist item from now on).
 
 Work Log:
@@ -682,7 +682,7 @@ Stage Summary:
 
 ---
 Task ID: 32
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: User round — Task 32 acceptance spec: "Green gate, graded reports, E2E-in-CI, push prep. The last in-sandbox round. After this, the next step is git push — a human act. Close everything closable." Arrived with the Task 31 review (PASSED; the kill-switch finding + the audit-split/separator-collision/post-surgery-smoke notes) and a screenshot that changed the round's opening move: CI Run #1 had already fired on github.com/izumemptest/CipherChat-v4 and failed.
 
 Work Log:
@@ -705,7 +705,7 @@ Stage Summary:
 
 ---
 Task ID: 33
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: User handoff question — "what file was changed, so I can edit it locally? Or do you have Git Integration?" Answer with the manifest + push path, and prove the rc1 tree is genuinely push-ready in a fresh session (the previous session's verification evidence was lost to a context break).
 
 Work Log:
@@ -724,7 +724,7 @@ Stage Summary:
 
 ---
 Task ID: 34
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: User question — "So, what's next or is that all?" Prove the rc1 state still holds in this session (the machine had restarted again), repair any drift, and give the final handoff answer.
 
 Work Log:
@@ -742,7 +742,7 @@ Stage Summary:
 
 ---
 Task ID: 35
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: The operator's documentation truth audit (their numbering: "Task 33 — Doc truth pass, one hour, no code"). Their review found three real findings (COMPONENTS.md's stale five-words/40-bits prose; README's unconditioned 2-minute silent-leaver bound; AUDIT.md's overclaimed audit fidelity) plus a hygiene table, and set the acceptance: a corpus-wide grep for every corrected claim returns nothing stale; no doc restates a code-level constant without citing its source.
 
 Work Log:
@@ -762,7 +762,7 @@ Stage Summary:
 
 ---
 Task ID: 36
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: The eaten-tail pick. The operator's message ended with four candidate next-rounds behind an eaten tail and "pick one": (1) stop after the doc pass, (2) repo front-page/social card, (3) launch positioning, (4) v1.0 release notes. Picked 4.
 
 Work Log:
@@ -776,7 +776,7 @@ Stage Summary:
 
 ---
 Task ID: 37
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: The operator's acceptance review of the doc truth pass (their verdict: PASSED, 8/10 with two sharpenings) handed one mini-task spec — the ENOLOCK class sweep: "grep every JSON.parse of external output (subprocess, fetch, relay internal calls); confirm each is followed by a shape check where 'not the expected shape' fails CLOSED" — plus the explicit ask to paste RELEASE_NOTES.md for their final read, and two observations to record (the ENOLOCK-as-class note; the display-layer pattern, now at its fourth instance with the reviewer's own phantom typos).
 
 Work Log:
@@ -796,7 +796,7 @@ Stage Summary:
 
 ---
 Task ID: 38
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: The operator's final read of RELEASE_NOTES.md (verdict: two blocking one-word falsehoods; TTL borderline dismissed under a sharpened rule — DRY-for-docs governs living prose, point-in-time records answer only to their tag), followed by two direct orders: "Make the readme have all those fancy animations and shi like that shows on some github repos" (door 2 — repo front-page — pulled forward), "remove all placeholder elements", and the operator's name for attribution: Okwuchukwu Ekene Don Davies, aka Izumi.
 
 Work Log:
@@ -814,7 +814,7 @@ Stage Summary:
 
 ---
 Task ID: 39
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: The operator asked for a new workspace and a website for CipherChat — "kinda like portfolio": a showcase/presentation site presenting the project (what it is, how it protects, the security model, the tech, the author), built fresh without disturbing the product.
 
 Work Log:
@@ -833,7 +833,7 @@ Stage Summary:
 
 ---
 Task ID: R1
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: De-AI the CipherChat portfolio landing page — full redesign after user feedback ("painfully AI")
 
 Work Log:
@@ -855,7 +855,7 @@ Stage Summary:
 
 ---
 Task ID: 40
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: The operator's "Task 39: The Porch" — kill the AI look on the marketing surface. The app passed every design review; the porch (built in Task 39/R1 as a "field notes dossier") regressed to the 2025 template mean: three-zone INDEX/hero/SPECIFICATION layout, algorithm names as marketing (AES-256-GCM spec flex), ALL-CAPS CTAs, an aphorism wall ("Share the door, not the key." / "Talk in sealed frames." / "Leave nothing behind."), and an embedded demo chat (Exhibit A). Rebuild the porch in the product's own voice: THE LETTER.
 
 Work Log:
@@ -881,7 +881,7 @@ Stage Summary:
 
 ---
 Task ID: 41
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: The operator's round-3 porch rejection — "the landing page is WAY too AI looking; if Apple or Google were to design that, who would use it; please try again." The Letter (Task 40) had passed VLM review but failed the operator's eye: the staging itself was the tell.
 
 Work Log:
@@ -900,7 +900,7 @@ Stage Summary:
 
 ---
 Task ID: 42
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: The operator's round-4 direction: "you did some good but you completely ignored my focus point. THE PORTFOLIO PAGE or rather PROTOCOL PAGE. And also, tone down the AI vocab." Task 41 rebuilt the landing; /?read=1 still wore the "field notes dossier" costume.
 
 Work Log:
@@ -922,7 +922,7 @@ Stage Summary:
 
 ---
 Task ID: 43
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: The operator's round-5 pass (their message arrived twice; the second copy carried the full rewritten page text): paste the flat, zero-em-dash copy onto the protocol page section by section, verify every number against the code, run the Task 40 greps, then apply the same pass to the README and the landing ("the tagline keeps its dash; this page keeps none"). Plus two operator additions: rewrite the author section "a bit less flowery," and state that the project was built for the operator's IT studies.
 
 Work Log:
@@ -944,7 +944,7 @@ Stage Summary:
 
 ---
 Task ID: 44
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: The operator's release round (their message numbers it "Task 41"): flat RELEASE_NOTES.md, an automatic GitHub-release workflow gated by the property suite, the v1.0.0-rc1 tag moved off the Task-32 commit, the manual release fallback documented in README, plus a reported hydration console error and the operator's question about running the APK.
 
 Work Log:
@@ -965,7 +965,7 @@ Stage Summary:
 
 ---
 Task ID: 45
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: Operator's request: "I have already pushed previous iterations of this project to github. How do I download and merge this with the old one so I don't have to delete the old code and repo and make a new one?" Repo: https://github.com/izumitempest/CipherChat-V4.git. Graft the sandbox lineage onto the existing GitHub repo without deleting anything.
 
 Work Log:
@@ -983,7 +983,7 @@ Stage Summary:
 
 ---
 Task ID: 45b (push completion)
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: Finish Task 45 — execute the authenticated push of the merged history to github.com/izumitempest/CipherChat-V4 and verify the release automation.
 
 Work Log:
@@ -997,7 +997,7 @@ Stage Summary:
 
 ---
 Task ID: 46
-Agent: lead (Z.ai Code)
+Agent: lead (Izumi)
 Task: Operator ran the E2E (via the GitHub CI run on the merged main) and pasted the failure: golden path dead at the composer wait after "Create room". Diagnose and make CI green.
 
 Work Log:

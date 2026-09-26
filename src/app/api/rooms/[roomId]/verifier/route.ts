@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { IpRateLimiter, ROOM_INFO_PER_MIN } from "@/lib/rate-limit";
 import { roomExpired } from "@/lib/room-ttl";
 
-// PUT /api/rooms/:roomId/verifier — the creator stores an encrypted
+// PUT /api/rooms/:roomId/verifier. The creator stores an encrypted
 // known-plaintext blob. Joiners derive their key and try to decrypt it:
 // success = right password, failure = wrong password. The server still
 // learns nothing. Can only be set once.
@@ -37,7 +37,7 @@ export async function PUT(
     return NextResponse.json({ error: "not-found" }, { status: 404 });
   }
   if (room.verifier) {
-    // Already sealed — idempotent no-op for the rightful creator.
+    // Already set. Idempotent no-op for the rightful creator.
     return NextResponse.json({ ok: true, alreadySealed: true });
   }
   await db.room.update({ where: { id: roomId }, data: { verifier: body.verifier } });

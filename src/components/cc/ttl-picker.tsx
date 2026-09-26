@@ -1,8 +1,8 @@
-// The lifetime picker — presets in the machine's voice (Off, 15s,
+// The lifetime picker: presets in the machine's voice (Off, 15s,
 // 30s, 1m…) and, when a letter needs a fate the presets don't
 // cover, a custom row: a number, a unit, a clamp. One component,
-// seated wherever lifetimes are chosen — the composer's hourglass
-// and the room's default.
+// seated wherever lifetimes are chosen (the composer's hourglass
+// and the room's default).
 
 "use client";
 
@@ -104,7 +104,7 @@ export function TtlPicker({
           aria-checked={custom}
           onClick={() => {
             if (custom && !editing) {
-              // already custom — let them adjust it
+              // already custom, let them adjust it
               openEditor();
             } else if (!custom) {
               openEditor();

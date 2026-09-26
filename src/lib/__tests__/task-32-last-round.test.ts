@@ -1,20 +1,20 @@
-// Task 32 — THE LAST IN-SANDBOX ROUND
+// Task 32: THE LAST IN-SANDBOX ROUND
 //
 // Three properties, one file:
 //
 //   1. CANONICAL SEPARATOR COLLISION (the Task 31 acceptance review's
 //      confirm #5): the conditional 12th canonical slot must be
-//      collision-proof against field 11's content — a crafted
+//      collision-proof against field 11's content: a crafted
 //      messageId that terminates with (or embeds) the separator must
 //      never be able to counterfeit a reply slot. Before the fix, a
 //      plain frame with messageId "abc|<replyCanonical>" produced the
-//      SAME string as the reply frame {messageId:"abc", reply} — a
+//      SAME string as the reply frame {messageId:"abc", reply}: a
 //      signed plain letter could be re-encrypted as a quote its author
 //      never wrote. escapeCanonicalField makes field 11 separator-free,
 //      which makes the boundary injective (proof below, in the tests).
 //
 //   2. REPORT PROOF-OF-POSSESSION (cc-report-v1): the graded abuse
-//      report's member half, mirroring the leave-proof suite — and
+//      report's member half, mirroring the leave-proof suite, and
 //      domain-separated from it, so neither proof replays as the other.
 //
 //   3. ANONYMOUS CORROBORATION TALLY: one IP is noise, three distinct
@@ -75,7 +75,7 @@ const R2: ReplySnapshot = {
 describe("canonical: the conditional 12th slot is collision-proof against field 11", () => {
   it("the exact pre-fix collision pair now produces DIFFERENT strings", () => {
     const slot = replyCanonical(R1);
-    // Pre-fix, these two were byte-identical — the forged-quote
+    // Pre-fix, these two were byte-identical: the forged-quote
     // primitive. The escape breaks the equivalence.
     const plainCrafted = canonicalV2({ ...BASE, messageId: `abc|${slot}` });
     const replyFrame = canonicalV2({ ...BASE, messageId: "abc", reply: R1 });
@@ -87,7 +87,7 @@ describe("canonical: the conditional 12th slot is collision-proof against field 
 
   it("a messageId that TERMINATES with the separator counterfeits nothing", () => {
     // "...|abc|" must not equal any reply-carrying canonical built from
-    // id "abc" — the review's named case.
+    // id "abc": the review's named case.
     const trailing = canonicalV2({ ...BASE, messageId: "abc|" });
     for (const r of [undefined, R1, R2]) {
       expect(trailing).not.toBe(canonicalV2({ ...BASE, messageId: "abc", reply: r }));
@@ -162,7 +162,7 @@ describe("canonical: the conditional 12th slot is collision-proof against field 
 
   it("legacy byte-compat: clean messageIds canonicalise EXACTLY as before the escape", () => {
     // Real messageIds are crypto.randomUUID()s (and key:offer ids are
-    // "offer:{cuid}:{epoch}", cuid = [a-z0-9]) — the escape is a no-op
+    // "offer:{cuid}:{epoch}", cuid = [a-z0-9]): the escape is a no-op
     // for every frame any shipped client ever produced, so the
     // Round-31 cross-version proofs survive byte-for-byte.
     const uuid = "0f8d3c61-9a52-4b7e-a8d1-3c2b1f9e7a44";
@@ -243,7 +243,7 @@ describe("report proof-of-possession", () => {
   });
 
   it("domain separation: a LEAVE proof never verifies as a REPORT proof, and vice versa", async () => {
-    // Same key, same room, same member, same ts — only the domain
+    // Same key, same room, same member, same ts: only the domain
     // prefix differs. A captured departure proof must not burn the
     // room; a captured report proof must not write anyone out.
     const k = await makeKey();

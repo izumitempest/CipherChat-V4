@@ -1,5 +1,5 @@
 // Actions. One primary verb per screen; forest means trust,
-// terracotta means destruction — never the other way around.
+// terracotta means destruction. Never the other way around.
 
 "use client";
 
@@ -78,7 +78,7 @@ export const DestructiveAction = forwardRef<HTMLButtonElement, ActionProps>(
   },
 );
 
-/** Compact primary for header placement — still a 44px target. */
+/** Compact primary for header placement: still a 44px target. */
 export const CompactAction = forwardRef<
   HTMLButtonElement,
   ButtonHTMLAttributes<HTMLButtonElement>
@@ -97,7 +97,7 @@ export const CompactAction = forwardRef<
   );
 });
 
-/** Quiet text action — never competes with the primary verb. */
+/** Quiet text action - never competes with the primary verb. */
 export const QuietAction = forwardRef<
   HTMLButtonElement,
   ButtonHTMLAttributes<HTMLButtonElement>

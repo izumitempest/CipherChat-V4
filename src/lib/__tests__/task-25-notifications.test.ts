@@ -1,4 +1,4 @@
-// Task 25 — notifications: what a notice says, and where it goes.
+// Task 25: notifications: what a notice says, and where it goes.
 // The pure half of lib/notifications (formatting + channel decision
 // + preferences' failure modes). The browser half (service worker,
 // Notification API) is exercised end-to-end, not here.
@@ -120,7 +120,7 @@ describe("bannerLine", () => {
 describe("preferences", () => {
   it("defaults to sender (the brand keeps its mouth shut until asked)", () => {
     expect(NOTIFY_PREVIEW_DEFAULT).toBe("sender");
-    // No localStorage in this environment — the guarded read must
+    // No localStorage in this environment; the guarded read must
     // still answer with the default.
     expect(loadNotifyPreview()).toBe("sender");
   });

@@ -1,11 +1,11 @@
-// RoomCipher — the per-room security engine. One instance per joined
+// RoomCipher: the per-room security engine. One instance per joined
 // room, memory only. It owns:
 //
 //   the key ring         versioned room keys (v1 = password-derived
 //                        entry key; later versions = random keys
 //                        delivered over ECDH; old versions kept for a
 //                        short decrypt-only grace window)
-//   the member registry  frames only flow between current members —
+//   the member registry  frames only flow between current members;
 //                        a departed member is evicted here first
 //   the replay guard     counters / timestamps / frame ids
 //   the file assembler   fixed-count chunk frames back into bytes
@@ -72,7 +72,7 @@ export interface CipherInit {
   entryKey: CryptoKey;
   now?: () => number;
   graceMs?: number;
-  /** optional persistence for replay watermarks — survives refresh */
+  /** optional persistence for replay watermarks; survives refresh */
   watermarks?: WatermarkStore;
 }
 
@@ -96,10 +96,10 @@ export type OpenResult =
       type: "file";
       senderId: string;
       ts: number;
-      /** caption typed alongside the attachment — rides in the meta frame's
+      /** caption typed alongside the attachment; travels in the meta frame's
        * canonical-signed top-level text field, so it is nameplate-authentic */
       text?: string;
-      /** quoted-reply target — signature-covered like the caption */
+      /** quoted-reply target; signature-covered like the caption */
       reply?: ReplySnapshot;
       file: FileMetaBody & { dataB64: string };
     }
@@ -198,7 +198,7 @@ export class RoomCipher {
     try {
       this.watermarks.save(Object.fromEntries(trimmed));
     } catch {
-      /* storage full/unavailable — defense degrades to per-page-load */
+      /* storage full/unavailable; defense degrades to per-page-load */
     }
   }
 
@@ -237,7 +237,7 @@ export class RoomCipher {
   }
 
   /** Frames that became processable after a key install, paired with
-   *  their open results (the pair carries the frame id — the message id). */
+   *  their open results (the pair carries the frame id, the message id). */
   async drainPending(): Promise<{ frame: WireFrame; result: OpenResult }[]> {
     const out: { frame: WireFrame; result: OpenResult }[] = [];
     let guard = 0;
@@ -248,7 +248,7 @@ export class RoomCipher {
     return out;
   }
 
-  /** The entry key (kv 1) — permanent, used to wrap join deliveries. */
+  /** The entry key (kv 1): permanent, used to wrap join deliveries. */
   getEntryKey(): CryptoKey {
     return this.entryKey;
   }
@@ -271,7 +271,7 @@ export class RoomCipher {
   /* ---------------- coordinator ---------------- */
 
   /** Deterministic coordinator: the lowest memberId among connected
-   *  members (excluding the given ids — e.g. the leaver). Every client
+   *  members (excluding the given ids, e.g. the leaver). Every client
    *  computes the same answer from the same registry. */
   expectedCoordinator(exclude: string[] = []): string | null {
     const ids = [...this.registry.keys()].filter(
@@ -324,8 +324,8 @@ export class RoomCipher {
     return [await this.seal({ kind: "spent", messageId }, CONTROL_FRAME_BYTES)];
   }
 
-  /** An ink margin mark on a message. The mark glyph rides the
-   *  canonical-signed `text` field and the target rides `messageId` —
+  /** An ink margin mark on a message. The mark glyph travels in the
+   *  canonical-signed `text` field and the target in `messageId`:
    *  both are signature-covered, so a mark is exactly as unforgeable
    *  as the words it annotates. */
   async sealReact(messageId: string, mark: string): Promise<WireFrame[]> {
@@ -333,7 +333,7 @@ export class RoomCipher {
   }
 
   /** Early burn of one of our own messages. Signed with the burn
-   *  canonical, so nobody else can retire our letters. */
+   *  canonical, so nobody else can burn our messages. */
   async sealBurn(messageId: string): Promise<WireFrame[]> {
     const burnSig = await signCanonical(
       this.sigPrivJwk,
@@ -344,14 +344,14 @@ export class RoomCipher {
 
   /** Proof-of-possession for a clean departure: signs the canonical
    *  leave string with this room's signing key, so the server can
-   *  verify against the registered pubkey before writing us out —
+   *  verify against the registered pubkey before writing us out:
    *  memberId alone must never be enough to rotate the room. */
   async signDepartureProof(ts: number = Date.now()) {
     return signLeaveProof(this.sigPrivJwk, this.roomId, this.selfId, ts);
   }
 
   /** Sign the graded abuse-report proof (cc-report-v1:{roomId}:
-   *  {memberId}:{ts}) with this room's signing key — the member half
+   *  {memberId}:{ts}) with this room's signing key: the member half
    *  of the report endpoint's credibility grading. Same shape as the
    *  departure proof, different domain prefix: neither replays as
    *  the other. */
@@ -360,7 +360,7 @@ export class RoomCipher {
   }
 
   /** A file becomes exactly 1 control-sized meta frame plus a FIXED
-   *  number of uniform chunk frames — regardless of true file size. */
+   *  number of uniform chunk frames, regardless of true file size. */
   async sealFile(opts: {
     name: string;
     mime: string;
@@ -371,7 +371,7 @@ export class RoomCipher {
     text?: string;
     ttlSec?: number;
     viewOnce?: boolean;
-    /** quoted-reply target — rides the meta frame, signature-covered */
+    /** quoted-reply target; rides the meta frame, signature-covered */
     reply?: ReplySnapshot;
   }): Promise<WireFrame[]> {
     const padded = padB64Payload(opts.dataB64, FILE_PAYLOAD_B64);
@@ -380,8 +380,9 @@ export class RoomCipher {
       {
         kind: "file:meta",
         messageId,
-        // Top-level text is part of canonicalV2 — the caption is signed,
-        // so it is exactly as authentic as the sender's words in text frames.
+        // Top-level text is part of canonicalV2: the caption is signed,
+        // so it holds the same signature guarantee as the sender's words
+        // in text frames.
         text: opts.text,
         reply: opts.reply,
         file: {
@@ -411,8 +412,8 @@ export class RoomCipher {
   }
 
   /** Wrap a room key for one recipient over ECDH. Rotation offers ride
-   *  in a frame sealed under the OLD key (recipients can still open
-   *  it); join deliveries ride in a frame sealed under the ENTRY key
+   *  in a frame encrypted under the OLD key (recipients can still open
+   *  it); join deliveries ride in a frame encrypted under the ENTRY key
    *  (only a joiner who proved the password can open it) and carry a
    *  second, entry-key layer around the ECDH wrap. */
   async sealKeyOffer(opts: {
@@ -467,12 +468,12 @@ export class RoomCipher {
   /** Rotate unconditionally: generate a RANDOM new room key and
    *  deliver it pairwise over ECDH. Callers decide whether they have
    *  the right to rotate (see rotateAsCoordinator / the rejoin
-   *  fallback in the store — simultaneous fallbacks converge because
+   *  fallback in the store: simultaneous fallbacks converge because
    *  version offers are monotonic).
    *
    *  `rot` marks the offer as the formal leave-ceremony (receivers
-   *  verify the sender is their coordinator). Fallback re-seals use
-   *  rot=false — a member-initiated delivery, still ECDH-wrapped,
+   *  verify the sender is their coordinator). Fallback re-keys use
+   *  rot=false: a member-initiated delivery, still ECDH-wrapped,
    *  signature-checked, registry-gated and version-monotonic. */
   async rotateTo(minKv?: number, rot = true): Promise<WireFrame[]> {
     const newKv = Math.max(this.kv, minKv ?? 0) + 1;
@@ -503,16 +504,16 @@ export class RoomCipher {
    *
    *  `minKv` is the server's rotation ledger (room epoch): a member
    *  re-joining after a refresh may have lost count of rotations, and a
-   *  departed member may hold keys up to that version — so the new
-   *  version must exceed it. Offers are sealed under the ENTRY key so
+   *  departed member may hold keys up to that version, so the new
+   *  version must exceed it. Offers are encrypted under the ENTRY key so
    *  every member can read them no matter which version they hold. */
   async rotateAsCoordinator(minKv?: number): Promise<WireFrame[]> {
     if (this.expectedCoordinator() !== this.selfId) return [];
     return this.rotateTo(minKv);
   }
 
-  /** Deliver the CURRENT room key to a new member — ECDH-wrapped and
-   *  additionally sealed under the entry key, so only a joiner who
+  /** Deliver the CURRENT room key to a new member: ECDH-wrapped and
+   *  additionally encrypted under the entry key, so only a joiner who
    *  derived the same password can open it. No-op while the room is
    *  still on its password-derived key (joiners derive that themselves). */
   async deliverKeyTo(memberId: string): Promise<WireFrame[]> {
@@ -554,8 +555,8 @@ export class RoomCipher {
     this.pruneGrace();
     let key: CryptoKey | undefined;
     if (frame.kv === 0) {
-      // Entry-sealed frame (key-delivery offer) — the entry key is
-      // permanent, so these stay readable at any key version. The
+      // Entry-key-encrypted frame (key-delivery offer): the entry key
+      // is permanent, so these stay readable at any key version. The
       // secret inside is still wrapped pairwise over ECDH.
       key = this.entryKey;
     } else if (frame.kv === this.kv) {
@@ -564,7 +565,8 @@ export class RoomCipher {
     } else if (frame.kv > this.kv) {
       // Newer key version: either a rotation is in flight (we are one
       // offer behind) or we are a joiner awaiting delivery. Hold fresh
-      // frames briefly; expire squatters; refuse anything stale.
+      // frames briefly; expire stale pending frames; refuse anything
+      // stale.
       const t = this.now();
       this.pending = this.pending.filter((p) => t - p.at <= PENDING_TTL_MS);
       if (t - (frame.ts ?? 0) <= PENDING_TTL_MS && this.pending.length < PENDING_MAX) {
@@ -592,7 +594,8 @@ export class RoomCipher {
       text: body.text,
       fileSha: body.fileSha,
       messageId: body.messageId,
-      // Raw, exactly as sealed — verification must recompute the
+      // Raw, exactly as produced by the sender: verification must
+      // recompute the
       // sender's canonical string, not a cleaned-up one. Sanitising
       // for the UI happens later, after the signature has bound these
       // bytes to their author.
@@ -630,8 +633,8 @@ export class RoomCipher {
         return { type: "burn", messageId: body.messageId, senderId: frame.from };
       }
       case "react": {
-        // A mark is only valid if it is one of the product's four glyphs —
-        // the wire never carries arbitrary strings a page could abuse.
+        // A mark is only valid if it is one of the product's four glyphs;
+        // frames never carry arbitrary strings a page could abuse.
         if (!body.messageId || typeof body.text !== "string" || !isReactionMark(body.text)) {
           return { type: "reject", reason: "shape" };
         }
@@ -662,7 +665,7 @@ export class RoomCipher {
         if (!file) return { type: "reject", reason: "shape" };
         file.chunks.set(c.seq, c.dataB64 ?? "");
         if (file.chunks.size < c.total) return { type: "file-chunk", senderId: frame.from };
-        // Complete — assemble, verify, deliver.
+        // Complete: assemble, verify, deliver.
         this.files.delete(c.messageId);
         let padded = "";
         for (let i = 0; i < c.total; i++) padded += file.chunks.get(i) ?? "";

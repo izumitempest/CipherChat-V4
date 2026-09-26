@@ -1,16 +1,16 @@
-// Task 31 — THE LAST MILE.
+// Task 31: THE LAST MILE.
 //
 // Three proofs the change record asked for by name:
 //
 //   31.5  A pre-reply (eleven-field) plain frame verifies under the
-//         current canonical — the rollout is clean in BOTH directions,
+//         current canonical. The rollout is clean in BOTH directions,
 //         not just the documented "old tab drops reply frames" one.
 //   31.4  The room-password generator draws six words from the CSPRNG
-//         over the 256-word list (2^48 candidates) — and from nothing
+//         over the 256-word list (2^48 candidates), and from nothing
 //         else (Math.random never touched).
 //   31.3  The image metadata detector flags exactly the segments that
-//         carry a photo's biography (EXIF, XMP, comments) and passes
-//         clean files through — the gate in front of the canvas
+//         carry a photo's history (EXIF, XMP, comments) and passes
+//         clean files through: the gate in front of the canvas
 //         re-encode.
 
 import { describe, it, expect, afterEach } from "vitest";
@@ -74,7 +74,7 @@ describe("canonical versioning (31.5)", () => {
     expect(await verifyCanonical(pub, canonicalV2({ ...FRAME }), oldSig)).toBe(true);
 
     // And the mirror: a "new tab" plain signature verifies for anyone
-    // still running the old canonical — plain letters never fork.
+    // still running the old canonical. Plain letters never fork.
     const newSig = await signCanonical(priv, canonicalV2({ ...FRAME }));
     expect(await verifyCanonical(pub, preReplyCanonical(FRAME), newSig)).toBe(true);
   });
@@ -90,7 +90,7 @@ describe("canonical versioning (31.5)", () => {
     expect(quoted).toBe(`${plain}|${replyCanonical(reply)}`);
     expect(quoted.split("|")).toHaveLength(12);
     expect(plain.split("|")).toHaveLength(11);
-    // A reply that fails the shape guard serialises as absent — the
+    // A reply that fails the shape guard serialises as absent: the
     // canonical falls back to the plain form, never to garbage.
     expect(
       canonicalV2({ ...FRAME, reply: { id: 1 } as unknown as ReplySnapshot }),
@@ -128,7 +128,7 @@ describe("room-password generator (31.4)", () => {
       mathRandomCalls++;
       return 0.5;
     };
-    // Deterministic CSPRNG stub: bytes 0,1,2,… — the first six draws
+    // Deterministic CSPRNG stub: bytes 0,1,2,…. The first six draws
     // pick PASS_WORDS[0..5] (all distinct indices, no refill needed).
     let next = 0;
     crypto.getRandomValues = ((buf: Uint8Array) => {
@@ -169,7 +169,7 @@ function jpeg(
     parts.push(0xff, s.marker, (s.payload.length + 2) >> 8, (s.payload.length + 2) & 0xff);
     for (const b of s.payload) parts.push(b);
   }
-  parts.push(0xff, 0xda); // SOS — scan starts, detector stops here
+  parts.push(0xff, 0xda); // SOS: scan starts, detector stops here
   return new Uint8Array(parts);
 }
 
@@ -271,7 +271,7 @@ describe("image metadata detector (31.3)", () => {
     expect(imageNeedsScan("image/jpg")).toBe(true);
     expect(imageNeedsScan("image/png")).toBe(true);
     expect(imageNeedsScan("image/webp")).toBe(true);
-    // GIF keeps its animation, SVG keeps its vectors — by policy.
+    // GIF keeps its animation, SVG keeps its vectors, by policy.
     expect(imageNeedsScan("image/gif")).toBe(false);
     expect(imageNeedsScan("image/svg+xml")).toBe(false);
     expect(imageNeedsScan("video/mp4")).toBe(false);

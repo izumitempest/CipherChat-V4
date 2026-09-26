@@ -1,15 +1,15 @@
-// The file viewer — every file opens IN THE APP. Images show
+// The file viewer. Every file opens IN THE APP. Images show
 // contained and zoomable; video and audio play from memory; PDFs
 // render to a canvas (no toolbar, no save button); text, code, CSV
 // and even binary bytes are read right here. A view-once file is
-// spent the moment it opens — and for view-once files there is NO
+// spent the moment it opens. And for view-once files there is NO
 // download anywhere: viewing is the point, and the plaintext never
 // touches the disk through us.
 //
 // Everything rendered here is decrypted bytes held in memory, fed to
 // the element through a revocable blob URL. Nothing is fetched, and
 // nothing is written. Text-ish files are rendered as TEXT (React
-// escaping) — HTML is shown as source, never executed; SVG rides an
+// escaping): HTML is shown as source, never executed; SVG rides an
 // <img> context where scripts cannot run.
 
 "use client";
@@ -77,14 +77,14 @@ function b64ToBytes(dataB64: string): Uint8Array {
   return bytes;
 }
 
-/** How much of a text file is rendered inline — enough to read a
+/** How much of a text file is rendered inline: enough to read a
  *  letter or review a config; the rest would only weigh the DOM. */
 export const TEXT_SHOW_MAX = 100_000;
 
 /* ---------------- CSV parsing ---------------- */
 
 /** Quote-aware CSV split (RFC 4180 in spirit: double quotes escape a
- *  quote, quoted fields may hold commas and newlines). Pure function —
+ *  quote, quoted fields may hold commas and newlines). Pure function:
  *  the tests in task-29 reach it directly. */
 export function parseCsv(text: string): string[][] {
   const rows: string[][] = [];
@@ -149,7 +149,7 @@ export function FileViewer({
   const [zoomFor, setZoomFor] = useState<string | null>(null);
   const [wrap, setWrap] = useState(true);
   // The bytes live once, in memory, behind a revocable blob URL.
-  // Opening a different file (or closing) revokes the previous URL —
+  // Opening a different file (or closing) revokes the previous URL:
   // the blob is released and the bytes are left to the GC.
   const [bytes, setBytes] = useState<Uint8Array | null>(null);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
@@ -158,14 +158,14 @@ export function FileViewer({
     : null;
   const viewOnce = !!message?.viewOnce;
 
-  // Derived: zoom belongs to the file being viewed — a new file
+  // Derived: zoom belongs to the file being viewed. A new file
   // starts at arm's length, no effect needed.
   const zoomed = !!message && message.id === zoomFor;
   const msgId = message?.id;
   const dataB64 = message?.file?.dataB64;
   const mime = message?.file?.mime ?? "application/octet-stream";
 
-  // State follows the file being viewed — when the message changes
+  // State follows the file being viewed. When the message changes
   // (or the viewer closes), zoom, wrap and the decoded bytes adjust
   // during render: the sanctioned pattern, no effect and no cascading
   // renders, and a departing file's plaintext is dropped the instant
@@ -191,13 +191,13 @@ export function FileViewer({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // The blob is born here and dies with this message — an effect
+  // The blob is born here and dies with this message. This is an effect
   // for the external system (the URL registry), never for state
   // the render itself can adjust. Storing the created handle in
   // state is the one synchronous setState this component needs;
   // the rule's heuristic has no shape for "effect creates an
   // external resource and remembers it", so it is disabled here,
-  // precisely, with the reason.
+  // with the reason.
   useEffect(() => {
     if (!msgId || !dataB64) return;
     const b = b64ToBytes(dataB64);
@@ -279,7 +279,7 @@ export function FileViewer({
       {viewOnce ? (
         <p className="t-meta flex items-center gap-1.5 px-5 pb-2">
           <ShieldCheck className="size-3.5 shrink-0 text-forest" aria-hidden />
-          View once — it lives on screen only. There is no download for
+          View once - it lives on screen only. There is no download for
           this file, from anyone, by design.
         </p>
       ) : null}
@@ -303,7 +303,7 @@ export function FileViewer({
             }}
             tabIndex={0}
             role="button"
-            aria-label={`${file.name} — ${zoomed ? "zoom out" : "zoom in"}`}
+            aria-label={`${file.name} - ${zoomed ? "zoom out" : "zoom in"}`}
             className={cn(
               "settle rounded-[12px] border border-hairline object-contain shadow-float outline-none focus-visible:ring-2 focus-visible:ring-forest/45 focus-visible:ring-offset-2 focus-visible:ring-offset-paper",
               zoomed
@@ -352,7 +352,7 @@ export function FileViewer({
             <div className="flex items-center justify-between gap-2 border-b border-hairline px-4 py-2.5">
               <p className="t-meta truncate">
                 {isHtmlSource
-                  ? "Shown as source — HTML is never executed here"
+                  ? "Shown as source: HTML is never executed here"
                   : "Plain text"}
               </p>
               <button
@@ -377,7 +377,7 @@ export function FileViewer({
             {decodedText.length > TEXT_SHOW_MAX ? (
               <p className="t-meta border-t border-hairline px-4 py-2">
                 Showing the first {fmtBytes(TEXT_SHOW_MAX)} of{" "}
-                {fmtBytes(decodedText.length)} — copy takes the whole file.
+                {fmtBytes(decodedText.length)}. Copy takes the whole file.
               </p>
             ) : null}
           </div>
@@ -454,7 +454,7 @@ function CsvTable({ text, name }: { text: string; name: string }) {
     <div className="settle flex h-full w-full max-w-[900px] flex-col overflow-hidden rounded-[14px] border border-hairline bg-side">
       <div className="flex items-center justify-between gap-2 border-b border-hairline px-4 py-2.5">
         <p className="t-meta truncate">
-          {name} — {table.shown.length} rows
+          {name} - {table.shown.length} rows
           {table.truncatedRows ? " (truncated for reading)" : ""}
         </p>
         <p className="t-meta">comma-separated, rendered as a table</p>
@@ -493,7 +493,7 @@ function CsvTable({ text, name }: { text: string; name: string }) {
       </div>
       {table.truncatedCols ? (
         <p className="t-meta border-t border-hairline px-4 py-2">
-          Wide rows were clipped to {CSV_MAX_COLS} columns — copy takes the
+          Wide rows were clipped to {CSV_MAX_COLS} columns. Copy takes the
           whole file.
         </p>
       ) : null}
@@ -580,7 +580,7 @@ function PdfView({
         canvas.dataset.renderError = "ok";
       } catch (err) {
         // A page that cannot render (corrupt or hostile PDF) is a
-        // failed view, not a blank one — the fallback (or, for
+        // failed view, not a blank one. The fallback (or, for
         // view-once, the sealed notice) takes over.
         canvasRef.current?.setAttribute(
           "data-render-error",
@@ -597,7 +597,7 @@ function PdfView({
   if (state === "failed") {
     // The canvas path could not load. For a view-once file that
     // means the browser's PDF toolbar (with its own save button)
-    // would be the only way to show it — so it stays sealed instead.
+    // would be the only way to show it, so it stays encrypted instead.
     // Regular files fall back to the browser viewer, honestly.
     if (viewOnce) {
       return (

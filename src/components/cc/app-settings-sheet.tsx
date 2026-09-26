@@ -1,4 +1,4 @@
-// App settings — the desk-level twin of room settings. What lives
+// App settings - the desk-level twin of room settings. What lives
 // here belongs to the device, not to any room: how notifications
 // speak (and whether they exist), and the app's seat on the home
 // screen. Entry points: the bell on the desk header and the landing
@@ -60,7 +60,7 @@ const PREVIEW_OPTIONS: { value: NotifyPreview; label: string; hint: string }[] =
   {
     value: "sender",
     label: "Sender only",
-    hint: "Who wrote, and in which room — never the words themselves.",
+    hint: "Who wrote, and in which room - never the words themselves.",
   },
   {
     value: "none",
@@ -101,8 +101,8 @@ export function AppSettingsSheet({
   const showLegal = useLegalSheet((s) => s.show);
   const install = useInstallPrompt();
 
-  // Permission and preference, re-read every time the sheet opens —
-  // both can change elsewhere (OS settings, another tab).
+  // Permission and preference, re-read every time the sheet opens.
+  // Both can change elsewhere (OS settings, another tab).
   const [perm, setPerm] = useState<PermissionState>("default");
   const [pref, setPref] = useState<NotifyPreview>("sender");
   const [wasOpen, setWasOpen] = useState(false);
@@ -124,7 +124,7 @@ export function AppSettingsSheet({
     if (result === "granted") {
       toast("Notifications are on", {
         description:
-          "A hidden CipherChat will speak when letters arrive — saying only what you allow below.",
+          "A hidden CipherChat will speak when letters arrive, saying only what you allow below.",
       });
     }
   }
@@ -135,7 +135,7 @@ export function AppSettingsSheet({
     });
     toast("Test sent", {
       description:
-        "If nothing appeared, notifications may be muted for this browser — the OS notification settings know why.",
+        "If nothing appeared, notifications may be muted for this browser. The OS notification settings know why.",
     });
   }
 
@@ -151,7 +151,7 @@ export function AppSettingsSheet({
         <SheetHeader className="p-0 text-left">
           <SheetTitle className="t-title">Settings</SheetTitle>
           <SheetDescription className="mt-1 font-sans text-[13px] leading-[19px] text-mute">
-            These apply to CipherChat on this device — every room at once.
+            These apply to CipherChat on this device, every room at once.
           </SheetDescription>
         </SheetHeader>
 
@@ -164,7 +164,7 @@ export function AppSettingsSheet({
               <div className="space-y-2.5">
                 <p className="t-meta">
                   When CipherChat is hidden, a letter can still announce
-                  itself — through your device, saying only what you allow.
+                  itself, through your device, saying only what you allow.
                 </p>
                 {perm === "default" ? (
                   <PrimaryAction full busy={asking} onClick={() => void ask()}>
@@ -180,13 +180,13 @@ export function AppSettingsSheet({
               </div>
             ) : perm === "denied" ? (
               <p className="t-meta">
-                Notifications are turned away for this browser. To welcome them
+                notifications are turned away for this browser. To welcome them
                 back, allow notifications for CipherChat in your
-                browser&rsquo;s site settings — then return here.
+                browser's site settings, then return here.
               </p>
             ) : (
               <div className="space-y-3">
-                {/* Granted — what may a notification say. */}
+                {/* Granted: what may a notification say. */}
                 <div className="flex items-center gap-2" role="status">
                   <Check className="size-4 text-forest" strokeWidth={2.5} aria-hidden />
                   <p className="t-meta">
@@ -235,7 +235,7 @@ export function AppSettingsSheet({
 
             <p className="t-meta">
               While CipherChat is open, letters in rooms you&rsquo;re not
-              reading rise as banners at the top — the app steps aside for
+              reading rise as banners at the top. The app steps aside for
               them, nothing is covered.
             </p>
           </div>
@@ -248,7 +248,7 @@ export function AppSettingsSheet({
               <div className="flex items-center gap-2" role="status">
                 <Check className="size-4 text-forest" strokeWidth={2.5} aria-hidden />
                 <p className="t-meta">
-                  CipherChat is installed — it runs as its own app, no browser
+                  CipherChat is installed. It runs as its own app, no browser
                   chrome in sight.
                 </p>
               </div>
@@ -265,7 +265,7 @@ export function AppSettingsSheet({
                       if (accepted) {
                         toast("Welcome to your home screen", {
                           description:
-                            "CipherChat now lives beside your other apps — same rooms, same vanishing ink.",
+                            "CipherChat now lives beside your other apps. Same rooms, same vanishing ink.",
                         });
                       }
                     })
@@ -281,7 +281,7 @@ export function AppSettingsSheet({
                   {[
                     { icon: Share, text: "Tap the Share button in Safari's toolbar" },
                     { icon: Plus, text: "Choose “Add to Home Screen”" },
-                    { icon: Check, text: "Tap Add — CipherChat moves in beside your apps" },
+                    { icon: Check, text: "Tap Add. CipherChat moves in beside your apps" },
                   ].map((step, i) => (
                     <li key={i} className="flex items-center gap-2.5 rounded-[8px] px-1 py-1">
                       <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-hairline bg-side text-mute">
@@ -322,7 +322,7 @@ export function AppSettingsSheet({
               <p className="t-meta">
                 A room being misused can be reported from its settings:
                 a member&rsquo;s report is signed with their room key and ends
-                the room at once — a stranger&rsquo;s needs corroboration. For
+                the room at once. A stranger's needs corroboration. For
                 anything the room itself cannot fix,{" "}
                 <button
                   type="button"

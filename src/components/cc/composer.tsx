@@ -1,7 +1,7 @@
 // The composer. A floating slip of paper over the conversation:
 // backdrop-blur (one of exactly two blurred surfaces), auto-growing
 // input, attach, TTL cycle, send. When the connection drops, the
-// send button becomes "Reconnecting…" — you never type into a void
+// send button becomes "Reconnecting…": you never type into a void
 // silently.
 
 "use client";
@@ -38,8 +38,8 @@ export function Composer({
   onCancelReply,
 }: {
   onTtlArmed?: () => void;
-  /** the message being answered, if any — shown as a quote above the
-   *  input and sealed into the reply when it leaves */
+  /** the message being answered, if any. Shown as a quote above the
+   *  input and encrypted into the reply when it leaves */
   replyTarget?: MessageView | null;
   onCancelReply?: () => void;
 }) {
@@ -52,10 +52,10 @@ export function Composer({
 
   // The draft belongs to the ROOM, not the composer: switching rooms
   // swaps in each room's letter-in-progress (memory-only, like the
-  // keys — a refresh wipes it with everything else).
+  // keys. A refresh wipes it with everything else).
   const [text, setText] = useState(() => (roomId ? getDraft(roomId) : ""));
   // A restored letter-in-progress announces itself once with a soft
-  // forest ring — set at mount (a room switch remounts the composer)
+  // forest ring, set at mount (a room switch remounts the composer)
   // and on any later render-time swap, cleared when the pulse ends.
   const [draftCue, setDraftCue] = useState(() =>
     !!(roomId ? getDraft(roomId) : "").trim(),
@@ -63,7 +63,7 @@ export function Composer({
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [viewOnce, setViewOnce] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  // Keyed by room — fresh state per room, seeded from its local setting.
+  // Keyed by room: fresh state per room, seeded from its local setting.
   const [ttl, setTtl] = useState<TtlChoice>(() =>
     roomId ? (getSession(roomId)?.defaultTtl ?? 0) : 0,
   );
@@ -74,7 +74,7 @@ export function Composer({
    * animationend, which lands on the button itself. */
   const [bursting, setBursting] = useState(false);
 
-  // Beginning an answer centres the composer — the cursor goes to
+  // Beginning an answer centres the composer. The cursor goes to
   // the input on every reply (touch included: the reply IS an intent
   // to write).
   useEffect(() => {
@@ -82,7 +82,7 @@ export function Composer({
   }, [replyTarget]);
 
   // A room switch swaps in that room's letter-in-progress and its own
-  // expiry setting — adjusted during render (the sanctioned no-effect
+  // expiry setting, adjusted during render (the sanctioned no-effect
   // pattern for prop-driven state), while the cursor courtesy is a
   // DOM effect below. Touch keyboards stay closed: nothing should
   // jump at you on a phone.
@@ -119,13 +119,13 @@ export function Composer({
     setTtl(next);
     if (next !== 0) {
       // The first time a timer is armed, the quiet strip above the
-      // composer explains what expiry means — instead of a toast.
+      // composer explains what expiry means, instead of a toast.
       if (!ttlHintSeen() && onTtlArmed) onTtlArmed();
       else if (ttl !== next) toast(`Messages now expire in ${fmtTtlLong(next)}`);
     }
   }
 
-  // The hourglass itself — seated bare in the hand, anchored under
+  // The hourglass, seated bare in the hand, anchored under
   // a popover at the desk.
   const ttlTrigger = (
     <button
@@ -161,7 +161,7 @@ export function Composer({
     // A photo must not carry its own return address: images with
     // EXIF/XMP metadata are re-encoded through a canvas (pixels only)
     // before they are attached, and a file whose metadata cannot be
-    // stripped is not attached at all — the honest failure is a
+    // stripped is not attached at all. The failure mode is a
     // notice, never a silent send of location data.
     let bytes = new Uint8Array(await file.arrayBuffer());
     let mime = file.type || "application/octet-stream";
@@ -169,7 +169,7 @@ export function Composer({
     if (imageNeedsScan(mime) && imageHasMetadata(bytes, mime)) {
       const clean = await reencodeImage(file);
       if (!clean || clean.size > FILE_LIMIT) {
-        toast("This image carries hidden metadata we couldn't strip — it wasn't attached.");
+        toast("This image carries hidden metadata we couldn't strip. It wasn't attached.");
         return;
       }
       bytes = new Uint8Array(await clean.arrayBuffer());
@@ -238,7 +238,7 @@ export function Composer({
         takeEventFiles(e.dataTransfer.files);
       }}
     >
-      {/* the drop slip — paper waiting to receive */}
+      {/* the drop slip: paper waiting to receive */}
       {dragOver ? (
         <div className="mx-auto w-full max-w-[720px] px-3 pt-3">
           <div className="settle flex h-16 items-center justify-center rounded-[12px] border border-dashed border-forest/40 bg-wash font-sans text-[13px] font-medium text-forest">
@@ -361,7 +361,7 @@ export function Composer({
                 return;
               }
               // While answering, Escape's first duty is to release the
-              // quote — the room keeps the writer (the window-level
+              // quote. The room keeps the writer (the window-level
               // handler must not see this key).
               if (e.key === "Escape" && replyTarget) {
                 e.preventDefault();
@@ -450,7 +450,7 @@ export function Composer({
             aria-live="polite"
           >
             {charsLeft <= 0
-              ? "At the limit — the message is as long as a letter can be"
+              ? "At the limit, the message is as long as a letter can be"
               : `${charsLeft} characters left`}
           </p>
         ) : null}

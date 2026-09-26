@@ -44,10 +44,9 @@ import { getSession } from "@/lib/session";
 import { useApp } from "@/store/app";
 import { cn } from "@/lib/utils";
 
-/* Right-click (desktop) or press-and-hold (touch) — the quiet
- * affordances a letter needs: answering it, taking the words with
- * you, or burning the page you wrote. Only your own messages can
- * burn. */
+/* Right-click (desktop) or press-and-hold (touch): the affordances
+ * a letter needs: answering it, taking the words with you, or
+ * burning the page you wrote. Only your own messages can burn. */
 function CopyMenu({
   message,
   onBurn,
@@ -177,10 +176,10 @@ export function SystemLine({ text }: { text: string }) {
   );
 }
 
-/** TTL remaining life — the hourglass carries the terracotta signal,
- *  the label stays in the quiet machine voice. In its final ten
- *  seconds the whole label breathes faster (ttl-final) — urgency in
- *  rhythm, on top of the colour it already carries. */
+/** TTL remaining life: the hourglass carries the terracotta signal,
+ *  the label stays in the machine voice. In its final ten seconds
+ *  the whole label breathes faster (ttl-final), urgency in rhythm
+ *  on top of the colour it already carries. */
 function TtlRemaining({ expiresAt }: { expiresAt: number }) {
   const [remaining, setRemaining] = useState(() => expiresAt - Date.now());
   useEffect(() => {
@@ -272,7 +271,7 @@ export interface BubblePosition {
 
 /* ---------------- quoted replies ---------------- */
 
-/** The strip of the message being answered — a small letter inside
+/** The strip of the message being answered, a small letter inside
  *  the letter. The quoted sender's own ink colours its edge; the
  *  snippet is a copy carried by the reply itself (already shown to
  *  the room), so the quote survives the original burning. Tapping
@@ -372,7 +371,7 @@ export function MessageBubble({
       )}
     >
       <div className={cn("relative flex max-w-[75%] flex-col", self ? "items-end" : "items-start")}>
-        {/* sender identity — first of a group only. The mark is a
+        {/* sender identity, first of a group only. The mark is a
             fleck of the same vanishing ink in the sender's own colour:
             everyone's identity is a fleck of the same leaving. */}
         {!self && position.first && message.senderAlias != null ? (
@@ -389,7 +388,7 @@ export function MessageBubble({
           </p>
         ) : null}
 
-        {/* the reply affordance that lives beside the bubble — a
+        {/* the reply affordance that lives beside the bubble, a
             mouse thing (touch uses press-and-hold); it only breathes
             when the row is visited */}
         {onReply ? (
@@ -441,12 +440,12 @@ export function MessageBubble({
           </div>
         </CopyMenu>
 
-        {/* ink margin marks — the readers' quiet annotations */}
+        {/* ink margin marks, the readers' annotations */}
         {reactable && message.marks && Object.keys(message.marks).length > 0 ? (
           <MarksBar message={message} onReact={onReact} />
         ) : null}
 
-        {/* meta — the machine's voice, under the last of a group */}
+        {/* meta: the machine's voice, under the last of a group */}
         {position.last || message.ttlSec ? (
           <p
             className={cn(
@@ -542,7 +541,7 @@ function FileContent({
     );
   }
 
-  // Every remaining file opens IN THE APP — the viewer decides what
+  // Every remaining file opens IN THE APP. The viewer decides what
   // "opening" means per type (play, read, inspect bytes). Downloading
   // is a choice the viewer offers, never the card's whole job.
   const Icon = isVideo ? Film : isAudio ? Music : FileText;

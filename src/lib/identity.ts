@@ -1,6 +1,6 @@
 // Identity without names. A member's alias and ink are derived,
-// deterministically, from the fingerprint of their signing key —
-// the same key everyone verifies in the fingerprint panel.
+// deterministically, from the fingerprint of their signing key: the
+// same key everyone verifies in the fingerprint panel.
 
 const ADJECTIVES = [
   "Ashen", "Quiet", "Amber", "Cedar", "Copper", "Dusty", "Fallow", "Faint",
@@ -14,16 +14,16 @@ const ANIMALS = [
   "Teal", "Vole", "Cormorant", "Dunlin", "Ermine", "Ferret", "Goshawk", "Ibis",
 ];
 
-// For room passwords — words meant to be read aloud and typed on a
+// For room passwords: words meant to be read aloud and typed on a
 // phone. EXACTLY 256 of them, so one random byte picks one word with
 // zero bias, and six words carry 48 bits of entropy. The list is the
 // whole defense: the room's verifier bundle is a public offline
 // oracle (see kdf.ts), so the password itself must be big enough that
 // grinding argon2id over every possible passphrase outlives any
-// attacker's budget. The old 24-word list held 18 bits — under 7
-// hours of single-CPU guessing — which is why it is gone; the 5-word
+// attacker's budget. The old 24-word list held 18 bits (under 7
+// hours of single-CPU guessing), which is why it is gone; the 5-word
 // interim (40 bits) survived a laptop but not a ~100-GPU cluster
-// (months, not years) — 48 bits multiplies that grind by 256×.
+// (months, not years). 48 bits multiplies that grind by 256×.
 export const PASS_WORDS = [
   "acorn", "almanac", "amber", "anchor", "apple", "apricot", "arrow",
   "aspen", "badger", "basil", "basket", "birch",
@@ -100,12 +100,12 @@ export function inkFromFingerprint(hex: string): number {
   return parseInt(hex.slice(16, 20), 16) % 8;
 }
 
-/** A room password, drawn from the CSPRNG — never Math.random, whose
+/** A room password, drawn from the CSPRNG, never Math.random, whose
  * xorshift stream is predictable and shared with unrelated app code.
  * Each byte selects one of the 256 words exactly (no modulo bias at
  * this list size; the rejection guard below keeps the function honest
  * if the list ever changes), duplicates are skipped so the words stay
- * distinct, and the 6-word default holds 2^48 candidates — grinding
+ * distinct, and the 6-word default holds 2^48 candidates. Grinding
  * the public verifier through argon2id over all of them is a
  * multi-century single-machine project, and a multi-year one for a
  * large cluster, instead of an afternoon. */
@@ -131,13 +131,13 @@ export function generatePassphrase(words = 6): string {
   return picks.join("-");
 }
 
-/** "Code" is whatever a human pastes — a link, or the bare room code. */
+/** "Code" is whatever a human pastes: a link, or the bare room code. */
 export function parseRoomCode(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
   // Bare code
   if (/^[0-9A-Za-z]{6,16}$/.test(trimmed)) return trimmed.toUpperCase();
-  // A link — grab ?join= or the last path segment
+  // A link: grab ?join= or the last path segment
   try {
     const url = new URL(trimmed);
     const join = url.searchParams.get("join");

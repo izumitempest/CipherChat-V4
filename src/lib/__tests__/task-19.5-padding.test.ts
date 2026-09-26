@@ -1,10 +1,10 @@
-// Task 19.5 — UNIFORM FRAME PADDING (P1)
+// Task 19.5: UNIFORM FRAME PADDING (P1)
 //
 // Property: the relay cannot distinguish frame kinds by size. Every
 // control frame (message, typing, receipt, burn, key offer, file meta)
 // is padded to ONE uniform size before encryption. File transfers are
 // a fixed number of uniform chunk frames regardless of true file size,
-// so the relay cannot read file sizes from the wire.
+// so the relay cannot read file sizes from the frames it forwards.
 
 import { describe, it, expect } from "vitest";
 import {
@@ -21,7 +21,7 @@ import {
 import { makeRoom, randomAesKey } from "./helpers";
 import { sha256HexOfBytes, fromB64 as legacyFromB64 } from "@/lib/crypto";
 
-/** getRandomValues is capped at 64 KiB per call — fill in blocks. */
+/** getRandomValues is capped at 64 KiB per call; fill in blocks. */
 function randBytes(n: number): Uint8Array {
   const out = new Uint8Array(n);
   for (let i = 0; i < n; i += 65536) {
@@ -56,7 +56,7 @@ describe("pad / unpad primitives", () => {
   it("unpad of corrupted length prefix fails or returns garbage, never throws on random", () => {
     const padded = padToSize(new TextEncoder().encode("abc"), 256);
     padded[0] ^= 0xff; // corrupt length prefix
-    // must not throw — the GCM tag is the real integrity check
+    // must not throw: the GCM tag is the real integrity check
     unpadFromSize(padded);
     expect(true).toBe(true);
   });

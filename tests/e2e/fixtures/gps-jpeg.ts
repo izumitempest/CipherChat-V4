@@ -1,8 +1,8 @@
-// Builds a GPS-tagged JPEG for the E2E golden path — the same fixture
+// Builds a GPS-tagged JPEG for the E2E golden path, the same fixture
 // idea as Task 31's /home/z/qa31/make-gps-jpeg.mjs, inlined so the test
 // is self-contained (no ffmpeg at test time): the committed 64×64
 // base-tiny.jpg gets a real EXIF APP1 segment (TIFF IFD0 → GPS IFD,
-// 6°30'30.5"N 3°12'15.2"W) inserted right after SOI — exactly where a
+// 6°30'30.5"N 3°12'15.2"W) inserted right after SOI, exactly where a
 // camera puts it. If the composer's EXIF strip is working, what arrives
 // on the other side is a re-encoded JPEG with no APP1 at all.
 import { readFileSync } from "fs";
@@ -41,7 +41,7 @@ export function buildGpsJpeg(): Buffer {
   return Buffer.from(out);
 }
 
-/** The clean, metadata-free base image (view-once fixture — passes
+/** The clean, metadata-free base image (view-once fixture, passes
  *  through the EXIF scan untouched, no re-encode). */
 export function readCleanJpeg(): Buffer {
   return readFileSync(join(process.cwd(), "tests/e2e/fixtures/base-tiny.jpg"));

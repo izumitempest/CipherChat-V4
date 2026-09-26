@@ -1,4 +1,4 @@
-// Local persistence — the desk itself. Room *labels*, verification
+// Local persistence on this device only. Room *labels*, verification
 // marks, and per-room settings live on this device. Keys never do.
 // Burned rooms are filtered out on the next page load: the ash card
 // is shown for the remainder of the session, then vanishes.
@@ -107,7 +107,7 @@ export function markTtlHintSeen(): void {
   try {
     localStorage.setItem(TTL_HINT_KEY, "1");
   } catch {
-    /* private mode — it will show again next session */
+    /* private mode; it will show again next session */
   }
 }
 
@@ -130,7 +130,7 @@ export function roomWatermarkStore(roomId: string): WatermarkStore {
       try {
         localStorage.setItem(key, JSON.stringify(data));
       } catch {
-        /* storage unavailable — defense degrades to per-page-load */
+        /* storage unavailable; defense degrades to per-page-load */
       }
     },
   };

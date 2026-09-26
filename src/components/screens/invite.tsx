@@ -1,4 +1,4 @@
-// S2 — Invite link landing. A stranger arrives here from a shared
+// S2: invite link landing. A stranger arrives here from a shared
 // link. Reassurance first, then the password, then Enter. No sign-up
 // exists anywhere on this surface.
 
@@ -42,7 +42,7 @@ function InviteForm({ prefilledCode }: { prefilledCode: string | null }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [details, setDetails] = useState(false);
-  // Typed password lives only in the field's DOM property — never
+  // Typed password lives only in the field's DOM property, never
   // React state, never the value attribute DevTools mirrors for
   // controlled inputs. Read once, here, at submit.
   const passRef = useRef<HTMLInputElement>(null);
@@ -76,7 +76,7 @@ function InviteForm({ prefilledCode }: { prefilledCode: string | null }) {
       }
       return;
     }
-    // Joined — the key is derived; the plaintext leaves with the form.
+    // Joined: the key is derived; the plaintext leaves with the form.
     if (passRef.current) passRef.current.value = "";
   }
 

@@ -1,7 +1,7 @@
-// Task 21.1 — Silent-departure grace.
+// Task 21.1: Silent-departure grace.
 //
 // Property: a member whose connection silently drops (closed laptop,
-// lost signal — no clean leave) is evicted and the room re-seals only
+// lost signal, no clean leave) is evicted and the room re-encrypts only
 // through server-verified facts: the REST registry stays the sole
 // identity authority, the relay's live presence is the sole connection
 // authority, and eviction is refused unless the target has genuinely

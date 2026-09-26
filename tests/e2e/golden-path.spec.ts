@@ -1,6 +1,6 @@
-// The golden path — the whole product in one conversation.
+// The golden path: the whole product in one conversation.
 //
-// Two browser contexts, same origin (isolated storage — the reason
+// Two browser contexts, same origin (isolated storage, the reason
 // this could never be two tabs): creator A and member B walk the full
 // lifecycle the Task 32 spec names:
 //
@@ -10,7 +10,7 @@
 //   rejoin (fresh joiner sees no history, but the room lives and the
 //   rotated key delivers) → burn (both ends run the burn sequence).
 //
-// Every assertion is end-to-end: what one context sealed, the other
+// Every assertion is end-to-end: what one context encrypted, the other
 // must decrypt and render.
 
 import { test, expect, type Page } from "@playwright/test";
@@ -18,7 +18,7 @@ import { buildGpsJpeg, readCleanJpeg } from "./fixtures/gps-jpeg";
 
 /** Byte-level EXIF scan of the blob the RECEIVER's viewer is rendering:
  *  proves the strip survived the whole pipeline (attach → re-encode →
- *  seal → relay → open → viewer), not just the attach step. */
+ *  encrypt → relay → open → viewer), not just the attach step. */
 async function scanRenderedImage(page: Page): Promise<{ isJpeg: boolean; hasExifApp1: boolean }> {
   const src = await page.locator('img[src^="blob:"]').first().getAttribute("src");
   if (!src) throw new Error("no blob: image rendered in the viewer");
@@ -36,7 +36,7 @@ async function scanRenderedImage(page: Page): Promise<{ isJpeg: boolean; hasExif
           const tag = String.fromCharCode(...buf.slice(i + 4, i + 10));
           if (tag === "Exif\u0000\u0000") hasExifApp1 = true;
         }
-        if (marker === 0xda) break; // start of scan — no more metadata segments
+        if (marker === 0xda) break; // start of scan, no more metadata segments
         i += 2 + len;
       }
     }
@@ -65,7 +65,7 @@ test("golden path: create → join → message → reply → react → EXIF stri
   await expect(a.getByLabel("Message", { exact: true })).toBeVisible({ timeout: 30_000 });
 
   // ---------------- the room code, via the invite sheet ----------------
-  // The invite sheet opens itself after creation — the creator's next
+  // The invite sheet opens itself after creation. The creator's next
   // step is sharing. The link box carries ?join=CODE; the password is
   // masked and we already hold it from the create sheet.
   const linkText = (await a.getByText(/\/\?join=/).first().textContent()) ?? "";
@@ -123,7 +123,7 @@ test("golden path: create → join → message → reply → react → EXIF stri
   await expect(b.locator('img[src^="blob:"]').first()).toBeVisible({ timeout: 10_000 });
   const verdict = await scanRenderedImage(b);
   expect(verdict.isJpeg).toBe(true);
-  expect(verdict.hasExifApp1).toBe(false); // the return address did not survive
+  expect(verdict.hasExifApp1).toBe(false); // the EXIF GPS metadata did not survive
   await b.getByLabel("Close viewer").click();
 
   // ---------------- view-once ----------------
@@ -139,7 +139,7 @@ test("golden path: create → join → message → reply → react → EXIF stri
   await expect(sealed).toBeVisible({ timeout: 20_000 });
   await sealed.click();
   await expect(b.locator('img[src^="blob:"]').first()).toBeVisible({ timeout: 10_000 });
-  // No download for a view-once file — from anyone, by design.
+  // No download for a view-once file, from anyone, by design.
   await expect(b.getByLabel("Download a copy")).toHaveCount(0);
   await b.getByLabel("Close viewer").click();
   // Spent propagates to both ends.
@@ -167,7 +167,7 @@ test("golden path: create → join → message → reply → react → EXIF stri
   await b.locator("#cc-join-pass").fill(passphrase);
   await b.getByRole("button", { name: "Enter", exact: true }).click();
   await expect(b.getByLabel("Message", { exact: true })).toBeVisible({ timeout: 45_000 });
-  // A fresh joiner sees nothing from before they joined — by construction.
+  // A fresh joiner sees nothing from before they joined, by construction.
   await expect(b.getByText("first letter")).toHaveCount(0);
   // ...but the room lives, and the ROTATED key delivers:
   await b.getByLabel("Message", { exact: true }).fill("returned");

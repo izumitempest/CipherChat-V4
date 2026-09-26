@@ -4,7 +4,7 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ============================================================
-   CipherChat — Design Tokens
+   CipherChat - Design Tokens
    Warm paper & deep forest. A letter you'd trust.
    Forest = trust/security/identity/primary. Terracotta =
    destruction & impermanence ONLY. No third accent exists.
@@ -68,7 +68,7 @@
 }
 
 :root {
-  /* Light — "Daylight desk" (default) */
+  /* Light - "Daylight desk" (default) */
   --paper: #f4f1eb;
   --side: #ebe7df;
   --charcoal: #2c2a28;
@@ -82,7 +82,7 @@
   --ash: #b7b2a8;
   --hairline: rgba(44, 42, 40, 0.08);
 
-  /* Identity inks — muted stationery inks, never red, never neon */
+  /* Identity inks - muted stationery inks, never red, never neon */
   --ink-0: #5a7263;
   --ink-1: #75806b;
   --ink-2: #7a6853;
@@ -106,14 +106,14 @@
   --cc-notice-h: 0px;
 
   /* Where toasts seat: below the chat header (56px + one gap) and
-     below any notice currently on stage — the top of the screen
+     below any notice currently on stage. The top of the screen
      belongs to one thing at a time. The safe-area inset covers
      notched phones in standalone. */
   --toast-top: calc(env(safe-area-inset-top, 0px) + 64px + var(--cc-notice-h, 0px));
 }
 
 .dark {
-  /* Dark — "Nightfall": the same desk by lamplight. Not an inversion. */
+  /* Dark - "Nightfall": the same desk by lamplight. Not an inversion. */
   --paper: #17181a;
   --side: #212226;
   --charcoal: #f4f1eb;
@@ -201,7 +201,7 @@
 }
 
 /* ============================================================
-   MOTION — physical, never decorative
+   MOTION - physical, never decorative
    durations: 150 state / 250 entrance / 400 overlay / 600 burn
    standard easing: cubic-bezier(0.2, 0, 0, 1)
    ============================================================ */
@@ -271,7 +271,7 @@
   animation: rise 250ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
-/* Letters arrive from the side they were written on — self from
+/* Letters arrive from the side they were written on. Self from
    the right margin, others from the left. Six pixels of travel,
    one soft overshoot back; direction is the only difference. */
 @keyframes msg-in-self {
@@ -307,7 +307,7 @@
   animation: msg-in-other 260ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
-/* S3 — the vault: seal arc fills with weight */
+/* S3 - the vault: seal arc fills with weight */
 @keyframes seal-arc {
   from {
     stroke-dashoffset: var(--seal-circumference);
@@ -334,7 +334,7 @@
 
 /* The seal lands on the page the way wax meets paper: pressed down
    with a hair of over-rotation, one overshoot, then it rests. A
-   one-shot entrance — afterwards the 6s breath is the only motion. */
+   one-shot entrance. Afterwards the 6s breath is the only motion. */
 @keyframes stamp-in {
   0% {
     opacity: 0;
@@ -383,8 +383,8 @@
 }
 
 /* The Vanishing Ink gives way (burn overlay): the flecks flee and
-   vanish, the ember flares and dies — but the drop's outline rests
-   where the ink was, a ghost of what burned. transform-box
+   vanish, the ember flares and is destroyed, but the drop's outline
+   rests where the ink was, a ghost of what burned. transform-box
    view-box keeps the units in viewBox space, matching the baked
    attribute transform in mark.tsx. */
 @keyframes ink-lift-off {
@@ -406,7 +406,7 @@
   animation: ink-lift-off 1050ms cubic-bezier(0.2, 0, 0, 1) 200ms both;
 }
 
-/* The ember flares once as the ink departs, then dies. */
+/* The ember flares once as the ink departs, then is destroyed. */
 @keyframes ember-flare {
   0% {
     opacity: 0.9;
@@ -427,7 +427,7 @@
   animation: ember-flare 950ms cubic-bezier(0.2, 0, 0, 1) 250ms both;
 }
 
-/* Fleeing flecks: quiet sparks on short fade paths — drift set per
+/* Fleeing flecks: quiet sparks on short fade paths. Drift set per
    fleck via --fx / --fy (see mark.tsx). */
 @keyframes fleck-flee {
   0% {
@@ -447,9 +447,9 @@
 }
 
 /* The intact mark breathes: its flecks quietly rise and fade on a
-   staggered loop — the mark is always evaporating. Scoped to
+   staggered loop. The mark is always evaporating. Scoped to
    .mark-breathe (the landing hero) so seated marks hold still.
-   Stagger lives here, not inline — the hero's landing choreography
+   Stagger lives here, not inline. The hero's landing choreography
    stacks a second animation on the same flecks, and one inline
    animation-delay would apply to both. */
 @keyframes ink-rise {
@@ -480,14 +480,14 @@
 }
 
 /* ---------- The hero landing: the ink falls ----------
-   The drop arrives the way ink does — it falls, it strikes the
+   The drop arrives the way ink does: it falls, it strikes the
    paper, it splashes. Three layers, one timeline:
      0ms    the drop releases (gravity easing, a lean)
-     ~220ms impact — squash, and the flecks pop (fleck-splash)
+     ~220ms impact: squash, and the flecks pop (fleck-splash)
      ~260ms the stain spreads beneath it (ink-halo)
      ~1s    the breathing loop takes over (ink-rise, above)
    fleck-splash drives the INDEPENDENT translate/scale properties
-   so it composes with ink-rise's transform — two animations,
+   so it composes with ink-rise's transform. Two animations,
    disjoint properties, one element. */
 @keyframes drop-land {
   0% {
@@ -516,9 +516,9 @@
   animation: drop-land 580ms both;
 }
 
-/* The flecks pop where the drop strikes — up, a hair of scale,
+/* The flecks pop where the drop strikes: up, a hair of scale,
    back to rest. backwards fill: sunk and small while the drop is
-   still falling, no fill after — so hover (below) can own the
+   still falling, no fill after, so hover (below) can own the
    properties once the splash has rested. */
 @keyframes fleck-splash {
   0% {
@@ -591,7 +591,7 @@
 }
 
 
-/* S6a — a single message burns: ember edge, char to ash, recedes */
+/* S6a - a single message burns: ember edge, char to ash, recedes */
 @keyframes msg-burn {
   0% {
     box-shadow:
@@ -617,7 +617,7 @@
 }
 
 /* A quoted reply's target, arrived at by the jump: one soft ring of
- * forest that breathes twice and lets go — recognition, not alarm. */
+ * forest that breathes twice and lets go. Recognition, not alarm. */
 @keyframes quote-flash {
   0% {
     background-color: transparent;
@@ -637,7 +637,7 @@
   border-radius: 12px;
 }
 
-/* S6b — the room burns: paper chars from the edges inward */
+/* S6b - the room burns: paper chars from the edges inward */
 @keyframes char-close {
   from {
     transform: translate(-50%, -50%) scale(3.4);
@@ -692,7 +692,7 @@
   }
 }
 
-/* Quiet pulse for connection issues — 2 cycles only, then settles */
+/* Quiet pulse for connection issues: 2 cycles only, then settles */
 @keyframes dot-pulse {
   0%,
   100% {
@@ -720,7 +720,7 @@
 .mark-chip {
   animation: mark-in 220ms cubic-bezier(0.2, 0, 0, 1) both;
 }
-/* A count rising gets one soft beat — felt, not seen. */
+/* A count rising gets one soft beat: felt, not seen. */
 @keyframes mark-count {
   0%,
   100% {
@@ -735,7 +735,7 @@
   animation: mark-count 300ms cubic-bezier(0.2, 0, 0, 1);
 }
 
-/* The whisper's three ink dots — a status, kept nearly still.
+/* The whisper's three ink dots. A status, kept nearly still.
    (Delays are set inline: unlayered keyframe classes would
    otherwise outrank a utilities-layer animation-delay.) */
 @keyframes typing-dot {
@@ -752,12 +752,12 @@
 }
 
 /* A presence dot takes its seat with the same physics as an
-   ink mark — a hair of scale, a hair of lift. */
+   ink mark: a hair of scale, a hair of lift. */
 .dot-in {
   animation: mark-in 220ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
-/* The whisper's flecks — someone is writing, and their ink is in
+/* The whisper's flecks - someone is writing, and their ink is in
    motion: three small flecks rise and fade on a loop, staggered
    (delays inline: one animation, so a single value is safe). */
 @keyframes whisper-fleck {
@@ -780,7 +780,7 @@
 }
 
 /* A countdown in its final seconds: the label breathes faster as
-   the page is about to burn — urgency in rhythm, not in colour
+   the page is about to burn. Urgency in rhythm, not in colour
    alone. */
 @keyframes ttl-final {
   0%,
@@ -814,7 +814,7 @@
   animation: theme-turn 420ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
-/* The letter leaves: two small flecks — one ink, one ember — rise
+/* The letter leaves: two small flecks, one ink, one ember, rise
    from the send button and vanish. Pseudo-elements on a burst
    class the composer adds for one dispatch; animationend from the
    pseudos lands on the button itself, which clears it. */
@@ -858,7 +858,7 @@
 
 /* The ghost watermarks: the drop's outline draws itself onto the
    page (pathLength-normalised dash), the flecks surfacing as it
-   reaches them — then the whole ghost drifts, almost imperceptibly,
+   reaches them. Then the whole ghost drifts, almost imperceptibly,
    for as long as the desk waits. */
 @keyframes ghost-draw {
   from {
@@ -902,7 +902,7 @@
   animation: ghost-drift 13s ease-in-out 1.6s infinite;
 }
 
-/* The line-down note unrolls between header and letters — its height
+/* The line-down note unrolls between header and letters. Its height
    eases in so the log is nudged, never shoved. */
 @keyframes strip-in {
   from {
@@ -938,7 +938,7 @@
 /* ---------- In-app notices (the banner stack) ----------
    A notice takes its seat the way a bottom sheet does, turned
    upside down: the row is a grid track opening from 0fr to 1fr, so
-   everything below steps DOWN to make room — a banner never covers
+   everything below steps DOWN to make room. A banner never covers
    the header, the messages, anything. The card itself settles from
    slightly above, like a note set down on the desk. */
 @keyframes notice-open {
@@ -1076,7 +1076,7 @@
   .mark-breathe {
     animation: none !important;
   }
-  /* The rising flecks hold still too — the mark keeps its shape.
+  /* The rising flecks hold still too. The mark keeps its shape.
      The landing splash stacks with the loop, so it is disabled
      by class, not just by the loop's rule. */
   .mark-breathe .ink-fleck,
@@ -1197,8 +1197,8 @@
 /* ---------- The keyboard, on paper ----------
    iOS Safari zooms the page when an input smaller than 16px is
    focused, which magnifies the "keyboard covers the sheet" problem
-   and knocks fixed surfaces sideways. Fields are set at 15–15.5px,
-   so on touch WebKit we hold them at 16px while typing — the half
+   and knocks fixed surfaces sideways. Fields are set at 15-15.5px,
+   so on touch WebKit we hold them at 16px while typing: the half
    pixel is invisible, the zoom jump is not. Unlayered on purpose:
    this outranks the Tailwind utility layer. */
 @supports (-webkit-touch-callout: none) {
@@ -1219,7 +1219,7 @@
    A plain document in the house's own clothes: Lora headings,
    Inter prose, Plex Mono for actual technical strings, hairline
    rules, one table, one live example. Motion appears only
-   where the product's own laws are being demonstrated —
+   where the product's own laws are being demonstrated:
    ash fleeing a burned frame.
    ============================================================ */
 

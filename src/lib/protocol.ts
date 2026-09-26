@@ -2,18 +2,18 @@
 //
 // Everything the relay carries is a uniform padded encrypted frame:
 //
-//   body JSON ──sign──▶ pad to a FIXED size ──▶ AES-256-GCM ──▶ wire
+//   body JSON ──sign──▶ pad to a FIXED size ──▶ AES-256-GCM ──▶ network
 //
 // Frame classes and their fixed plaintext sizes:
 //   control frames (text, typing, spent, burn, key offers, file meta)
 //     → CONTROL_FRAME_BYTES (20480). Chosen because the composer allows
-//       4000 characters, which is up to 16 KB of UTF-8 — 4096 could not
+//       4000 characters, which is up to 16 KB of UTF-8; 4096 could not
 //       contain the product's own maximum message. Uniformity is the
 //       property; the size must simply dominate every control payload.
-//   file chunk frames → FILE_FRAME_BYTES (65536), and every file —
-//     regardless of true size — is padded to the same total payload
+//   file chunk frames → FILE_FRAME_BYTES (65536), and every file,
+//     regardless of true size, is padded to the same total payload
 //     length and split into the same FIXED number of chunks, so the
-//     relay cannot read file sizes off the wire.
+//     relay cannot read file sizes from the traffic it forwards.
 //
 // Replay defense lives here too: every frame body carries a per-sender
 // monotonic counter inside a per-session tag, a timestamp checked
@@ -40,7 +40,7 @@ export const FILE_FRAME_BYTES = 65536;
 /** base64 characters of file payload carried per chunk frame */
 export const FILE_CHUNK_B64 = 64000;
 /** FIXED total base64 length every file transfer is padded to.
- *  Must dominate ceil(2 MiB / 3) * 4 — the largest allowed file. */
+ *  Must dominate ceil(2 MiB / 3) * 4, the largest allowed file. */
 export const FILE_PAYLOAD_B64 = 2_800_000;
 export const FILE_TOTAL_CHUNKS = Math.ceil(FILE_PAYLOAD_B64 / FILE_CHUNK_B64);
 
@@ -67,7 +67,7 @@ export interface OfferBody {
   kv: number;
   /** rotation offer (from the coordinator) vs join delivery */
   rot: boolean;
-  /** sender's session ECDH public key — must match the registry (UKS defense) */
+  /** sender's session ECDH public key; must match the registry (UKS defense) */
   ecdhPubB64?: string;
   /** ECDH-wrapped { keyB64, kv, rot, issuedAt } */
   wrapIv?: string;
@@ -105,7 +105,7 @@ export interface FrameBody {
   typing?: boolean;
   offer?: OfferBody;
   file?: FileMetaBody;
-  /** quoted-reply target snapshot — signature-covered via the
+  /** quoted-reply target snapshot: signature-covered via the
    *  canonical (see replyCanonical), so a quote is exactly as
    *  unforgeable as the message that carries it */
   reply?: ReplySnapshot;
@@ -115,14 +115,14 @@ export interface FrameBody {
 export interface WireFrame {
   v: 2;
   roomId: string;
-  /** key version this frame is sealed under. 0 = sealed under the
-   *  password-derived ENTRY key (key-delivery offers) — readable by
+  /** key version this frame is encrypted under. 0 = encrypted under the
+   *  password-derived ENTRY key (key-delivery offers), readable by
    *  any password holder at any time; the secret inside is still
    *  ECDH-wrapped pairwise. */
   kv: number;
   from: string;
   id: string;
-  /** frame issue time, in the clear — lets receivers expire stale
+  /** frame issue time, in the clear; lets receivers expire stale
    *  undecryptable frames without opening them */
   ts: number;
   iv: string;
@@ -145,7 +145,7 @@ export function padToSize(bytes: Uint8Array, size: number): Uint8Array {
   return out;
 }
 
-/** Inverse of padToSize. Never throws — the GCM tag is the integrity
+/** Inverse of padToSize. Never throws: the GCM tag is the integrity
  *  check; a bogus length prefix just yields garbage bytes. */
 export function unpadFromSize(bytes: Uint8Array): Uint8Array {
   if (bytes.length < 4) return new Uint8Array(0);
@@ -157,7 +157,7 @@ export function unpadFromSize(bytes: Uint8Array): Uint8Array {
 
 const B64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-/** Random base64 filler — never decoded, exists only for uniform length.
+/** Random base64 filler; never decoded, exists only for uniform length.
  *  (getRandomValues is capped at 65536 bytes per call, so fill in blocks.) */
 function randomB64Chars(n: number): string {
   let s = "";
@@ -247,9 +247,9 @@ export function createSendClock(): SendClock {
 /* ---------------- canonical signing string ---------------- */
 
 /** Deterministic serialisation of a reply snapshot for the canonical
- *  string. Sealing and verification both build it through this one
+ *  string. Encryption and verification both build it through this one
  *  function, so whatever a sender signed is exactly what a receiver
- *  re-computes — a tampered quote breaks the signature. The unit
+ *  re-computes: a tampered quote breaks the signature. The unit
  *  separator is cosmetic; slot order is what binds. */
 export function replyCanonical(
   r?: { id: string; senderId: string; snippet: string; file?: boolean },
@@ -266,14 +266,14 @@ export function replyCanonical(
 }
 
 /** Percent-escape the three characters that are structural in the
- * canonical string — the field separator "|", the reply-slot separator
+ * canonical string: the field separator "|", the reply-slot separator
  * \u001f, and the escape character "%" itself (escaped first, so the
  * encoding is injective: "%7C" produced by the escaper can never be
  * confused with a literal "%7C" from the field, which becomes "%257C").
  *
  * A no-op for every value this field has ever legitimately held
  * (messageIds are crypto.randomUUID()s; key:offer ids are
- * "offer:{cuid}:{epoch}", and cuids are [a-z0-9]) — which is what
+ * "offer:{cuid}:{epoch}", and cuids are [a-z0-9]), which is what
  * keeps the Round-31 cross-version proofs byte-identical: real plain
  * letters still canonicalise to the exact pre-reply eleven-field
  * string, so old tabs and new tabs keep verifying each other's plain
@@ -282,8 +282,9 @@ export function replyCanonical(
  * Why only field 11: the conditional 12th slot created a NEW ambiguity
  * class at the 11→12 boundary. Before this escape, a plain frame whose
  * messageId was crafted as "abc|<replyCanonical>" produced the SAME
- * string as the reply frame {messageId:"abc", reply} — a signed plain
- * frame could be re-encrypted as a quote-carrying frame its author
+ * string as the reply frame {messageId:"abc", reply}, so a signed
+ * plain frame could be re-encrypted as a quote-carrying frame its
+ * author
  * never wrote. After the escape, field 11 contains no "|", so no plain
  * frame's tail can ever equal `messageId + "|" + replySlot` (the
  * right-hand side always contains the joiner). The residual ambiguity
@@ -322,7 +323,7 @@ export function canonicalV2(f: {
     f.fileSha ?? "",
     escapeCanonicalField(f.messageId ?? ""),
   ].join("|");
-  // The reply slot is appended ONLY when a quote exists — so a plain
+  // The reply slot is appended ONLY when a quote exists, so a plain
   // frame's canonical is byte-identical to the pre-reply eleven-field
   // form. That is the rollout proof: a tab running old code verifies
   // new plain letters, and a new tab verifies old ones; only a letter
@@ -330,7 +331,7 @@ export function canonicalV2(f: {
   // drops it rather than accept a quote it cannot check). A valid
   // snapshot never serialises to "" (it has content and separators),
   // so "no reply" and "reply that failed the shape guard" are the
-  // same string — and a tampered reply changes the canonical, which
+  // same string, and a tampered reply changes the canonical, which
   // is exactly what breaks the signature.
   const reply = replyCanonical(f.reply);
   return reply ? `${base}|${reply}` : base;
@@ -433,7 +434,7 @@ export interface SessionEcdh {
   pubRawB64: string;
 }
 
-/** Ephemeral ECDH P-256 pair — regenerated on every page load, held
+/** Ephemeral ECDH P-256 pair, regenerated on every page load, held
  *  only in memory. Used to deliver room keys pairwise. */
 export async function generateSessionEcdh(): Promise<SessionEcdh> {
   const pair = await crypto.subtle.generateKey(

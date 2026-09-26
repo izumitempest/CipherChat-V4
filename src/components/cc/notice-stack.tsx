@@ -1,11 +1,11 @@
-// The notice stack — in-app notifications that behave like paper,
+// The notice stack: in-app notifications that behave like paper,
 // not like popups. A banner never covers anything: it takes its seat
 // at the top of the shell and everything below steps down to make
 // room (the grid-rows 0fr→1f opening is the same mechanic as a
 // bottom sheet, turned upside down).
 //
 // While it is on stage it publishes its height as --cc-notice-h on
-// <html>, so toasts seat BELOW the banner instead of over it — the
+// <html>, so toasts seat BELOW the banner instead of over it. The
 // top of the screen belongs to one thing at a time.
 //
 // Motion lives in globals.css (notice-open / notice-close), which
@@ -46,7 +46,7 @@ export function NoticeStack() {
     };
   }, []);
 
-  // The preview preference, read as each banner renders — flipping the
+  // The preview preference, read as each banner renders. Flipping the
   // setting changes what the next banner says, immediately.
   const pref = loadNotifyPreview();
 
@@ -77,7 +77,7 @@ export function NoticeStack() {
               <div
                 role="button"
                 tabIndex={0}
-                aria-label={`Open ${b.roomName || "room"} — new letter from ${b.alias}`}
+                aria-label={`Open ${b.roomName || "room"}: new letter from ${b.alias}`}
                 onClick={() => {
                   navigate("chat", b.roomId);
                   dismiss(b.key);

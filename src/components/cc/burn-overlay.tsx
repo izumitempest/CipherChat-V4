@@ -1,7 +1,7 @@
-// S6b — Room termination. The most beautiful two seconds in the app:
+// S6b - Room termination. The most restrained two seconds in the app:
 // paper darkens and chars from the edges inward, one line of Lora,
 // then the desk, where the card wears its one-session ash. Somber,
-// restrained, final.
+// held back, final.
 
 "use client";
 
@@ -37,7 +37,7 @@ function BurnSequence({ roomId }: { roomId: string }) {
       role="alert"
       aria-live="assertive"
     >
-      {/* char, closing inward — warm browns, ember at the rim */}
+      {/* char, closing inward - warm browns, ember at the rim */}
       <div
         className="absolute left-1/2 top-1/2 h-[340%] w-[340%]"
         style={{
@@ -57,7 +57,7 @@ function BurnSequence({ roomId }: { roomId: string }) {
         }}
         aria-hidden
       />
-      {/* ember breathing at the edges — terracotta heat, then ash */}
+      {/* ember breathing at the edges: terracotta heat, then ash */}
       <div
         className="absolute inset-0"
         style={{
@@ -67,7 +67,7 @@ function BurnSequence({ roomId }: { roomId: string }) {
         }}
         aria-hidden
       />
-      {/* charred paper texture — the burn leaves grain behind */}
+      {/* charred paper texture: the burn leaves grain behind */}
       <div
         className="absolute inset-0 mix-blend-multiply"
         style={{
@@ -79,9 +79,9 @@ function BurnSequence({ roomId }: { roomId: string }) {
         }}
         aria-hidden
       />
-      {/* the line — and above it, the ink itself, lifted clean
+      {/* the line, and above it, the ink itself, lifted clean.
           The halves part along the fracture while a few ember flecks
-          rise and die: the room's last mark, breaking quietly. */}
+          rise and fade: the room's last mark, breaking quietly. */}
       <div className="absolute inset-0 flex items-center justify-center px-8">
         <div className="flex flex-col items-center">
           <div
@@ -94,9 +94,9 @@ function BurnSequence({ roomId }: { roomId: string }) {
             }}
             aria-hidden
           >
-            {/* cream, like the line below — the same literal the
+            {/* cream, like the line below. The same literal the
                 burn context already uses (the overlay is always its
-                own dark, cinematic palette) */}
+                own dark, separate palette) */}
             <InkMark variant="scattered" size={84} ink="#EDE4D7" />
           </div>
           <p

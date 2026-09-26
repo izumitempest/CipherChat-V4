@@ -1,5 +1,5 @@
 // Shared test fixtures for the Task 19 security suite.
-// Everything here runs in Node against the pure crypto modules —
+// Everything here runs in Node against the pure crypto modules:
 // no DOM, no localStorage, no sockets.
 
 import {

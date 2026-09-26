@@ -1,11 +1,9 @@
-// Task 29 — REPLIES AND IN-APP VIEWING
+// Task 29: REPLIES AND IN-APP VIEWING
 //
-// Property: a quoted reply is exactly as authentic as the words it
-// carries. The reply snapshot rides the encrypted frame body AND the
-// canonical signature string, so nobody can make a message appear to
-// quote words their author never wrote. The viewer helpers (CSV
-// parsing, classification, snippet sanitising) are the same pure
-// functions the UI runs — tested here at the boundary.
+// Property: a quoted reply carries the same signature guarantee as
+// the words it carries. The reply snapshot travels in the encrypted frame body AND
+// the canonical signature string, so nobody can make a message appear
+// to quote words their author never wrote.
 
 import { describe, it, expect } from "vitest";
 import { CONTROL_FRAME_BYTES, fromB64, replyCanonical } from "@/lib/protocol";
@@ -76,7 +74,7 @@ describe("quoted replies on the wire", () => {
       text: "an honest answer",
       reply: { id: "msg-1", senderId: "m-a", snippet: "what alice actually said" },
     });
-    // Mallory relabels bob's frame as their own — the signature was
+    // Mallory relabels bob's frame as their own. The signature was
     // made with bob's key over bob's canonical (which embeds the
     // quote), so verification against mallory's registered key fails.
     const forged = structuredClone(frames[0]);

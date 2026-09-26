@@ -1,4 +1,4 @@
-// The banner stack — in-app notices while the user is elsewhere in
+// The banner stack: in-app notices while the user is elsewhere in
 // the app. One notice per room (a room that speaks again replaces
 // its banner and resets its clock); at most three on stage, the
 // oldest stepping off first.
@@ -14,7 +14,7 @@ import { create } from "zustand";
 import type { IncomingNotice } from "@/lib/notifications";
 
 export interface BannerNotice extends IncomingNotice {
-  /** Stable per room — a room speaking again keeps its seat. */
+  /** Stable per room: a room speaking again keeps its seat. */
   key: string;
   at: number;
   leaving?: boolean;
@@ -25,7 +25,7 @@ interface NoticeState {
   push: (n: IncomingNotice) => void;
   /** Begin the exit animation (idempotent). */
   dismiss: (key: string) => void;
-  /** Actually remove — called on the exit animation's end. */
+  /** Actually remove, called on the exit animation's end. */
   remove: (key: string) => void;
 }
 

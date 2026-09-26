@@ -1,5 +1,5 @@
-// Quiet time formatting. Metadata is the machine's voice: small,
-// sans, never shouting.
+// Time formatting for quiet metadata display: small, sans, never
+// shouting.
 
 export function fmtTime(ts: number): string {
   return new Date(ts).toLocaleTimeString([], {
@@ -74,5 +74,5 @@ export function fmtBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** iMessage rule — consecutive messages within 3 minutes group together. */
+/** iMessage-style rule: consecutive messages within 3 minutes group together. */
 export const GROUP_WINDOW_MS = 3 * 60 * 1000;

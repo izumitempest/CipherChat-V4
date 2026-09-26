@@ -1,6 +1,6 @@
-// The relay client — one socket, many rooms. The URL is configuration,
+// The relay client: one socket, many rooms. The URL is configuration,
 // never code: same-origin "/relay/" by default (your reverse proxy
-// strips the prefix and forwards it to the relay service — see
+// strips the prefix and forwards it to the relay service; see
 // deploy/), or any absolute https URL. See .env.example for
 // NEXT_PUBLIC_RELAY_URL.
 
@@ -16,12 +16,12 @@ export interface RelayTarget {
   origin: string | null;
   /**
    * The engine.io REQUEST path. The relay server is configured with
-   * socket.io `path: "/"` (see mini-services/relay-service/index.ts —
+   * socket.io `path: "/"` (see mini-services/relay-service/index.ts,
    * "DO NOT change the path"), which accepts engine.io requests on ANY
    * path, so the request path belongs to the PROXY in front of it:
    * "/relay/" behind the compose Caddy (handle_path strips the prefix,
    * the relay sees "/"), "/" on the sandbox gateway (routing is by
-   * query — XTransformPort=3003 — which is preserved verbatim below).
+   * query, XTransformPort=3003, which is preserved verbatim below).
    */
   path: string;
   /**
@@ -33,11 +33,11 @@ export interface RelayTarget {
 
 /**
  * Split a NEXT_PUBLIC_RELAY_URL value into the socket.io-client
- * options that actually reach the wire.
+ * options that actually get sent over the network.
  *
  * Why this exists: socket.io-client v4 treats a URL's path as a
  * NAMESPACE (`io("/relay/")` asks the server for the "/relay/"
- * namespace — the relay only registers "/"), while its engine.io
+ * namespace (the relay only registers "/"), while its engine.io
  * requests always go to `opts.path` (default "/socket.io/"). The
  * URL's path must therefore be handed over as the `path` OPTION, or
  * the requests bypass the proxy route and the namespace does not
@@ -67,7 +67,7 @@ export function getRelay(): Socket {
       // normalizes the trailing slash itself, so "/relay" and "/relay/"
       // both reach the relay as "/" after the prefix strip.
       path: target.path,
-      // The sandbox gateway routes by query, not path — keep every pair
+      // The sandbox gateway routes by query, not path: keep every pair
       // ("XTransformPort=3003"), never in the path. socket.io-client's
       // option type wants an object; engine.io serializes it back onto
       // the request URL.

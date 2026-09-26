@@ -1,8 +1,8 @@
-// CipherChat crypto — everything that matters happens in this tab.
+// CipherChat crypto. Everything that matters happens in this tab.
 //
 //  Room key:  PBKDF2-SHA256 (750,000 iterations, salted by room + epoch)
-//             → AES-256-GCM. Deliberately slow: sealing takes a moment
-//             on purpose. The password never leaves the browser.
+//             → AES-256-GCM. Slow on purpose: encryption takes a
+//             moment. The password never leaves the browser.
 //  Identity:  ECDSA P-256 keypair, generated per device, stored locally.
 //             Every message is signed inside the encrypted payload.
 //  Forgery:   A message whose signature does not verify against the

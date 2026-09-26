@@ -1,5 +1,5 @@
 // Chat header: room name in the human voice, member count in the
-// machine's. Exactly one security glyph in the whole app — the shield
+// machine's. Exactly one security glyph in the whole app: the shield
 // that opens key verification.
 
 "use client";
@@ -79,7 +79,7 @@ export function ChatHeader({
         </button>
         <div className="relative min-w-0 flex-1 pl-1 md:pl-0">
           {/* The re-stamp: absolutely placed so the header never
-              reflows — the drop appears, stamps, and is gone. */}
+              reflows. The drop appears, stamps, and is gone. */}
           {resealFlash ? (
             <span
               key={resealFlash}
@@ -97,7 +97,7 @@ export function ChatHeader({
             {card?.localName ?? "Room"}
           </p>
           <p className="t-meta mt-0.5 flex items-center gap-1.5 truncate">
-            {/* Presence, as ink — each member a dot in their own ink;
+            {/* Presence, as ink: each member a dot in their own ink;
                 away ones rest at 35%. Decoration only: the count below
                 is the accessible text. */}
             <span

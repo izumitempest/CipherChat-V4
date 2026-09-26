@@ -8,7 +8,7 @@ import {
 } from "../../src/lib/rate-limit";
 
 /**
- * CipherChat relay — a blind post office.
+ * CipherChat relay: the server only forwards frames.
  *
  * This service holds no database and no message history. It keeps a
  * room-scoped presence table in memory and forwards opaque padded
@@ -16,7 +16,7 @@ import {
  *
  * Hardening (Task 19.6):
  *   - every socket gets a token bucket: sustained 20 frames/sec with a
- *     bounded burst — floods are dropped, not relayed
+ *     bounded burst. Floods are dropped, not relayed
  *   - any socket message over the frame-size cap is a protocol
  *     violation and disconnects the socket (memory-DoS guard)
  *   - a socket may join at most 16 rooms
@@ -26,10 +26,11 @@ import {
  *     the presence snapshot can tell the REST layer not just WHO is
  *     offline but for how long (the eviction grace floor)
  *   - GET /presence/:roomId on the INTERNAL port (3004, token-guarded,
- *     never routed through the gateway) is the connection authority
- *     the /evict route consults before writing anyone out
+ *     never routed through the gateway) is the authoritative source for
+ *     connected sockets that the /evict route consults before writing
+ *     anyone out
  *   - member:expired is the coordinator's REST-confirmed announcement
- *     that a silent leaver was sealed out — receivers verify against
+ *     that a silent leaver was evicted. Receivers verify against
  *     the registry before acting, exactly as with member:left
  */
 
@@ -37,7 +38,7 @@ const MAX_ROOMS_PER_SOCKET = 16;
 
 const httpServer = createServer();
 const io = new Server(httpServer, {
-  // DO NOT change the path — Caddy uses it to forward requests.
+  // DO NOT change the path: Caddy uses it to forward requests.
   path: "/",
   cors: { origin: "*", methods: ["GET", "POST"] },
   pingTimeout: 60000,
@@ -58,7 +59,7 @@ const rooms = new Map<string, Map<string, { info: MemberInfo; sockets: Set<strin
 
 // "roomId:memberId" -> epoch ms when their last socket dropped. Set on
 // silent departure, cleared on any return (join / clean leave). This is
-// the clock behind the eviction grace floor — REST asks, we vouch.
+// the clock behind the eviction grace floor. REST asks, the relay answers.
 const wentOfflineAt = new Map<string, number>();
 
 function presenceKey(roomId: string, memberId: string) {
@@ -97,7 +98,7 @@ io.on("connection", (socket) => {
     return bucket.tryTake();
   }
 
-  /** Enforce the hard size cap — violations disconnect the socket. */
+  /** Enforce the hard size cap. Violations disconnect the socket. */
   function withinSizeCap(data: unknown): boolean {
     try {
       return frameSizeWithinCap(JSON.stringify(data ?? {}));
@@ -123,7 +124,7 @@ io.on("connection", (socket) => {
         return;
       }
       if (joined.size >= MAX_ROOMS_PER_SOCKET && !joined.has(`${data.roomId}:${data.memberId}`)) {
-        return; // room spam — silently ignored
+        return; // room spam, silently ignored
       }
       const { roomId, memberId, alias, colorIdx } = data;
       let room = rooms.get(roomId);
@@ -168,12 +169,12 @@ io.on("connection", (socket) => {
   socket.on("message:send", (data: { roomId: string; envelope: unknown }) => {
     if (!data?.roomId || !data?.envelope) return;
     if (!withinSizeCap(data)) {
-      // Protocol violation — hard disconnect (memory-DoS guard).
-      console.warn(`[relay] oversized frame from ${socket.id} — disconnecting`);
+      // Protocol violation: hard disconnect (memory-DoS guard).
+      console.warn(`[relay] oversized frame from ${socket.id}, disconnecting`);
       socket.disconnect(true);
       return;
     }
-    if (!frameAllowed()) return; // over budget — dropped
+    if (!frameAllowed()) return; // over budget, dropped
     const envelope = data.envelope as { id?: string };
     for (const s of memberSockets(data.roomId, socket.id)) {
       s.emit("message:new", { roomId: data.roomId, envelope: data.envelope });
@@ -189,9 +190,9 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Early burn: the author retires their own letter ahead of its clock.
-  // The sig is checked by receivers against the author's registered key —
-  // the relay stays blind and cannot forge one.
+  // Early burn: the author burns their own message before it expires.
+  // The sig is checked by receivers against the author's registered key.
+  // The relay only forwards frames and cannot forge one.
   socket.on(
     "message:burn",
     (data: { roomId: string; messageId: string; senderId?: string; sig?: string }) => {
@@ -208,7 +209,7 @@ io.on("connection", (socket) => {
     },
   );
 
-  // Presence whispers: "someone is writing" — transient, never stored.
+  // Typing notice: "someone is writing", transient, never stored.
   // (Protocol v2 clients send typing as ordinary encrypted frames; this
   // handler remains for pre-upgrade clients.)
   socket.on(
@@ -238,20 +239,20 @@ io.on("connection", (socket) => {
 
   socket.on("member:leave", (data: { roomId: string; memberId: string; alias: string }) => {
     if (!data?.roomId || !data?.memberId) return;
-    if (!frameAllowed()) return; // unauthenticated event — at least rate-limit it
+    if (!frameAllowed()) return; // unauthenticated event, at least rate-limit it
     for (const s of memberSockets(data.roomId, socket.id)) {
       s.emit("member:left", { roomId: data.roomId, memberId: data.memberId, alias: data.alias });
     }
     socket.leave(`room:${data.roomId}`);
     removeFromRoom(data.roomId, data.memberId, socket.id);
-    // A clean leave is not a silent one — no grace clock starts.
+    // A clean leave is not a silent one, so no grace clock starts.
     wentOfflineAt.delete(presenceKey(data.roomId, data.memberId));
   });
 
   // The coordinator's announcement that a silent leaver was evicted
   // server-side (REST-confirmed before it ever got here). Receivers
-  // re-confirm against the registry before evicting/rotating — the
-  // relay stays a postbox, not an authority.
+  // re-confirm against the registry before evicting/rotating. The
+  // relay only forwards frames and is not an authority.
   socket.on(
     "member:expired",
     (data: { roomId: string; memberId: string; alias: string }) => {
@@ -281,7 +282,7 @@ io.on("connection", (socket) => {
       const [roomId, memberId] = key.split(":");
       const stillConnected = removeFromRoom(roomId, memberId, socket.id);
       if (!stillConnected) {
-        // Silent departure — start the grace clock the /evict route
+        // Silent departure: start the grace clock the /evict route
         // will later consult.
         wentOfflineAt.set(presenceKey(roomId, memberId), Date.now());
         for (const s of memberSockets(roomId)) {
@@ -313,10 +314,10 @@ httpServer.listen(PORT, () => {
 });
 
 /* ------------------------------------------------------------------ *
- * INTERNAL PRESENCE SNAPSHOT (port 3004) — the connection authority
- * consulted by the REST /evict route. Not routed through the gateway;
- * guarded by a shared token so only the API tier can ask. Failures
- * on this port never affect message relay.
+ * INTERNAL PRESENCE SNAPSHOT (port 3004): the authoritative source
+ * for connected sockets, consulted by the REST /evict route. Not
+ * routed through the gateway; guarded by a shared token so only the
+ * API tier can ask. Failures on this port never affect message relay.
  * ------------------------------------------------------------------ */
 
 const INTERNAL_PORT = 3004;
@@ -336,7 +337,7 @@ function terminateRoom(roomId: string) {
 createServer((req, res) => {
   const url = req.url ?? "";
 
-  // POST /terminate/:roomId — the abuse path's relay half. The REST
+  // POST /terminate/:roomId: the abuse path's relay half. The REST
   // /report route calls this after it has burned the room in the
   // registry, so connected members hear "room:burned" (the event
   // every client already runs its burn sequence on) instead of
@@ -377,6 +378,6 @@ createServer((req, res) => {
   res.end(JSON.stringify({ roomId, connected, offlineSince }));
 }).listen(INTERNAL_PORT, () => {
   console.log(
-    `[relay] presence snapshot on :${INTERNAL_PORT} ${INTERNAL_TOKEN ? "(token armed)" : "(NO TOKEN — /evict will fail closed)"}`,
+    `[relay] presence snapshot on :${INTERNAL_PORT} ${INTERNAL_TOKEN ? "(token armed)" : "(NO TOKEN, /evict will fail closed)"}`,
   );
 });
