@@ -18,6 +18,7 @@ import { Field, PasswordField } from "@/components/cc/fields";
 import { PrimaryAction, QuietAction } from "@/components/cc/actions";
 import { InkMark } from "@/components/cc/mark";
 import { getSession } from "@/lib/session";
+import { roomPersona } from "@/lib/room-persona";
 import { markTtlHintSeen, ttlHintSeen } from "@/lib/local";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
 import { useApp, type TypingSignal } from "@/store/app";
@@ -68,9 +69,14 @@ function ActiveRoom({ roomId }: { roomId: string }) {
   if (relayOnline && lineNote === "down") setLineNote("lifting");
 
   const [inviteOpen, setInviteOpen] = useState(() => {
-    // After creating a room, the natural next verb is the invite.
+    // After creating a room, the natural next verb is the invite. A
+    // second window of this browser holds the creator token too
+    // (localStorage is shared), but it did not create the room: the
+    // persona gate keeps the sheet from opening over its composer.
     const key = `cc.inviteShown.${roomId}`;
-    return isCreator && !sessionStorage.getItem(key);
+    return (
+      isCreator && roomPersona(roomId) === "primary" && !sessionStorage.getItem(key)
+    );
   });
   const [verifyOpen, setVerifyOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);

@@ -159,13 +159,20 @@ export async function scalarToRoomIdentity(
  *
  *  NOTE: this is the test/verification path; it exposes the JWK so
  *  assertions can read d. The app uses deriveRoomSigningKeyFromSeed
- *  (below), which returns a non-extractable CryptoKey instead. */
+ *  (below), which returns a non-extractable CryptoKey instead.
+ *
+ *  `infoPrefix` exists for room personas (see room-persona.ts): a
+ *  second window of the same browser derives under a distinct prefix
+ *  so it registers as its own member. The default keeps the exact
+ *  historical bytes ("cc-sig-v1"), pinned by the task-19.4 golden
+ *  vector. */
 export async function deriveRoomSigningKey(
   seed: Uint8Array,
   roomId: string,
+  infoPrefix = "cc-sig-v1",
 ): Promise<RoomSigningIdentity> {
   for (let attempt = 0; attempt < 8; attempt++) {
-    const info = attempt === 0 ? "cc-sig-v1" : `cc-sig-v1:${attempt}`;
+    const info = attempt === 0 ? infoPrefix : `${infoPrefix}:${attempt}`;
     const scalar = await hkdf(seed, encoder.encode(roomId), encoder.encode(info));
     const identity = await scalarToRoomIdentity(scalar);
     if (identity) return identity; // invalid scalar → derive again
@@ -177,13 +184,19 @@ export async function deriveRoomSigningKey(
  *  seed key in the vault, keeping the room key non-extractable too.
  *  Scalars pass through the same 8-attempt rejection-sampling loop as
  *  the byte-based path, so identities (fingerprints, aliases) are
- *  unchanged across the migration. */
+ *  unchanged across the migration.
+ *
+ *  `infoPrefix`: room personas (room-persona.ts) derive under
+ *  "cc-sig-tab-v1:<nonce>" so a second window of the same browser is
+ *  its own member. The default reproduces the historical derivation
+ *  byte for byte. */
 export async function deriveRoomSigningKeyFromSeed(
   seedKey: CryptoKey,
   roomId: string,
+  infoPrefix = "cc-sig-v1",
 ): Promise<RoomSigningSecrets> {
   for (let attempt = 0; attempt < 8; attempt++) {
-    const info = attempt === 0 ? "cc-sig-v1" : `cc-sig-v1:${attempt}`;
+    const info = attempt === 0 ? infoPrefix : `${infoPrefix}:${attempt}`;
     const scalar = await deriveScalarFromSeedKey(seedKey, roomId, info);
     const identity = await scalarToRoomSigningSecrets(scalar);
     scalar.fill(0); // derived bits are no longer needed after import

@@ -37,6 +37,7 @@ import { notifyIncoming } from "@/lib/notifications";
 import { createKeyBundleV2, unlockWithBundle } from "@/lib/kdf";
 import { deriveRoomSigningKeyFromSeed, loadDeviceSeed, deriveRoomSigningKey, type RoomSigningSecrets } from "@/lib/room-identity";
 import { loadSeedKey } from "@/lib/seed-vault";
+import { acquireRoomPersona, personaInfoPrefix, releaseRoomPersona, roomPersona } from "@/lib/room-persona";
 import {
   RoomCipher,
   generateSessionEcdh,
@@ -298,11 +299,30 @@ export const useApp = create<AppState>()((set, get) => ({
     const seedKey = await loadSeedKey();
     let deriveIdentity: (roomId: string) => Promise<RoomSigningSecrets>;
     if (seedKey) {
-      deriveIdentity = (roomId: string) => deriveRoomSigningKeyFromSeed(seedKey, roomId);
+      // Room personas (Task 48): every window of this browser shares
+      // the vault, so without this the second window of a room would
+      // derive the SAME identity and silently rejoin as the first
+      // window's member. The first window keeps the vault identity
+      // (byte-identical, fingerprints survive); additional concurrent
+      // windows derive under their own prefix and register as their
+      // own members.
+      deriveIdentity = async (roomId: string) => {
+        const role = await acquireRoomPersona(roomId);
+        return deriveRoomSigningKeyFromSeed(
+          seedKey,
+          roomId,
+          role === "tab" ? personaInfoPrefix(roomId) : "cc-sig-v1",
+        );
+      };
     } else {
       const fallback = await loadDeviceSeed(); // localStorage, legacy
       deriveIdentity = async (roomId: string) => {
-        const legacy = await deriveRoomSigningKey(fallback, roomId);
+        const role = await acquireRoomPersona(roomId);
+        const legacy = await deriveRoomSigningKey(
+          fallback,
+          roomId,
+          role === "tab" ? personaInfoPrefix(roomId) : "cc-sig-v1",
+        );
         // The legacy path returns an extractable JWK; convert it to the
         // non-extractable CryptoKey the session is built on.
         const privKey = await crypto.subtle.importKey(
@@ -580,6 +600,16 @@ export const useApp = create<AppState>()((set, get) => ({
       get().roomCards.find((c) => c.roomId === code)?.localName ||
       `Room ${code.slice(0, 4)}`;
     await get().enterRoom(session, name, !!rejoined);
+
+    // A second window of this browser joined under its own persona:
+    // say so, once, so the different nameplate is a explained thing
+    // rather than a surprise.
+    if (roomPersona(code) === "tab") {
+      addSystemLine(
+        code,
+        "Second window of this browser: it speaks here under its own name.",
+      );
+    }
 
     // The server's epoch is the rotation LEDGER (it persists; keys do
     // not). If the room has rotated before and we are back at the
@@ -902,6 +932,7 @@ export const useApp = create<AppState>()((set, get) => ({
     cancelBurns(roomId, messages);
     dropSession(roomId);
     dropCipher(roomId);
+    releaseRoomPersona(roomId);
     clearRoomGrace(roomId);
     dropDraft(roomId);
     patchRoomCard(roomId, { burned: true, unread: false, lastActivity: Date.now() });
@@ -985,6 +1016,7 @@ export const useApp = create<AppState>()((set, get) => ({
     cancelBurns(roomId, messages);
     dropSession(roomId);
     dropCipher(roomId);
+    releaseRoomPersona(roomId);
     clearRoomGrace(roomId);
     dropDraft(roomId);
     removeRoomCard(roomId);
@@ -1054,6 +1086,9 @@ export const useApp = create<AppState>()((set, get) => ({
         alias: session.alias,
       });
     }
+    // The room is over for this tab: its claim on the primary role
+    // ends with it (a persona nonce, if any, dies with the tab).
+    releaseRoomPersona(roomId);
   },
 
   markVerified: (roomId, memberId, verified) => {
