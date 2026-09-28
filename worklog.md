@@ -1061,3 +1061,20 @@ Stage Summary:
 - The "3rd member ignored" bug was an identity collision between same-browser windows sharing the seed vault, not a multi-member protocol fault — genuine multi-device members (3+) were verified working end-to-end before and after.
 - Room personas make same-browser multi-window usage a first-class flow: each window is its own member, primary identity continuity preserved byte-for-byte, sticky per-tab personas across refresh, no stale locks.
 - Residuals/notes: (1) browsers without navigator.locks (Safari < 15.4) keep the legacy behavior — collision returns there, documented in DESIGN.md. (2) The persona nonce is public by design (diversifier, not a secret; the vault key stays non-extractable). (3) A persona window still holds the creator token (localStorage bearer) — same-browser trust domain, by design. (4) Local commits now include Task 47's bun.lock repair + this fix; both await the user's push credentials.
+
+---
+Task ID: 49
+Agent: lead (Izumi)
+Task: User asked to push the pending local commits, then consulted on strategy: target audience (good and bad side), monetisation feasibility, and feature additions worth building.
+
+Work Log:
+- PUSH ATTEMPT: `git push -u origin main` (origin = https://github.com/izumitempest/CipherChat-V4.git) fails — the sandbox has no GitHub credentials (fatal: "could not read Username"; the previous PAT was deleted by the operator as advised). Three local commits await a push: 02f62b9 (bun.lock repair — GitHub CI runs 11-15 stay red without it), 09ccbd8 (Task 47 worklog), a74dc0a (Task 48 multi-member fix). Operator given exact fine-grained PAT instructions (repo-scoped, Contents R/W + Workflows R/W per the Task 45b precedent, short expiry, revoke after).
+- INDEPENDENT VERIFICATION of Task 48's gates (working tree clean at a74dc0a, nothing changed since): eslint 0/0, tsc --noEmit clean, vitest 177/177 (18 files), audit-gate clean (2 masked, dispositioned: deepmerge-ts, defu), E2E 2/2 — golden path 34.3s + multi-member 31.2s (three isolated members full message matrix + same-browser second window registering as its own member + persona reload stickiness).
+- Services confirmed up: gateway :81, web :3000, relay :3003, presence :3004.
+- CRON: the 15-min webDevReview job (421101) sat "Disabled due to exec limits exceeded" (same system-side cap that killed 403554/403383 in earlier rounds). Deleted it and created a fresh job with the mandated English payload.
+- STRATEGY CONSULTATION delivered in the chat reply (headline recorded here for future rounds): consumer segments = journalists/sources, activists/CSOs, confidentiality-bound professionals, at-risk individuals, crypto-native users; institutional buyers (newsrooms, NGOs, law firms, clinics, fintechs) are where the money is; abuse side named honestly with mitigation posture (invite-only, no discovery, report flow with IP threshold, transparency page, never a backdoor). Monetisation verdict: consumer subscription weak (2-3/10), B2B managed instances + NLnet/OTF-style grants feasible (6-7/10), career capital immediate; avoid tokens/ads/paywalled security. Feature roadmap: top-3 = encrypted seed backup (multi-device), Web Push (VAPID), encrypted attachments/voice notes; then PQ hybrid handshake (ML-KEM), group calls, localisation (Yoruba/Hausa/Igbo/French), panic wipe, org room templates for the B2B path.
+
+Stage Summary:
+- Push remains blocked on credentials — everything else is done and green. The moment a PAT arrives (repo-scoped, Contents+Workflows R/W), push 02f62b9 + 09ccbd8 + a74dc0a to unbreak GitHub CI (runs 11-15 red on the frozen-lockfile mismatch).
+- Task 48 (multi-member) is now double-verified: the review round's gates plus this session's independent re-run, all green.
+- Strategy: recommended next-3 features (multi-device via encrypted vault backup, Web Push, attachments/voice notes) and a grants-first monetisation path; recorded so future rounds can pick them up as development candidates.
