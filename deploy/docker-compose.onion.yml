@@ -1,0 +1,68 @@
+# CipherChat onion gateway: an OPTIONAL override for docker-compose.yml.
+#
+#   cd deploy
+#   docker compose -f docker-compose.yml -f docker-compose.onion.yml up -d
+#
+# This files adds a Tor hidden service as an ADDITIONAL entry point.
+# It is not a replacement: the base compose's public caddy ports mapping
+# (80:80, 443:443) is untouched, the caddy-data and caddy-config mounts
+# stay, and CADDY_SITE keeps its automatic TLS listener.
+# deploy/Caddyfile.onion explains how both listeners live in one caddy
+# process.
+#
+# How the caddy override works (docker compose cannot REMOVE a bind
+# mount from an override file, so nothing here removes anything):
+#   - the base mount ./Caddyfile:/etc/caddy/Caddyfile stays in place,
+#   - this file ADDS a second read-only mount, Caddyfile.onion,
+#   - `command` is a scalar, so the override replaces it and caddy loads
+#     Caddyfile.onion; that file imports the original Caddyfile, which
+#     is why keeping the original mount still matters.
+# Inspect the merged result before first deploy:
+#   docker compose -f docker-compose.yml -f docker-compose.onion.yml config
+
+services:
+  tor:
+    # Small, widely documented image: Alpine plus the tor binary.
+    # Interface per its published Dockerfile and README (verified from
+    # those documents, NOT by pulling or running the image here): CMD is
+    # ["tor"], config is read from /etc/tor/torrc, /var/lib/tor is the
+    # data volume. The command below pins the config path explicitly so
+    # nothing relies on the image's defaults. If the image's current tag
+    # ever drifts from this interface, deploy/TOR.md has a fallback
+    # recipe that runs tor from a stock alpine image instead.
+    image: osminogin/tor-simple:latest
+    command: ["tor", "-f", "/etc/tor/torrc"]
+    volumes:
+      - ./tor/torrc:/etc/tor/torrc:ro
+      # The onion address is derived from the ed25519 keypair tor writes
+      # into /var/lib/tor/cipherchat on first boot. A named volume keeps
+      # the address stable across restarts and rebuilds. Destroying this
+      # volume (docker compose down -v includes it) means a NEW address
+      # on next boot; there is no recovery. Back it up if the address
+      # matters (see deploy/TOR.md).
+      - tor-keys:/var/lib/tor
+    restart: unless-stopped
+    depends_on:
+      - caddy
+    # No ports published, and no networks key: the base compose declares
+    # no networks, so tor lands on the project default network alongside
+    # web, relay and caddy. It needs exactly two things through it:
+    # outbound to Tor relays, and caddy:8080 inbound. Nothing can reach
+    # it from the host or the internet; the only inbound path is the
+    # onion.
+
+  caddy:
+    # Scalar override: replaces the official image's default
+    # ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter",
+    # "caddyfile"]. The caddy:2 image has no ENTRYPOINT (verified
+    # against the image source: CMD only), so this list is the complete
+    # command.
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile.onion", "--adapter", "caddyfile"]
+    volumes:
+      # Compose merges service volume lists from overrides (append plus
+      # de-duplicate by target), so the base mounts remain and this adds
+      # the onion variant alongside.
+      - ./Caddyfile.onion:/etc/caddy/Caddyfile.onion:ro
+
+volumes:
+  tor-keys:

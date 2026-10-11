@@ -140,6 +140,12 @@ export function roomWatermarkStore(roomId: string): WatermarkStore {
 
 export interface RoomSettings {
   defaultTtl: TtlChoice;
+  /** Cover traffic (round 33): while this room is open, every open
+   *  client emits a cover frame every ~8 s so the wire carries room
+   *  activity at a steady rate whether or not anyone is typing. The
+   *  frames are real signed encrypted frames whose kind is "cover"
+   *  receivers discard them silently. Off by default; per-device. */
+  coverTraffic?: boolean;
 }
 
 export function loadRoomSettings(roomId: string): RoomSettings {
@@ -147,9 +153,12 @@ export function loadRoomSettings(roomId: string): RoomSettings {
     const parsed = JSON.parse(
       localStorage.getItem(`cc.settings.${roomId}`) ?? "{}",
     );
-    return { defaultTtl: (parsed.defaultTtl ?? 0) as TtlChoice };
+    return {
+      defaultTtl: (parsed.defaultTtl ?? 0) as TtlChoice,
+      coverTraffic: parsed.coverTraffic === true,
+    };
   } catch {
-    return { defaultTtl: 0 };
+    return { defaultTtl: 0, coverTraffic: false };
   }
 }
 

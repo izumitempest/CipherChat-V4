@@ -34,6 +34,7 @@ import { getSession } from "@/lib/session";
 import { fmtTtlRemaining } from "@/lib/format";
 import { useApp } from "@/store/app";
 import type { MemberPublic } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 const EMPTY_MEMBERS: MemberPublic[] = [];
 
@@ -74,12 +75,14 @@ export function SettingsSheet({
   const burnRoom = useApp((s) => s.burnRoom);
   const leaveRoom = useApp((s) => s.leaveRoom);
   const reportRoom = useApp((s) => s.reportRoom);
+  const setStoreCoverTraffic = useApp((s) => s.setCoverTraffic);
   const showLegal = useLegalSheet((s) => s.show);
   const session = getSession(roomId);
   const isCreator = !!session?.creatorToken;
 
   const [name, setName] = useState(card?.localName ?? "");
   const [ttl, setTtl] = useState(session?.defaultTtl ?? 0);
+  const [coverTraffic, setCoverTraffic] = useState(!!session?.coverTraffic);
   const [roomTtl, setRoomTtl] = useState<number>(
     session?.expiresAt
       ? Math.max(0, Math.round((session.expiresAt - Date.now()) / 1000))
@@ -99,6 +102,7 @@ export function SettingsSheet({
     if (open) {
       setName(card?.localName ?? "");
       setTtl(session?.defaultTtl ?? 0);
+      setCoverTraffic(!!session?.coverTraffic);
       setRoomTtl(
         session?.expiresAt
           ? Math.max(0, Math.round((session.expiresAt - Date.now()) / 1000))
@@ -195,6 +199,47 @@ export function SettingsSheet({
               {isCreator ? (
                 <p className="t-meta">Only you can change this. The clock belongs to the room's creator.</p>
               ) : null}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-sans text-[13px] font-medium tracking-[0.01em] text-charcoal">
+                    Cover traffic
+                  </p>
+                  <p className="t-meta mt-0.5 leading-[17px]">
+                    While this room is open, this device sends a signed,
+                    encrypted, message-sized frame every 8–10 seconds
+                    whether or not you are typing. The relay sees a
+                    constant-rate stream instead of a silence between
+                    letters. Receivers discard it.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={coverTraffic}
+                  aria-label={`Cover traffic: ${coverTraffic ? "on" : "off"}`}
+                  onClick={() => {
+                    const next = !coverTraffic;
+                    setCoverTraffic(next);
+                    setStoreCoverTraffic(roomId, next);
+                  }}
+                  className={cn(
+                    "relative mt-0.5 h-6 w-10 shrink-0 rounded-full border transition-colors duration-150",
+                    coverTraffic
+                      ? "border-forest bg-forest"
+                      : "border-hairline bg-side hover:border-forest/25",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "absolute top-1/2 size-4 -translate-y-1/2 rounded-full bg-paper shadow-sm transition-all duration-150",
+                      coverTraffic ? "left-[22px]" : "left-1",
+                    )}
+                  />
+                </button>
+              </div>
             </div>
 
             <div className="space-y-2">

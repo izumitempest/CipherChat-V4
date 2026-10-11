@@ -1,6 +1,6 @@
-// Room personas: one browser, several windows, one room.
+// Room personas
 //
-// PROBLEM (reported in the wild, Task 48): every tab of a browser
+// PROBLEM (reported in Task 48): every tab of a browser
 // shares the seed vault, so every tab derives the SAME per-room
 // signing identity. The member registry is keyed by pubkey, so a
 // second tab "joining" the room re-joins as the FIRST tab's member:

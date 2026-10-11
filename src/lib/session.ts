@@ -27,6 +27,11 @@ export interface RoomSession {
    *  the creator through adjustRoomTtl. */
   expiresAt?: number;
   defaultTtl: TtlChoice;
+  /** cover traffic opt-in for this room: with it on, this client sends
+   *  a signed, encrypted, padd ed-uniform cover frame every
+   *  COVER_INTERVAL_MS no matter what. Off means the wire is silent when
+   *  the room is. See RoomSettings.coverTraffic (local.ts). */
+  coverTraffic: boolean;
   /** true only for rooms whose key bundle predates protocol v2;
    *  gates the legacy (unpadded, unguarded) envelope receive path */
   legacy: boolean;

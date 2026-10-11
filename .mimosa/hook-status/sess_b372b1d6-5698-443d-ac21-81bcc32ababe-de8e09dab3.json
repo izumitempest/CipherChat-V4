@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "mimosa-hook-status/v1",
+  "recordedAt": "2026-10-11T00:40:31.779Z",
+  "sessionId": "sess_b372b1d6-5698-443d-ac21-81bcc32ababe",
+  "event": "PostToolUse",
+  "toolName": "Write",
+  "file": "/tmp/cc-report/verify_layout.py",
+  "outcome": "inconclusive",
+  "coverage": "partial",
+  "findingCount": 0,
+  "durationMs": 6,
+  "hostState": "hook_complete",
+  "reportHint": ".mimosa/reports/"
+}

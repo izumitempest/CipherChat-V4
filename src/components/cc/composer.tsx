@@ -7,7 +7,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Eye, Hourglass, Paperclip, Reply, X } from "lucide-react";
+import { ArrowUp, Eye, Hourglass, Mic, Paperclip, Reply, Square, X } from "lucide-react";
 import { toast } from "sonner";
 import { FILE_LIMIT, useApp } from "@/store/app";
 import { getSession } from "@/lib/session";
@@ -69,6 +69,97 @@ export function Composer({
   );
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  /* Voice notes (round 33): captured by MediaRecorder, sent through
+   * the SAME attachment pipeline as any picked file (the fixed-cost
+   * 45-frame wire shape in room-protocol.ts does not care about
+   * content type). The recorder caps itself at VOICE_NOTE_MAX_SEC.
+   * MediaRecorder output carries no EXIF-style metadata, so the
+   * image-scrub branch in pickFile correctly ignores it. */
+  const [recording, setRecording] = useState(false);
+  const [recordSec, setRecordSec] = useState(0);
+  const recRef = useRef<MediaRecorder | null>(null);
+  const recChunksRef = useRef<Blob[]>([]);
+  const recTimerRef = useRef<number | null>(null);
+  const recStreamRef = useRef<MediaStream | null>(null);
+
+  const VOICE_NOTE_MAX_SEC = 90; // well under FILE_LIMIT at voice bitrates
+
+  function stopRecordingTimer() {
+    if (recTimerRef.current !== null) {
+      window.clearInterval(recTimerRef.current);
+      recTimerRef.current = null;
+    }
+  }
+
+  function releaseMic() {
+    recStreamRef.current?.getTracks().forEach((t) => t.stop());
+    recStreamRef.current = null;
+  }
+
+  async function startRecording() {
+    if (disabled || attachment || recording) return;
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      toast("No microphone. Check the browser's permission for this site.");
+      return;
+    }
+    // Prefer opus-in-webm, then Safari's mp4, then the browser default.
+    const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus"
+      : MediaRecorder.isTypeSupported("audio/mp4")
+        ? "audio/mp4"
+        : "";
+    const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+    recRef.current = rec;
+    recChunksRef.current = [];
+    recStreamRef.current = stream;
+    rec.ondataavailable = (e: BlobEvent) => {
+      if (e.data.size > 0) recChunksRef.current.push(e.data);
+    };
+    rec.onstop = () => {
+      stopRecordingTimer();
+      releaseMic();
+      const chunks = recChunksRef.current;
+      recChunksRef.current = [];
+      recRef.current = null;
+      setRecording(false);
+      if (chunks.length === 0) return; // cancelled with nothing recorded
+      const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
+      const ext = blob.type.includes("mp4") ? "m4a" : blob.type.includes("ogg") ? "ogg" : "webm";
+      const name = `voice-note ${new Date().toISOString().slice(0, 19).replace("T", " ")}.${ext}`;
+      void pickFile(new File([blob], name, { type: blob.type }));
+    };
+    rec.start();
+    setRecording(true);
+    setRecordSec(0);
+    let s = 0;
+    recTimerRef.current = window.setInterval(() => {
+      s += 1;
+      setRecordSec(s);
+      if (s >= VOICE_NOTE_MAX_SEC) stopRecording(); // auto-close at the cap
+    }, 1000);
+  }
+
+  function stopRecording() {
+    recRef.current?.stop();
+  }
+
+  function cancelRecording() {
+    recChunksRef.current = []; // drop everything the recorder buffered
+    recRef.current?.stop();
+  }
+
+  // Safety: a component unmount (room switch, close) frees the mic.
+  useEffect(() => {
+    return () => {
+      stopRecordingTimer();
+      releaseMic();
+      recRef.current?.state === "recording" && recRef.current.stop();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   /* One dispatch, one flourish: two small flecks rise from the send
    * button as the letter leaves. Cleared by the pseudo-elements'
    * animationend, which lands on the button itself. */
@@ -320,7 +411,7 @@ export function Composer({
           <button
             type="button"
             aria-label="Attach a file"
-            disabled={disabled}
+            disabled={disabled || recording}
             onClick={() => fileRef.current?.click()}
             className="group flex size-11 shrink-0 items-center justify-center rounded-[12px] text-mute transition-colors duration-150 hover:bg-wash hover:text-charcoal disabled:pointer-events-none disabled:opacity-50"
           >
@@ -335,6 +426,41 @@ export function Composer({
               e.target.value = "";
             }}
           />
+
+          {recording ? (
+            <div className="flex h-11 shrink-0 items-center gap-2 rounded-[12px] border border-terracotta/40 bg-side px-3 font-sans text-[12.5px] font-medium text-terracotta">
+              <span className="dot-pulse size-1.5 rounded-full bg-terracotta" aria-hidden />
+              <span className="tabular-nums">
+                {Math.floor(recordSec / 60)}:{String(recordSec % 60).padStart(2, "0")}
+              </span>
+              <button
+                type="button"
+                onClick={cancelRecording}
+                aria-label="Discard recording"
+                className="flex h-7 items-center rounded-[6px] px-1.5 text-mute transition-colors duration-150 hover:bg-wash hover:text-charcoal"
+              >
+                Discard
+              </button>
+              <button
+                type="button"
+                onClick={stopRecording}
+                aria-label="Stop recording"
+                className="flex size-7 items-center justify-center rounded-[8px] bg-terracotta text-paper transition duration-150 hover:opacity-90 active:scale-[0.96]"
+              >
+                <Square className="size-3" strokeWidth={2.5} />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              aria-label="Record a voice note"
+              disabled={disabled || !!attachment}
+              onClick={startRecording}
+              className="flex size-11 shrink-0 items-center justify-center rounded-[12px] text-mute transition-colors duration-150 hover:bg-wash hover:text-charcoal disabled:pointer-events-none disabled:opacity-50"
+            >
+              <Mic className="size-[18px]" />
+            </button>
+          )}
 
           <textarea
             ref={inputRef}

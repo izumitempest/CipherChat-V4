@@ -94,6 +94,7 @@ export type OpenResult =
   | { type: "spent"; messageId: string; senderId: string }
   | { type: "burn"; messageId: string; senderId: string }
   | { type: "react"; messageId: string; senderId: string; mark: string }
+  | { type: "cover" } // accepted, replay-guarded, and discarded: no UI state
   | { type: "file-meta"; senderId: string }
   | { type: "file-chunk"; senderId: string }
   | {
@@ -322,6 +323,35 @@ export class RoomCipher {
 
   async sealTyping(): Promise<WireFrame[]> {
     return [await this.seal({ kind: "typing", typing: true }, CONTROL_FRAME_BYTES)];
+  }
+
+  /** A dummy frame under the same AES-GCM envelope as every other
+   *  control frame (byte-identical size, same key schedule). Sent on a
+   *  steady cadence when cover traffic is enabled for the room, so the
+   *  wire carries a constant-rate stream whether or not anyone is
+   *  typing. The payload carries nothing; receivers drop it on open.
+   *  The sender's replay clock advances normally, so covers never
+   *  collide with real traffic from the same member. */
+  async sealCover(): Promise<WireFrame[]> {
+    return [await this.seal({ kind: "cover" }, CONTROL_FRAME_BYTES)];
+  }
+
+  /** Key age at which the coordinator re-derives the room key
+   *  (time-based rotation, round 33). Rotations also happen on leave
+   *  and on eviction; this timer covers the case where nobody leaves
+   *  for a very long room (a key that never rotates eventually becomes
+   *  a static target). Members install the new key when it arrives;
+   *  only the coordinator seals it, so two coordinators never clash. */
+  static readonly ROTATION_AGE_MS = 60 * 60_000; // one hour per key
+
+  /** Should the current key be considered stale for the purposes of
+   *  time-based rotation? Pure so tests can drive `now`. Callers must
+   *  also check `expectedCoordinator() === selfId` before sealing;
+   *  only the coordinator rotates. */
+  currentKeyStaleAt(now: number): boolean {
+    const inst = this.keys.get(this.kv);
+    if (!inst) return true; // no key = overdue, coordinator will rotate
+    return now - inst.installedAt >= RoomCipher.ROTATION_AGE_MS;
   }
 
   async sealSpent(messageId: string): Promise<WireFrame[]> {
@@ -644,6 +674,14 @@ export class RoomCipher {
         }
         return { type: "react", messageId: body.messageId, senderId: frame.from, mark: body.text };
       }
+      case "cover":
+        // Cover traffic: an encrypted, signed, replay-guarded frame whose
+        // whole purpose is to be discarded. The relay cannot tell it from
+        // a text frame (uniform size/post-padding); members may not. The
+        // sender's counter still advances, which keeps the replay window
+        // honest at no storage cost beyond the guard's own. Nothing else
+        // happens. The UI never sees it.
+        return { type: "cover" };
       case "file:meta": {
         if (!body.file?.messageId) return { type: "reject", reason: "shape" };
         // Bounded: a flood of orphan metas cannot grow the map forever.

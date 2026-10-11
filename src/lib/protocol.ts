@@ -56,6 +56,7 @@ export type FrameKind =
   | "typing"
   | "spent"
   | "burn"
+  | "cover"
   | "key:offer"
   | "file:meta"
   | "file:chunk"

@@ -17,6 +17,7 @@ import { RoomListColumn } from "@/components/screens/room-list";
 import { ChatScreen } from "@/components/screens/chat";
 import { parseRoomCode } from "@/lib/identity";
 import { syncBadge } from "@/lib/notifications";
+import { sessionRoomIds } from "@/lib/session";
 import { useApp } from "@/store/app";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,7 @@ import { cn } from "@/lib/utils";
 export default function CipherChatApp() {
   const init = useApp((s) => s.init);
   const ready = useApp((s) => s.ready);
+  const panicLock = useApp((s) => s.panicLock);
 
   // Publish the keyboard's covered height as --kb-inset for the
   // shell and every bottom sheet (iOS Safari overlays the page
@@ -33,6 +35,31 @@ export default function CipherChatApp() {
   useEffect(() => {
     void init();
   }, [init]);
+
+  // Panic lock: double-Escape drops every in-memory key and draft and
+  // drops the user onto the desk. Global (works from any screen), but
+  // armed only once the app is ready, and only when some room is
+  // unlocked: an empty desk has nothing to shed.
+  useEffect(() => {
+    if (!ready) return;
+    let last = 0;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const now = Date.now();
+      if (now - last < 600) {
+        if (document.querySelector('[data-state="open"], [role="dialog"]')) {
+          last = 0; // a sheet is open: its own Esc handling owns this key
+          return;
+        }
+        if (sessionRoomIds().length > 0) panicLock();
+        last = 0;
+        return;
+      }
+      last = now;
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [ready, panicLock]);
 
   // ?join=CODE - an invite link's first landing.
   const searchParams = useSearchParams();

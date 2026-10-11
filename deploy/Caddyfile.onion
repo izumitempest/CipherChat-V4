@@ -1,0 +1,36 @@
+# CipherChat edge, onion variant. Loaded by the caddy container only
+# when docker-compose.onion.yml is in the stack (the override changes
+# caddy's command to point here). The original ./Caddyfile mount stays
+# in place because this file imports it.
+#
+# Two listeners run in one process:
+#
+#   1. The PUBLIC site, imported unchanged from the base Caddyfile:
+#      {$CADDY_SITE} on 80/443 with automatic TLS (internal CA for
+#      localhost, Let's Encrypt for a real domain). That entry point is
+#      the same as a plain `docker compose up -d`.
+import /etc/caddy/Caddyfile
+#
+#   2. The ONION gateway below: plain HTTP on :8080. This port is never
+#      published to the host; the tor container is its only caller.
+#      Nothing TLS-related here, on purpose: no ACME challenge can ever
+#      succeed for a .onion name, and the onion circuit already carries
+#      the transport encryption.
+#
+# The routes are the same two as the base Caddyfile:
+
+:8080 {
+	encode zstd gzip
+
+	# The blind relay. handle_path STRIPS the /relay/ prefix so the
+	# socket.io server (path: "/") sees /?EIO=4&..., and websocket
+	# upgrades pass through reverse_proxy automatically.
+	handle_path /relay/* {
+		reverse_proxy relay:3003
+	}
+
+	# Everything else: the Next.js app.
+	handle {
+		reverse_proxy web:3000
+	}
+}

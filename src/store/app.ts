@@ -155,6 +155,13 @@ interface AppState {
   leaveRoom: (roomId: string) => Promise<void>;
   reportRoom: (roomId: string) => Promise<void>;
   renameRoom: (roomId: string, name: string) => void;
+  /** The panic gesture: drop every room's in-memory key, draft and
+   *  cipher, then land on the desk. The room cards stay, locked; the
+   *  wire state is untouched (same behavior as a full refresh, without
+   *  losing the desk to a reload). Bound to a long key chord and a
+   *  header button so a locked-out host needs one motion. */
+  panicLock: () => void;
+  setCoverTraffic: (roomId: string, on: boolean) => void;
   setDefaultTtl: (roomId: string, ttl: TtlChoice) => void;
   markVerified: (roomId: string, memberId: string, verified: boolean) => void;
   isVerified: (roomId: string, memberId: string) => boolean;
@@ -257,6 +264,86 @@ function cancelBurns(roomId: string, messages: MessageView[]) {
     }
   }
   void roomId;
+}
+
+/* ---------------- cover traffic (round 33) ---------------- */
+// Sealed cover frames on a steady cadence, per room. The wire shape
+// is byte-identical to a text message (20480+16 control bytes,
+// AES-256-GCM), so the relay cannot tell silent from speaking. The
+// interval is room-scoped and stopped the moment the room session ends.
+
+const COVER_INTERVAL_MS = 8_000; // the steady cadence; ±25% jitter
+const coverTimers = new Map<string, ReturnType<typeof setInterval>>();
+
+function startCoverFor(roomId: string) {
+  stopCoverFor(roomId); // idempotent: never two timers for one room
+  const tick = () => {
+    const session = getSession(roomId);
+    const cipher = getCipher(roomId);
+    if (!session || !cipher || !session.coverTraffic) return;
+    const frames = cipher.sealCover();
+    void frames.then((fs) => {
+      const relay = getRelay();
+      for (const f of fs) relay.emit("message:send", { roomId, envelope: f });
+    });
+  };
+  // Jitter: a perfectly metronomic sender is itself a signal. 8s ± up
+  // to 2s each tick, enough to blur the heartbeat without breaking it.
+  const ms = COVER_INTERVAL_MS + Math.floor(Math.random() * 2000);
+  coverTimers.set(roomId, setInterval(tick, ms));
+}
+
+function stopCoverFor(roomId: string) {
+  const t = coverTimers.get(roomId);
+  if (t !== undefined) {
+    clearInterval(t);
+    coverTimers.delete(roomId);
+  }
+}
+
+/* ---------------- time-based key rotation (round 33) ---------------- */
+// Rotations happen on leave and eviction already; this covers the room
+// that simply sits. The coordinator (deterministic: smallest connected
+// memberId) seals a new random key once the current one is an hour old,
+// delivered pairwise exactly like a depart rotation. Everyone else just
+// installs the offer when it arrives. If the coordinator vanishes mid-
+// window, the silent-grace path elects the next lowest member first, so
+// the schedule restarts instead of stalling.
+
+const ROTATION_TICK_MS = 60_000; // check key age once a minute
+const rotationTimers = new Map<string, ReturnType<typeof setInterval>>();
+
+function startRotationFor(roomId: string) {
+  stopRotationFor(roomId); // idempotent
+  rotationTimers.set(
+    roomId,
+    setInterval(() => {
+      const cipher = getCipher(roomId);
+      const session = getSession(roomId);
+      if (!cipher || !session) return;
+      const now = Date.now();
+      if (cipher.expectedCoordinator() !== session.memberId) return;
+      if (!cipher.currentKeyStaleAt(now)) return;
+      // rot=false: same ECDH-wrapped, signed, registry-gated delivery,
+      // but not the leave ceremony, so receivers install silently. The
+      // single user-visible line comes from us, once, on schedule.
+      void cipher.rotateTo(undefined, false).then((offers) => {
+        const relay = getRelay();
+        for (const f of offers) relay.emit("message:send", { roomId, envelope: f });
+        if (offers.length > 0) {
+          addSystemLine(roomId, "The room re-sealed itself on schedule.");
+        }
+      });
+    }, ROTATION_TICK_MS),
+  );
+}
+
+function stopRotationFor(roomId: string) {
+  const t = rotationTimers.get(roomId);
+  if (t !== undefined) {
+    clearInterval(t);
+    rotationTimers.delete(roomId);
+  }
 }
 
 const MIN_SEAL_MS = 1700; // the vault moment takes at least this long, on purpose
@@ -498,6 +585,7 @@ export const useApp = create<AppState>()((set, get) => ({
       creatorToken,
       expiresAt: expiresAt ? Date.parse(expiresAt) : undefined,
       defaultTtl: loadRoomSettings(roomId).defaultTtl,
+      coverTraffic: loadRoomSettings(roomId).coverTraffic ?? false,
       legacy: false,
     };
     setSession(session);
@@ -591,6 +679,7 @@ export const useApp = create<AppState>()((set, get) => ({
       creatorToken: loadCreatorToken(code),
       expiresAt: info.expiresAt ? Date.parse(info.expiresAt) : undefined,
       defaultTtl: loadRoomSettings(code).defaultTtl,
+      coverTraffic: loadRoomSettings(code).coverTraffic ?? false,
       legacy: legacyRoom,
     };
     setSession(session);
@@ -710,6 +799,12 @@ export const useApp = create<AppState>()((set, get) => ({
       rejoined,
     });
     set({ relayOnline: relay.connected });
+
+    // Cover traffic (round 33): the heartbeat starts only when the
+    // room has one; a room entered with the setting off on this
+    // device stays silent until the toggle flips in settings.
+    if (session.coverTraffic) startCoverFor(session.roomId);
+    startRotationFor(session.roomId);
 
     get().navigate("chat", session.roomId);
   },
@@ -930,6 +1025,8 @@ export const useApp = create<AppState>()((set, get) => ({
   finishRoomBurn: (roomId) => {
     const messages = get().messages[roomId] ?? [];
     cancelBurns(roomId, messages);
+    stopCoverFor(roomId);
+    stopRotationFor(roomId);
     dropSession(roomId);
     dropCipher(roomId);
     releaseRoomPersona(roomId);
@@ -1014,6 +1111,8 @@ export const useApp = create<AppState>()((set, get) => ({
     }
     const messages = get().messages[roomId] ?? [];
     cancelBurns(roomId, messages);
+    stopCoverFor(roomId);
+    stopRotationFor(roomId);
     dropSession(roomId);
     dropCipher(roomId);
     releaseRoomPersona(roomId);
@@ -1035,10 +1134,51 @@ export const useApp = create<AppState>()((set, get) => ({
     set({ roomCards: loadRoomCards() });
   },
 
+  panicLock: () => {
+    // Local-only: no relay announce, no registry write. The other side
+    // will read the silence as a departure on the existing grace path.
+    const ids = sessionRoomIds();
+    for (const roomId of ids) {
+      const messages = get().messages[roomId] ?? [];
+      cancelBurns(roomId, messages);
+      stopCoverFor(roomId);
+      stopRotationFor(roomId);
+      dropSession(roomId);
+      dropCipher(roomId);
+      releaseRoomPersona(roomId);
+      clearRoomGrace(roomId);
+      dropDraft(roomId);
+    }
+    set((s) => ({
+      roomCards: loadRoomCards(),
+      activeRoomId: null,
+      messages: Object.fromEntries(Object.keys(s.messages).map((id) => [id, []])),
+      typing: {},
+    }));
+    get().navigate("rooms");
+  },
+
   setDefaultTtl: (roomId, ttl) => {
     const session = getSession(roomId);
     if (session) session.defaultTtl = ttl;
-    saveRoomSettings(roomId, { defaultTtl: ttl });
+    saveRoomSettings(roomId, {
+      defaultTtl: ttl,
+      coverTraffic: session?.coverTraffic ?? loadRoomSettings(roomId).coverTraffic ?? false,
+    });
+  },
+
+  /** Toggle the per-room cover traffic flag (RoomSettings on this
+   *  device; the wire does not expose it). Stopping or starting the
+   *  heartbeat is the scheduler's job, keyed on this value. */
+  setCoverTraffic: (roomId, on) => {
+    const session = getSession(roomId);
+    if (session) session.coverTraffic = on;
+    saveRoomSettings(roomId, {
+      defaultTtl: session?.defaultTtl ?? 0,
+      coverTraffic: on,
+    });
+    if (on) startCoverFor(roomId);
+    else stopCoverFor(roomId);
   },
 
   /* ------------------------------------------ room lifetime --- */
@@ -1071,6 +1211,8 @@ export const useApp = create<AppState>()((set, get) => ({
   closeExpiredRoom: (roomId) => {
     // The desk remembers it as closed for this session, like ash.
     patchRoomCard(roomId, { closed: true, locked: true });
+    stopCoverFor(roomId);
+    stopRotationFor(roomId);
     set((s) => ({
       roomCards: loadRoomCards(),
       activeRoomId: s.activeRoomId === roomId ? null : s.activeRoomId,
@@ -1803,6 +1945,9 @@ async function handleOpenResult(roomId: string, frame: WireFrame, result: OpenRe
     case "file-meta":
     case "file-chunk":
       return; // assembly happens inside the cipher; render on completion
+
+    case "cover":
+      return; // accepted by protocol (signature+replay OK), discarded.
 
     case "offer-installed": {
       session.kv = cipher.kv;

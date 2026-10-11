@@ -1,0 +1,27 @@
+# CipherChat onion gateway: hidden service only.
+#
+# Loaded by the tor service in docker-compose.onion.yml as
+#   tor -f /etc/tor/torrc
+# Keys and tor state live on the named volume tor-keys, mounted at
+# /var/lib/tor. The .onion address is derived from the ed25519 keypair
+# that tor writes on first boot, so the address survives restarts for
+# exactly as long as the volume survives.
+
+DataDirectory /var/lib/tor
+
+# Container logs. `docker compose logs tor` shows bootstrap progress.
+Log notice stdout
+
+# No SOCKSPort line here. Tor's built-in default still binds
+# 127.0.0.1:9050 inside this container (loopback only, never published).
+# The tor image's own HEALTHCHECK uses that loopback SOCKS port to prove
+# the daemon is actually talking to the Tor network. Do not add a
+# SOCKSPort line, and do not set it to 0 without replacing the
+# healthcheck.
+
+# The onion service. Port 80 on the .onion address forwards to the Caddy
+# gateway's plain-HTTP listener on :8080 (deploy/Caddyfile.onion, wired
+# up by docker-compose.onion.yml). The onion circuit is the transport
+# encryption; there is deliberately no TLS inside it.
+HiddenServiceDir /var/lib/tor/cipherchat
+HiddenServicePort 80 caddy:8080

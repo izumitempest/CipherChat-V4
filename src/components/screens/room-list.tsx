@@ -31,11 +31,28 @@ import { cn } from "@/lib/utils";
 
 export function RoomListColumn() {
   const navigate = useApp((s) => s.navigate);
+  const panicLock = useApp((s) => s.panicLock);
+  const roomCards = useApp((s) => s.roomCards);
+  // The lock button appears only while the desk holds at least one
+  // open room: an empty/locked desk has nothing for the gesture to do,
+  // and a permanently-visible dead button is worse than none.
+  const anyUnlocked = roomCards.some((c) => !!getSession(c.roomId) && !c.burned && !c.closed);
   return (
     <div className="flex h-full flex-col bg-paper md:bg-transparent">
       <header className="flex items-center justify-between gap-2 px-4 pb-2 pt-[max(1rem,env(safe-area-inset-top))] sm:px-5">
         <h1 className="t-title">Your rooms</h1>
         <div className="flex items-center gap-1.5">
+          {anyUnlocked ? (
+            <button
+              type="button"
+              aria-label="Lock all rooms"
+              title="Lock all rooms (double-Esc too)"
+              onClick={panicLock}
+              className="flex size-11 items-center justify-center rounded-[12px] border border-hairline bg-side text-mute transition duration-150 hover:border-forest/25 hover:bg-wash hover:text-charcoal active:translate-y-px"
+            >
+              <Lock className="size-[18px]" />
+            </button>
+          ) : null}
           <button
             type="button"
             aria-label="New room"
