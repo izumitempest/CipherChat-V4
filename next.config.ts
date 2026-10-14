@@ -4,8 +4,9 @@ const nextConfig: NextConfig = {
   output: "standalone",
   // QA drives the app from two origins (localhost + 127.0.0.1 through
   // the preview gateway). Two origins, because tabs share localStorage.
-  // The sandbox's outer preview proxy also reaches dev on *.space-z.ai.
-  allowedDevOrigins: ["localhost", "127.0.0.1", "*.space-z.ai"],
+  // The sandbox's outer preview proxy also reaches dev on *.space-z.ai,
+  // and shared tunnels reach dev on *.trycloudflare.com.
+  allowedDevOrigins: ["localhost", "127.0.0.1", "*.space-z.ai", "*.trycloudflare.com"],
   // The dev-tools indicator overlaps the composer on small screens,
   // and it never exists in production. Off in dev too.
   devIndicators: false,

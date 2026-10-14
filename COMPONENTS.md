@@ -389,9 +389,9 @@ Per type:
 Header row: name · size · mime (+ "view once" marker). Buttons: **Copy
 contents** (text-ish files, copies the whole file), **Download** (present
 ONLY for non-view-once files), Close. **A view-once file has no download
-anywhere**, not on the card, not in the viewer, and the policy is stated
-outright beneath the header: "View once - it lives on screen only. There is
-no download for this file, from anyone, by design."
+anywhere**, not on the card, not in the viewer, and the affordance is
+stated outright beneath the header: a circled "1" badge with the two-word
+line "View once".
 
 **View-once spending happens the instant the viewer opens**: `onSpent`
 fires on `message.id` change; the bubble becomes the spent card behind the

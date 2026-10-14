@@ -20,7 +20,6 @@ import {
   Download,
   FileText,
   Music,
-  ShieldCheck,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -278,9 +277,13 @@ export function FileViewer({
 
       {viewOnce ? (
         <p className="t-meta flex items-center gap-1.5 px-5 pb-2">
-          <ShieldCheck className="size-3.5 shrink-0 text-forest" aria-hidden />
-          View once - it lives on screen only. There is no download for
-          this file, from anyone, by design.
+          <span
+            aria-hidden
+            className="flex size-4 shrink-0 items-center justify-center rounded-full border border-forest/60 font-sans text-[9px] font-semibold leading-none text-forest"
+          >
+            1
+          </span>
+          View once
         </p>
       ) : null}
 

@@ -185,6 +185,36 @@ working HTTPS site; verify the golden path with **two devices** (two
 origins, not two tabs; tabs share localStorage): create, join, message,
 rotate-on-leave, rejoin, file, view-once, burn.
 
+### Share a local deployment on the internet (Cloudflare quick tunnel)
+
+Want someone on the internet inside a room right now without buying a
+VPS? `deploy/share.sh` runs the production compose stack and puts a
+Cloudflare quick tunnel in front of it:
+
+```bash
+deploy/share.sh            # build, start, verify health, print the link
+deploy/share.sh status     # services + live URL
+deploy/share.sh url        # just the URL
+deploy/share.sh down       # stop the tunnel and stack (keeps the database)
+deploy/share.sh down wipe  # also removes the database volume
+```
+
+It takes a fresh `RELAY_INTERNAL_TOKEN`, defaults `CADDY_SITE=http://localhost`
+on the first-run `.env` it creates so Caddy serves plain HTTP on :80 (the
+tunnel's edge does TLS for you), waits
+for the web tier to pass the DB-backed 404 probe and for the relay to answer
+an engine.io handshake through Caddy's `/relay/` route, then starts a
+cloudflared quick tunnel. One URL serves the app and the relay because the
+compose's Caddyfile routes `/relay/*` to the relay and everything else to the
+web app on the same edge.
+
+Quick tunnels pick a new random hostname on every run and die with the
+process. For a stable public address, do the one-time account setup
+(`cloudflared tunnel login` + a named tunnel sending your hostname to
+`http://localhost:80`), then run `SHARE_TUNNEL_MODE=named deploy/share.sh`
+with `CF_TUNNEL_NAME` set. `deploy/TOR.md` is the sibling recipe for a
+.onion address.
+
 ### E2E: the golden path, automated
 
 `tests/e2e/golden-path.spec.ts` (Playwright) drives the whole product
