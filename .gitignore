@@ -75,3 +75,4 @@ relay-diag-tmp*.mjs
 /playwright-report/
 /tests/*.sh
 OkwuchukwuEkeneIT.docx
+it-report.html
