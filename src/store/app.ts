@@ -78,6 +78,14 @@ import { fmtTtlRemaining } from "@/lib/format";
 
 export const FILE_LIMIT = 2 * 1024 * 1024; // 2 MB; nothing is stored anywhere
 
+/** Same-origin registry API path for a room. The roomId is
+ *  user-supplied (it arrives in the invite hash), so it is ALWAYS
+ *  percent-encoded: a crafted id (`../`, `?`, `#`) must never steer
+ *  the request path. */
+function roomApi(roomId: string, path = ""): string {
+  return `/api/rooms/${encodeURIComponent(roomId)}${path}`;
+}
+
 export interface SealingState {
   roomId: string;
   label: string;
@@ -538,7 +546,7 @@ export const useApp = create<AppState>()((set, get) => ({
     ]);
 
     await Promise.all([
-      fetch(`/api/rooms/${roomId}/verifier`, {
+      fetch(roomApi(roomId, "/verifier"), {
         method: "PUT",
         headers: { "content-type": "application/json" },
         // Creator-token gated server-side: an unauthenticated first
@@ -555,7 +563,7 @@ export const useApp = create<AppState>()((set, get) => ({
 
     const alias = aliasFromFingerprint(identity.fingerprintHex);
     const colorIdx = inkFromFingerprint(identity.fingerprintHex);
-    const joinRes = await fetch(`/api/rooms/${roomId}/members`, {
+    const joinRes = await fetch(roomApi(roomId, "/members"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -641,7 +649,7 @@ export const useApp = create<AppState>()((set, get) => ({
     ]);
     const alias = aliasFromFingerprint(identity.fingerprintHex);
     const colorIdx = inkFromFingerprint(identity.fingerprintHex);
-    const joinRes = await fetch(`/api/rooms/${code}/members`, {
+    const joinRes = await fetch(roomApi(code, "/members"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -819,7 +827,7 @@ export const useApp = create<AppState>()((set, get) => ({
 
   refreshMembers: async (roomId) => {
     try {
-      const res = await fetch(`/api/rooms/${roomId}/members`);
+      const res = await fetch(roomApi(roomId, "/members"));
       if (!res.ok) return;
       const { members } = (await res.json()) as { members: MemberPublic[] };
       set((s) => ({ members: { ...s.members, [roomId]: members } }));
@@ -1024,7 +1032,7 @@ export const useApp = create<AppState>()((set, get) => ({
       // now. (We used to also emit an unauthenticated room:burn on
       // the socket; the relay ignores that event by design, and
       // members hear the burn through the server's terminate call.)
-      await fetch(`/api/rooms/${roomId}/burn`, {
+      await fetch(roomApi(roomId, "/burn"), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ creatorToken: session.creatorToken }),
@@ -1072,7 +1080,7 @@ export const useApp = create<AppState>()((set, get) => ({
     if (!session || !cipher) return;
     const proof = await cipher.signReportProof();
     try {
-      await fetch(`/api/rooms/${roomId}/report`, {
+      await fetch(roomApi(roomId, "/report"), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -1104,7 +1112,7 @@ export const useApp = create<AppState>()((set, get) => ({
       if (cipher) {
         const proof = await cipher.signDepartureProof();
         try {
-          await fetch(`/api/rooms/${roomId}/leave`, {
+          await fetch(roomApi(roomId, "/leave"), {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({ memberId: session.memberId, ts: proof.ts, sig: proof.sig }),
@@ -1207,7 +1215,7 @@ export const useApp = create<AppState>()((set, get) => ({
     const token = session?.creatorToken ?? loadCreatorToken(roomId);
     if (!token) return { ok: false, reason: "not-creator" };
     try {
-      const res = await fetch(`/api/rooms/${roomId}`, {
+      const res = await fetch(roomApi(roomId), {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ creatorToken: token, ttlSec }),
@@ -1468,7 +1476,7 @@ async function fireSilentEviction(roomId: string, memberId: string) {
   if (!okToAct || !member) return;
 
   try {
-    const res = await fetch(`/api/rooms/${roomId}/evict`, {
+    const res = await fetch(roomApi(roomId, "/evict"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ memberId, callerId: session.memberId }),

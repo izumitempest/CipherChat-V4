@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { IpRateLimiter, clientIp } from "@/lib/rate-limit";
 import { authorizeEviction, OFFLINE_UNKNOWN } from "@/lib/silent-grace";
+import { PRESENCE_BASE } from "@/lib/relay-admin";
 
 // POST /api/rooms/:roomId/evict. Lock out a SILENT leaver.
 //
@@ -26,7 +27,9 @@ import { authorizeEviction, OFFLINE_UNKNOWN } from "@/lib/silent-grace";
 
 const evictLimiter = new IpRateLimiter({ limit: 30, windowMs: 60_000 });
 
-const PRESENCE_URL_BASE = process.env.RELAY_PRESENCE_URL ?? "http://127.0.0.1:3004";
+// The presence base is parsed+validated (http(s) only) at module load
+// from OPERATOR configuration (see relay-admin.ts); every request
+// below is built from the parsed URL's origin.
 const PRESENCE_TOKEN = process.env.RELAY_INTERNAL_TOKEN ?? "";
 
 interface PresenceSnapshot {
@@ -37,7 +40,7 @@ interface PresenceSnapshot {
 async function fetchPresence(roomId: string): Promise<PresenceSnapshot | null> {
   if (!PRESENCE_TOKEN) return null; // fail closed: no token, no authority
   try {
-    const res = await fetch(`${PRESENCE_URL_BASE}/presence/${encodeURIComponent(roomId)}`, {
+    const res = await fetch(`${PRESENCE_BASE.origin}/presence/${encodeURIComponent(roomId)}`, {
       headers: { "x-internal-token": PRESENCE_TOKEN },
       signal: AbortSignal.timeout(3000),
       cache: "no-store",

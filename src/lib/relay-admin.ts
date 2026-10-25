@@ -9,7 +9,22 @@
 // was unauthenticated, and the room id is the weakest credential in
 // the system (it travels in every invite link).
 
-const PRESENCE_URL_BASE = process.env.RELAY_PRESENCE_URL ?? "http://127.0.0.1:3004";
+// The presence base URL is OPERATOR configuration (deploy/.env /
+// compose: http://relay:3004), never request input. It is parsed and
+// validated ONCE at module load — http(s) only — and every request is
+// built from the parsed URL's origin, so no env typo or injected
+// value can steer these server-to-server calls anywhere else.
+function parsePresenceBase(raw: string): URL {
+  const url = new URL(raw);
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(`RELAY_PRESENCE_URL must be http(s), got: ${url.protocol}`);
+  }
+  return url;
+}
+
+export const PRESENCE_BASE: URL = parsePresenceBase(
+  process.env.RELAY_PRESENCE_URL ?? "http://127.0.0.1:3004",
+);
 const PRESENCE_TOKEN = process.env.RELAY_INTERNAL_TOKEN ?? "";
 
 /** Best-effort relay termination. The room is already dead in the
@@ -19,7 +34,7 @@ const PRESENCE_TOKEN = process.env.RELAY_INTERNAL_TOKEN ?? "";
 export async function terminateRoomOnRelay(roomId: string): Promise<void> {
   if (!PRESENCE_TOKEN) return; // fail closed: no token, no authority
   try {
-    await fetch(`${PRESENCE_URL_BASE}/terminate/${encodeURIComponent(roomId)}`, {
+    await fetch(`${PRESENCE_BASE.origin}/terminate/${encodeURIComponent(roomId)}`, {
       method: "POST",
       headers: { "x-internal-token": PRESENCE_TOKEN },
       signal: AbortSignal.timeout(3000),

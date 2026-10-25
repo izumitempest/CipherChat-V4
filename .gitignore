@@ -76,3 +76,6 @@ relay-diag-tmp*.mjs
 /tests/*.sh
 OkwuchukwuEkeneIT.docx
 it-report.html
+
+# dev launcher runtime state (pids)
+.run/
