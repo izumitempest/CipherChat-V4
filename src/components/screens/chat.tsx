@@ -629,7 +629,16 @@ function LockedRoomView({ roomId }: { roomId: string }) {
     if (busy || !password.trim()) return;
     setBusy(true);
     setError(null);
-    const res = await joinRoom(roomId, password.trim());
+    let res: Awaited<ReturnType<typeof joinRoom>>;
+    try {
+      res = await joinRoom(roomId, password.trim());
+    } catch {
+      // A transport failure (offline, proxy hiccup) used to reject
+      // unhandled and strand the form on "Unlocking" forever.
+      setBusy(false);
+      setError("The room could not be reached. Check your connection and try again.");
+      return;
+    }
     setBusy(false);
     if (!res.ok) {
       setError(

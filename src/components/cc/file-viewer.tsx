@@ -49,17 +49,30 @@ const TEXT_EXTS = new Set([
 
 export function classifyFile(mime: string, name: string): FileCategory {
   const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
-  if (mime.startsWith("image/")) return "image";
-  if (mime.startsWith("video/")) return "video";
-  if (mime.startsWith("audio/")) return "audio";
-  if (mime === "application/pdf" || ext === "pdf") return "pdf";
-  if (mime === "text/csv" || ext === "csv") return "csv";
+  // Normalize before ANY branch touches the value: a member-supplied
+  // mime with parameters ("text/html;charset=...") or odd casing must
+  // not slip past an equality check.
+  const safeMime = mime.split(";")[0].trim().toLowerCase();
+  // HTML/xhtml NEVER reaches a navigable embed. The old order let a
+  // file named *.pdf with mime text/html classify as "pdf", whose
+  // blob (typed text/html) rendered in the unsandboxed fallback
+  // iframe — same-origin script execution, one message away from the
+  // localStorage creator tokens and the IndexedDB seed vault. HTML
+  // always renders as escaped source, as the header comment promises.
+  if (safeMime === "text/html" || safeMime === "application/xhtml+xml") {
+    return "text";
+  }
+  if (safeMime.startsWith("image/")) return "image";
+  if (safeMime.startsWith("video/")) return "video";
+  if (safeMime.startsWith("audio/")) return "audio";
+  if (safeMime === "application/pdf" || ext === "pdf") return "pdf";
+  if (safeMime === "text/csv" || ext === "csv") return "csv";
   if (
-    mime.startsWith("text/") ||
-    mime === "application/json" ||
-    mime === "application/xml" ||
-    mime === "application/javascript" ||
-    mime === "application/x-yaml" ||
+    safeMime.startsWith("text/") ||
+    safeMime === "application/json" ||
+    safeMime === "application/xml" ||
+    safeMime === "application/javascript" ||
+    safeMime === "application/x-yaml" ||
     TEXT_EXTS.has(ext)
   ) {
     return "text";
@@ -200,12 +213,27 @@ export function FileViewer({
   useEffect(() => {
     if (!msgId || !dataB64) return;
     const b = b64ToBytes(dataB64);
-    const url = URL.createObjectURL(new Blob([b as unknown as BlobPart], { type: mime }));
+    // The blob's content type is chosen by CATEGORY, never passed
+    // through raw from the message: for the pdf branch it is forced to
+    // application/pdf, so even the ext-only classification path
+    // (x.pdf with a lying mime) can only ever hand the fallback
+    // iframe a PDF — never a text/html blob, which would execute
+    // same-origin script in it.
+    const blobType =
+      category === "pdf"
+        ? "application/pdf"
+        : category === "binary"
+          ? "application/octet-stream"
+          : mime;
+    const url = URL.createObjectURL(new Blob([b as unknown as BlobPart], { type: blobType }));
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setBytes(b);
     setBlobUrl(url);
     return () => URL.revokeObjectURL(url);
-  }, [msgId]);
+    // mime omitted on purpose: classification (derived from it) is the
+    // authority on the blob's type; a mime change that flips the
+    // category travels through msgId's message.
+  }, [msgId, category]);
 
   const decodedText = useMemo(() => {
     if (!bytes || (category !== "text" && category !== "csv")) return null;

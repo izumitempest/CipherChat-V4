@@ -1,21 +1,19 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { IpRateLimiter, ROOM_INFO_PER_MIN } from "@/lib/rate-limit";
+import { IpRateLimiter, ROOM_INFO_PER_MIN, clientIp } from "@/lib/rate-limit";
+import { sweepRooms } from "@/lib/janitor";
 import { ROOM_MEMBER_CAP } from "@/lib/admission";
 import { parseRoomTtlSec, roomExpired } from "@/lib/room-ttl";
 
 // GET /api/rooms/:roomId. Public room info for the invite surface.
 // Returns only what a stranger at an invite link needs. No secrets.
-// Rate-limited per IP: this endpoint is an existence/epoch oracle, so
-// unbounded scraping is refused rather than served. A room whose time
-// has run out is reported as gone, because it is.
+// Rate-limited per IP (rightmost XFF hop — see rate-limit.ts): this
+// endpoint is an existence/epoch oracle, so unbounded scraping is
+// refused rather than served. A room whose time has run out is
+// reported as gone, because it is. The janitor rides along here too:
+// on a quiet server nobody creates rooms, and expired/burned rows
+// must still leave the registry eventually.
 const infoLimiter = new IpRateLimiter({ limit: ROOM_INFO_PER_MIN, windowMs: 60_000 });
-
-function clientIp(request: Request): string {
-  const fwd = request.headers.get("x-forwarded-for");
-  if (fwd) return fwd.split(",")[0].trim();
-  return request.headers.get("x-real-ip") ?? "local";
-}
 
 export async function GET(
   request: Request,
@@ -24,6 +22,8 @@ export async function GET(
   if (!infoLimiter.allow(clientIp(request))) {
     return NextResponse.json({ error: "slow-down" }, { status: 429 });
   }
+  // Tidiness ride-along (rate-limit-bounded frequency, fire-and-forget).
+  void sweepRooms();
   const { roomId } = await params;
   const room = await db.room.findUnique({
     where: { id: roomId },

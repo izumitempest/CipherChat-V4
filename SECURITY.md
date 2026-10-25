@@ -76,3 +76,78 @@ per-advisory exceptions keyed by `(module, advisory id)`; the full tree
 advisory with per-advisory dispositions. `npm audit fix --force` is
 forbidden: its "fix" for the prisma chain is a downgrade that silences
 the dependency audit at the cost of real CLI fixes.
+
+## Hardening round 2026-10 (full-codebase audit fixes)
+
+A staff-level audit across architecture, memory/concurrency, security,
+resilience, scalability and hygiene found the boundary layers around
+the (sound) crypto core lacking. All findings below are fixed in this
+round; each fix names its file so a reviewer can point at it.
+
+1. **File viewer: HTML could execute same-origin.** A member-supplied
+   file named `*.pdf` with mime `text/html` classified as a PDF, and
+   the blob (typed `text/html`) rendered in the viewer's unsandboxed
+   fallback `<iframe>` — same-origin script one message away from the
+   localStorage creator tokens and the IndexedDB seed vault.
+   `classifyFile` now normalizes the mime, sends HTML/xhtml to the
+   escaped-source path *before* any extension check, and the blob's
+   content type is chosen by category (forced `application/pdf` /
+   `application/octet-stream`), never passed through raw.
+   (`src/components/cc/file-viewer.tsx`)
+2. **Relay `room:burn` was an unauthenticated kill switch.** Any socket
+   could emit it for any room ID (public in every invite link) and
+   terminate every member's live session; the REST `/burn` route's
+   creator-token check was bypassed entirely. The relay now ignores
+   client-emitted `room:burn`; the ONLY thing that emits `room:burned`
+   is the token-guarded internal `/terminate/:roomId`, which the REST
+   `/burn` and `/report` routes call after the registry burn.
+   (`mini-services/relay-service/index.ts`, `src/lib/relay-admin.ts`)
+3. **Rate limiting and report corroboration were spoofable via
+   `X-Forwarded-For`.** Routes parsed the FIRST XFF hop, which an
+   appending proxy (Caddy) preserves as client-controlled — every
+   per-IP limit got a fresh budget per fake IP, and the anonymous
+   report threshold ("three distinct IPs") collapsed to one attacker
+   with three headers. `clientIp()` now takes the RIGHTMOST hop and is
+   shared (one definition, seven call sites), and `IpRateLimiter`
+   sweeps dead keys so the map cannot be grown without bound.
+   (`src/lib/rate-limit.ts`, all `src/app/api/rooms/**` routes)
+4. **The verifier PUT was unauthenticated and trusted bundle
+   parameters.** Anyone with a room ID could win the seal race (the
+   deliberate ≥1.7s sealing pause widens it) and lock the room under
+   their own password, or store `m=8/t=1` argon2 params and cheapen
+   every future offline guess. The PUT now requires the creator token,
+   validates v2 bundles against shared bounds (`kdf-limits.ts`), and
+   the client clamps bundle params on unlock as defense in depth.
+   (`verifier/route.ts`, `src/lib/kdf-limits.ts`, `src/lib/kdf.ts`,
+   `src/store/app.ts`)
+5. **Relay re-join could rewrite a member's identity keys.** A join
+   quoting an existing memberId overwrote that entry's
+   pubkey/ECDH in the relay registry. Identity keys are now frozen at
+   first join (alias refresh only); identity authority remains the
+   REST registry, keyed by pubkey. (`mini-services/relay-service/index.ts`)
+6. **`panicLock()` left legacy room keys behind.** PBKDF2 epoch keys
+   for pre-v2 rooms are cached in a module map that the panic gesture
+   never cleared — a "drop every key" chord that kept those rooms
+   decryptable. `dropLegacyKeys` now runs in leave, burn, expiry and
+   panic paths. (`src/lib/legacy.ts`, `src/store/app.ts`)
+7. **Registry teardown was non-transactional and never swept.** Member
+   write-out + epoch bump (and burn teardown) now commit in one
+   `$transaction`; the janitor also sweeps burned rooms after a 7-day
+   forensics window and rides the room-info read path (a quiet server
+   never creates rooms, and used to never sweep).
+   (`burn`, `evict`, `leave`, `report` routes; `src/lib/janitor.ts`)
+8. **Resilience and hygiene.** Expired-room teardown now drops
+   session/cipher/messages like leave and burn do (keys no longer
+   linger for dead rooms); the unlock/join/create forms recover from
+   transport errors instead of stranding on "Unlocking"; the replay
+   guard's counter map is bounded like its id set; registry inputs
+   (alias ≤ 64 chars, pubkey JSON ≤ 2 KB, `colorIdx` clamped on
+   re-join as on join) are capped; the relay's internal token check
+   refuses everything when unset and compares in constant time.
+
+Known accepted residuals (unchanged): relay membership itself remains
+unauthenticated (presence can be forged for a *known* memberId; frame
+authenticity is unaffected — signatures and the REST registry gate
+everything receivers act on); `creatorToken` is stored plaintext in
+SQLite (operator threat model); `reactStrictMode` remains off pending
+a dedicated pass to fix what double-invocation surfaces.

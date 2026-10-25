@@ -66,7 +66,16 @@ function InviteForm({ prefilledCode }: { prefilledCode: string | null }) {
       return;
     }
     setBusy(true);
-    const res = await joinRoom(parsed, password.trim());
+    let res: Awaited<ReturnType<typeof joinRoom>>;
+    try {
+      res = await joinRoom(parsed, password.trim());
+    } catch {
+      // Transport failure: recover the form instead of stranding it
+      // on "Entering" with an unhandled rejection.
+      setBusy(false);
+      setError("The room could not be reached. Check your connection and try again.");
+      return;
+    }
     setBusy(false);
     if (!res.ok) {
       setError(reasonCopy(res.reason));

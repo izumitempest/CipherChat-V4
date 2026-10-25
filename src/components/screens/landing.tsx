@@ -152,7 +152,16 @@ function CreateRoomSheet({
     if (!password.trim() || busy) return;
     setBusy(true);
     setError(null);
-    const res = await createRoom(name.trim(), password.trim(), ttl);
+    let res: Awaited<ReturnType<typeof createRoom>>;
+    try {
+      res = await createRoom(name.trim(), password.trim(), ttl);
+    } catch {
+      // Transport failure: recover the form instead of stranding it
+      // on "Creating room" with an unhandled rejection.
+      setBusy(false);
+      setError("The room could not be created. Check your connection and try again.");
+      return;
+    }
     setBusy(false);
     if (!res.ok) {
       setError("The room could not be created. Check your connection and try again.");

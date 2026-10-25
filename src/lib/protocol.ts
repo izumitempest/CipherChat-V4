@@ -198,15 +198,20 @@ export interface ReplayGuard {
  *  timestamp window, and a capped frame-id dedup set. Rejects any
  *  re-injection of captured traffic. The counter map can be seeded
  *  from (and reported to) a persistence layer, so a page refresh does
- *  not reset the defense. */
+ *  not reset the defense. Both internal maps are bounded: ids at
+ *  `idCapacity`, counter watermarks at `maxTrackers` (long-lived rooms
+ *  otherwise accumulate one map entry per (sender, session-tag) —
+ *  every page load of every member — for the room's lifetime). */
 export function createReplayGuard(opts?: {
   now?: () => number;
   idCapacity?: number;
+  maxTrackers?: number;
   initialHigh?: Map<string, number>;
   onAccept?: (key: string, counter: number) => void;
 }): ReplayGuard {
   const now = opts?.now ?? Date.now;
   const capacity = opts?.idCapacity ?? 2048;
+  const maxTrackers = opts?.maxTrackers ?? 2048;
   const highest = new Map<string, number>(opts?.initialHigh ?? []);
   const seen = new Set<string>();
   const order: string[] = [];
@@ -219,6 +224,11 @@ export function createReplayGuard(opts?: {
       const hi = highest.get(key);
       if (hi !== undefined && m.counter <= hi) return false;
       if (seen.has(m.id)) return false;
+      if (!highest.has(key) && highest.size >= maxTrackers) {
+        // FIFO evict the oldest insertion order entry (stale session).
+        const drop = highest.keys().next().value;
+        if (drop !== undefined) highest.delete(drop);
+      }
       highest.set(key, m.counter);
       seen.add(m.id);
       order.push(m.id);

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { IpRateLimiter, ROOM_CREATE_PER_MIN } from "@/lib/rate-limit";
+import { IpRateLimiter, ROOM_CREATE_PER_MIN, clientIp } from "@/lib/rate-limit";
+import { sweepRooms } from "@/lib/janitor";
 import {
   parseRoomTtlSec,
   roomExpired,
@@ -29,13 +30,10 @@ function makeToken(): string {
 export { ROOM_MEMBER_CAP } from "@/lib/admission";
 
 // Room creation is rate-limited per IP (SQLite bloat / spam guard).
+// clientIp() takes the RIGHTMOST XFF hop (see rate-limit.ts): the
+// first hop is client-controlled behind an appending proxy and must
+// not key the limiter.
 const createLimiter = new IpRateLimiter({ limit: ROOM_CREATE_PER_MIN, windowMs: 60_000 });
-
-function clientIp(request: Request): string {
-  const fwd = request.headers.get("x-forwarded-for");
-  if (fwd) return fwd.split(",")[0].trim();
-  return request.headers.get("x-real-ip") ?? "local";
-}
 
 // POST /api/rooms. Create a room. The server never learns the password:
 // the client derives the key locally and later stores only a verifier blob.
@@ -51,9 +49,10 @@ export async function POST(request: Request) {
   if (!parsed.ok) {
     return NextResponse.json({ error: "invalid-ttl" }, { status: 400 });
   }
-  // The janitor: rooms whose time ran out leave now (members cascade).
-  // Cheap and idempotent: no cron, no timer, just tidiness on the way in.
-  await db.room.deleteMany({ where: { expiresAt: { lt: new Date() } } });
+  // The janitor: rooms whose time ran out (and burned rooms past the
+  // retention window) leave now (members cascade). Cheap and
+  // idempotent: no cron, no timer, just tidiness on the way in.
+  await sweepRooms();
   for (let attempt = 0; attempt < 5; attempt++) {
     const id = makeRoomId();
     const existing = await db.room.findUnique({ where: { id } });

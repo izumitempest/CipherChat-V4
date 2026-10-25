@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import {
   IpRateLimiter,
+  clientIp,
   MEMBER_FRESH_WINDOW_MS,
   MEMBER_JOIN_PER_MIN,
 } from "@/lib/rate-limit";
@@ -14,11 +15,11 @@ import { roomExpired } from "@/lib/room-ttl";
 // cannot be correlated across rooms.
 const joinLimiter = new IpRateLimiter({ limit: MEMBER_JOIN_PER_MIN, windowMs: 60_000 });
 
-function clientIp(request: Request): string {
-  const fwd = request.headers.get("x-forwarded-for");
-  if (fwd) return fwd.split(",")[0].trim();
-  return request.headers.get("x-real-ip") ?? "local";
-}
+// Input ceilings: every field written into the registry is bounded,
+// because the registry is world-readable (GET below) and SQLite rows
+// are cheap to bloat. A 10 MB "alias" must not become one.
+const ALIAS_MAX = 64;
+const PUBKEY_JSON_MAX = 2_048;
 
 function isJwk(value: unknown): value is Record<string, unknown> {
   return (
@@ -52,6 +53,8 @@ export async function POST(
   if (
     !isJwk(body?.pubkey) ||
     typeof body?.alias !== "string" ||
+    body.alias.length === 0 ||
+    body.alias.length > ALIAS_MAX ||
     typeof body?.colorIdx !== "number" ||
     !ecdhPubOk
   ) {
@@ -67,18 +70,24 @@ export async function POST(
   }
 
   const pubkey = JSON.stringify(body.pubkey);
+  if (pubkey.length > PUBKEY_JSON_MAX) {
+    return NextResponse.json({ error: "invalid-member" }, { status: 400 });
+  }
   const existing = await db.member.findUnique({
     where: { roomId_pubkey: { roomId, pubkey } },
   });
 
   if (existing) {
+    // Same clamp on re-join as on first join (the update path once
+    // wrote colorIdx raw while create clamped it — an inconsistency
+    // that let a hostile client push out-of-range ink indices).
     const member = await db.member.update({
       where: { id: existing.id },
       data: {
         active: true,
         lastSeenAt: new Date(),
         alias: body.alias,
-        colorIdx: body.colorIdx,
+        colorIdx: Math.max(0, Math.min(7, body.colorIdx)),
         ...(typeof body.ecdhPub === "string" ? { ecdhPub: body.ecdhPub } : {}),
       },
     });

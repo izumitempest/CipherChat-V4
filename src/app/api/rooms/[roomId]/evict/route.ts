@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { IpRateLimiter } from "@/lib/rate-limit";
+import { IpRateLimiter, clientIp } from "@/lib/rate-limit";
 import { authorizeEviction, OFFLINE_UNKNOWN } from "@/lib/silent-grace";
 
 // POST /api/rooms/:roomId/evict. Lock out a SILENT leaver.
@@ -28,12 +28,6 @@ const evictLimiter = new IpRateLimiter({ limit: 30, windowMs: 60_000 });
 
 const PRESENCE_URL_BASE = process.env.RELAY_PRESENCE_URL ?? "http://127.0.0.1:3004";
 const PRESENCE_TOKEN = process.env.RELAY_INTERNAL_TOKEN ?? "";
-
-function clientIp(request: Request): string {
-  const fwd = request.headers.get("x-forwarded-for");
-  if (fwd) return fwd.split(",")[0].trim();
-  return request.headers.get("x-real-ip") ?? "local";
-}
 
 interface PresenceSnapshot {
   connected?: string[];
@@ -112,13 +106,18 @@ export async function POST(
     return NextResponse.json({ error: verdict.reason }, { status: 409 });
   }
 
-  await db.member.updateMany({
-    where: { id: body.memberId, roomId, active: true },
-    data: { active: false },
-  });
-  const updated = await db.room.update({
-    where: { id: roomId },
-    data: { epoch: { increment: 1 } },
-  });
-  return NextResponse.json({ ok: true, epoch: updated.epoch });
+  // One transaction: the write-out and the epoch bump (the rotation
+  // ledger) commit together, so a crash between them can never leave
+  // an evicted member whose departure never rotated the room.
+  const updated = await db.$transaction([
+    db.member.updateMany({
+      where: { id: body.memberId, roomId, active: true },
+      data: { active: false },
+    }),
+    db.room.update({
+      where: { id: roomId },
+      data: { epoch: { increment: 1 } },
+    }),
+  ]);
+  return NextResponse.json({ ok: true, epoch: updated[1].epoch });
 }

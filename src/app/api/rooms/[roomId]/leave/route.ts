@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { IpRateLimiter } from "@/lib/rate-limit";
+import { IpRateLimiter, clientIp } from "@/lib/rate-limit";
 import { verifyLeaveProof } from "@/lib/leave-proof";
 import { roomExpired } from "@/lib/room-ttl";
 
@@ -13,12 +13,6 @@ import { roomExpired } from "@/lib/room-ttl";
 // bumped so every remaining member rotates the room key (re-deriving
 // from their in-memory password). The leaver keeps no key material.
 const leaveLimiter = new IpRateLimiter({ limit: 20, windowMs: 60_000 });
-
-function clientIp(request: Request): string {
-  const fwd = request.headers.get("x-forwarded-for");
-  if (fwd) return fwd.split(",")[0].trim();
-  return request.headers.get("x-real-ip") ?? "local";
-}
 
 export async function POST(
   request: Request,
@@ -60,15 +54,19 @@ export async function POST(
   // (nuisance rotation would require a VALID signature from the
   // member's own key, i.e. the victim's own leave button).
   if (member.active) {
-    await db.member.updateMany({
-      where: { id: member.id, roomId },
-      data: { active: false },
-    });
-    const updated = await db.room.update({
-      where: { id: roomId },
-      data: { epoch: { increment: 1 } },
-    });
-    return NextResponse.json({ ok: true, epoch: updated.epoch });
+    // Write-out + epoch bump commit together (the rotation ledger
+    // must never lag the departure it pays for).
+    const updated = await db.$transaction([
+      db.member.updateMany({
+        where: { id: member.id, roomId },
+        data: { active: false },
+      }),
+      db.room.update({
+        where: { id: roomId },
+        data: { epoch: { increment: 1 } },
+      }),
+    ]);
+    return NextResponse.json({ ok: true, epoch: updated[1].epoch });
   }
   return NextResponse.json({ ok: true, epoch: room.epoch });
 }

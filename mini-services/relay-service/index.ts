@@ -1,4 +1,5 @@
 import { createServer } from "http";
+import { timingSafeEqual } from "node:crypto";
 import { Server, Socket } from "socket.io";
 import {
   TokenBucket,
@@ -141,11 +142,14 @@ io.on("connection", (socket) => {
         };
         room.set(memberId, entry);
       } else {
-        // alias may have been refined; keep registry fresh
+        // A re-join refreshes the alias (it may have been refined) but
+        // NEVER the identity keys: identity (pubkey, ECDH) flows from
+        // the REST registry, which is keyed by pubkey and cannot be
+        // overwritten by a forged join. Allowing the socket path to
+        // rewrite them here once let any connection that quoted a
+        // memberId replace that member's keys in relay broadcasts.
         entry.info.alias = alias;
         entry.info.colorIdx = colorIdx ?? entry.info.colorIdx;
-        if (data.pubkey) entry.info.pubkey = data.pubkey;
-        if (data.ecdhPub) entry.info.ecdhPub = data.ecdhPub;
       }
       entry.sockets.add(socket.id);
       joined.add(`${roomId}:${memberId}`);
@@ -264,17 +268,18 @@ io.on("connection", (socket) => {
     },
   );
 
-  socket.on("room:burn", (data: { roomId: string }) => {
-    if (!data?.roomId) return;
-    if (!frameAllowed()) return;
-    for (const s of memberSockets(data.roomId, socket.id)) {
-      s.emit("room:burned", { roomId: data.roomId });
-    }
-    rooms.delete(data.roomId);
-    for (const key of [...wentOfflineAt.keys()]) {
-      if (key.startsWith(`${data.roomId}:`)) wentOfflineAt.delete(key);
-    }
-    console.log(`[relay] room ${data.roomId} burned`);
+  // Room termination is NOT a client-facing event. The old handler
+  // broadcast "room:burned" and deleted relay room state on any
+  // socket's say-so — no token, no signature — which handed anyone
+  // holding an invite link (the weakest credential in the system) a
+  // one-event kill switch over every member's live session. Authority
+  // lives server-side now: REST /burn (creator token) and /report
+  // (graded proof) call the token-guarded /terminate/:roomId below,
+  // which is the ONLY thing that emits "room:burned".
+  socket.on("room:burn", (data: { roomId?: string }) => {
+    console.warn(
+      `[relay] ignored unauthenticated room:burn from ${socket.id} (room ${data?.roomId ?? "?"})`,
+    );
   });
 
   socket.on("disconnect", () => {
@@ -323,6 +328,17 @@ httpServer.listen(PORT, () => {
 const INTERNAL_PORT = 3004;
 const INTERNAL_TOKEN = process.env.RELAY_INTERNAL_TOKEN ?? "";
 
+/** Auth for the internal ports. Refuses EVERYTHING when the token is
+ *  unset (an empty header value must never match an unset token — the
+ *  old `!==` comparison let `X-Internal-Token:` with an empty value
+ *  through exactly then), and compares in constant time when set. */
+function internalTokenOk(header: unknown): boolean {
+  if (!INTERNAL_TOKEN || typeof header !== "string") return false;
+  const a = Buffer.from(header);
+  const b = Buffer.from(INTERNAL_TOKEN);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 function terminateRoom(roomId: string) {
   for (const s of memberSockets(roomId)) {
     s.emit("room:burned", { roomId });
@@ -344,7 +360,7 @@ createServer((req, res) => {
   // typing into a dead room until their next poll. Same token guard
   // as presence; never routed through the gateway.
   if (url.startsWith("/terminate/") && req.method === "POST") {
-    if (req.headers["x-internal-token"] !== INTERNAL_TOKEN) {
+    if (!internalTokenOk(req.headers["x-internal-token"])) {
       res.writeHead(403, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: "forbidden" }));
       return;
@@ -361,7 +377,7 @@ createServer((req, res) => {
     res.end(JSON.stringify({ error: "not-found" }));
     return;
   }
-  if (req.method !== "GET" || req.headers["x-internal-token"] !== INTERNAL_TOKEN) {
+  if (req.method !== "GET" || !internalTokenOk(req.headers["x-internal-token"])) {
     res.writeHead(403, { "content-type": "application/json" });
     res.end(JSON.stringify({ error: "forbidden" }));
     return;
@@ -378,6 +394,6 @@ createServer((req, res) => {
   res.end(JSON.stringify({ roomId, connected, offlineSince }));
 }).listen(INTERNAL_PORT, () => {
   console.log(
-    `[relay] presence snapshot on :${INTERNAL_PORT} ${INTERNAL_TOKEN ? "(token armed)" : "(NO TOKEN, /evict will fail closed)"}`,
+    `[relay] presence snapshot on :${INTERNAL_PORT} ${INTERNAL_TOKEN ? "(token armed)" : "(NO TOKEN: internal port refuses everything)"}`,
   );
 });

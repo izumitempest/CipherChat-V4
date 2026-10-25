@@ -72,6 +72,7 @@ import {
 import { getRelay } from "@/lib/relay";
 import { SILENT_GRACE_MS, stillSilentAtExpiry } from "@/lib/silent-grace";
 import { ROOM_TTL_DEFAULT_SEC } from "@/lib/room-ttl";
+import { dropLegacyKeys } from "@/lib/legacy";
 import { dropDraft } from "@/lib/drafts";
 import { fmtTtlRemaining } from "@/lib/format";
 
@@ -540,7 +541,14 @@ export const useApp = create<AppState>()((set, get) => ({
       fetch(`/api/rooms/${roomId}/verifier`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ verifier: JSON.stringify(bundle.bundle) }),
+        // Creator-token gated server-side: an unauthenticated first
+        // write once let a stranger win the seal race (the deliberate
+        // MIN_SEAL_MS pause widens the window) and lock the room under
+        // a password of their own.
+        body: JSON.stringify({
+          verifier: JSON.stringify(bundle.bundle),
+          creatorToken,
+        }),
       }),
       new Promise((r) => setTimeout(r, MIN_SEAL_MS - (Date.now() - started))),
     ]);
@@ -1010,15 +1018,20 @@ export const useApp = create<AppState>()((set, get) => ({
     const session = getSession(roomId);
     if (!session?.creatorToken) return;
     try {
+      // The REST burn is the authority: it tears the registry down in
+      // one transaction, then tells the relay over the token-guarded
+      // internal channel — the only path that emits "room:burned"
+      // now. (We used to also emit an unauthenticated room:burn on
+      // the socket; the relay ignores that event by design, and
+      // members hear the burn through the server's terminate call.)
       await fetch(`/api/rooms/${roomId}/burn`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ creatorToken: session.creatorToken }),
       });
     } catch {
-      /* even if this fails, members burn on the announce */
+      /* even if this fails, members burn on the server's announce */
     }
-    getRelay().emit("room:burn", { roomId });
     set({ burn: { roomId } });
   },
 
@@ -1029,6 +1042,7 @@ export const useApp = create<AppState>()((set, get) => ({
     stopRotationFor(roomId);
     dropSession(roomId);
     dropCipher(roomId);
+    dropLegacyKeys(roomId);
     releaseRoomPersona(roomId);
     clearRoomGrace(roomId);
     dropDraft(roomId);
@@ -1115,6 +1129,7 @@ export const useApp = create<AppState>()((set, get) => ({
     stopRotationFor(roomId);
     dropSession(roomId);
     dropCipher(roomId);
+    dropLegacyKeys(roomId);
     releaseRoomPersona(roomId);
     clearRoomGrace(roomId);
     dropDraft(roomId);
@@ -1145,6 +1160,10 @@ export const useApp = create<AppState>()((set, get) => ({
       stopRotationFor(roomId);
       dropSession(roomId);
       dropCipher(roomId);
+      // Legacy epoch keys are cached in a module map the session/cipher
+      // teardown cannot see; the panic gesture must drop them too, or
+      // pre-v2 rooms stayed decryptable after the "drop every key" chord.
+      dropLegacyKeys(roomId);
       releaseRoomPersona(roomId);
       clearRoomGrace(roomId);
       dropDraft(roomId);
@@ -1210,14 +1229,11 @@ export const useApp = create<AppState>()((set, get) => ({
 
   closeExpiredRoom: (roomId) => {
     // The desk remembers it as closed for this session, like ash.
+    const messages = get().messages[roomId] ?? [];
+    cancelBurns(roomId, messages);
     patchRoomCard(roomId, { closed: true, locked: true });
     stopCoverFor(roomId);
     stopRotationFor(roomId);
-    set((s) => ({
-      roomCards: loadRoomCards(),
-      activeRoomId: s.activeRoomId === roomId ? null : s.activeRoomId,
-      screen: s.activeRoomId === roomId ? "rooms" : s.screen,
-    }));
     // Tell the room we've gone (they'll each hit the closed door on
     // their own clock or their next re-entry attempt).
     const session = getSession(roomId);
@@ -1228,9 +1244,23 @@ export const useApp = create<AppState>()((set, get) => ({
         alias: session.alias,
       });
     }
-    // The room is over for this tab: its claim on the primary role
-    // ends with it (a persona nonce, if any, dies with the tab).
+    // The room is dead: its keys, messages and timers leave with it,
+    // exactly like a leave or a burn. (This teardown once kept the
+    // session and cipher in memory — decrypted content stayed live and
+    // the password stayed held for a room that can never be entered
+    // again.)
+    dropSession(roomId);
+    dropCipher(roomId);
+    dropLegacyKeys(roomId);
     releaseRoomPersona(roomId);
+    clearRoomGrace(roomId);
+    dropDraft(roomId);
+    set((s) => ({
+      roomCards: loadRoomCards(),
+      activeRoomId: s.activeRoomId === roomId ? null : s.activeRoomId,
+      screen: s.activeRoomId === roomId ? "rooms" : s.screen,
+      messages: { ...s.messages, [roomId]: [] },
+    }));
   },
 
   markVerified: (roomId, memberId, verified) => {

@@ -15,6 +15,7 @@
 
 import { argon2id } from "hash-wasm";
 import { deriveRoomKey, checkVerifier, toB64, fromB64 } from "./crypto";
+import { clampArgon2Params } from "./kdf-limits";
 
 export const ARGON2_PARAMS = { m: 65_536, t: 3, p: 1 } as const;
 
@@ -102,11 +103,12 @@ export async function unlockWithBundle(
   }
 
   if (blob?.v === 2 && blob.alg === "argon2id") {
-    const key = await deriveArgon2(password, fromB64(String(blob.salt)), {
-      m: Number(blob.m),
-      t: Number(blob.t),
-      p: Number(blob.p),
-    });
+    // The bundle is stored server-side but is NOT trusted cost policy:
+    // params are clamped into kdf-limits bounds, so a tampered bundle
+    // can never make each guess cheaper than the floor (and can never
+    // OOM a joiner's tab with an absurd ceiling).
+    const params = clampArgon2Params(blob, ARGON2_PARAMS);
+    const key = await deriveArgon2(password, fromB64(String(blob.salt)), params);
     try {
       const pt = await crypto.subtle.decrypt(
         { name: "AES-GCM", iv: fromB64(String(blob.iv)) },

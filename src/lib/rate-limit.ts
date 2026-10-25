@@ -50,9 +50,30 @@ export class TokenBucket {
   }
 }
 
+/** Which IP a request came from, for per-IP limiting.
+ *
+ * Trust model: we take the RIGHTMOST hop of X-Forwarded-For, because
+ * the only proxy we trust is the one directly in front of us (Caddy in
+ * the compose deployment), and that proxy APPENDS the real client IP
+ * to whatever the client sent. The first element is therefore
+ * attacker-controlled ("spoofed, ..., real") and must never key a
+ * limiter: parsing it first-handedly made every per-IP limit and the
+ * anonymous-report "distinct IP" corroboration trivially bypassable.
+ * With no XFF (dev, direct exposure) we fall back to X-Real-Ip, which
+ * Caddy-style proxies set exclusively. */
+export function clientIp(request: Request): string {
+  const fwd = request.headers.get("x-forwarded-for");
+  if (fwd) {
+    const hops = fwd.split(",").map((h) => h.trim()).filter(Boolean);
+    if (hops.length > 0) return hops[hops.length - 1];
+  }
+  return request.headers.get("x-real-ip") ?? "local";
+}
+
 /** Sliding-window limiter keyed by IP (room creation). */
 export class IpRateLimiter {
   private readonly hits = new Map<string, number[]>();
+  private lastSweep = 0;
 
   constructor(
     private readonly opts: { limit: number; windowMs: number },
@@ -61,6 +82,7 @@ export class IpRateLimiter {
 
   allow(ip: string): boolean {
     const t = this.now();
+    this.sweep(t);
     const arr = (this.hits.get(ip) ?? []).filter((x) => t - x < this.opts.windowMs);
     if (arr.length >= this.opts.limit) {
       this.hits.set(ip, arr);
@@ -69,6 +91,19 @@ export class IpRateLimiter {
     arr.push(t);
     this.hits.set(ip, arr);
     return true;
+  }
+
+  /** Evict dead keys so the map cannot grow without bound. Without
+   *  this, a client spraying unique IPs (or unique spoofed XFF values,
+   *  before the rightmost-hop fix) plants one permanent Map entry per
+   *  request — a slow memory-exhaustion of the web tier. One sweep per
+   *  window; O(keys). */
+  private sweep(t: number): void {
+    if (t - this.lastSweep < this.opts.windowMs) return;
+    this.lastSweep = t;
+    for (const [ip, arr] of this.hits) {
+      if (!arr.some((x) => t - x < this.opts.windowMs)) this.hits.delete(ip);
+    }
   }
 }
 

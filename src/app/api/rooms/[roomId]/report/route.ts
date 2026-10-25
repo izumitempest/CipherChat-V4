@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { IpRateLimiter } from "@/lib/rate-limit";
+import { IpRateLimiter, clientIp } from "@/lib/rate-limit";
 import { roomExpired } from "@/lib/room-ttl";
+import { terminateRoomOnRelay } from "@/lib/relay-admin";
 import {
   verifyReportProof,
   tallyAnonymousReport,
@@ -56,49 +57,30 @@ const REASON_MAX = 500;
 // is the pure, unit-tested tallyAnonymousReport in report-proof.ts.
 const anonymousReports = new Map<string, ReturnType<typeof tallyAnonymousReport>["next"]>();
 
-const PRESENCE_URL_BASE = process.env.RELAY_PRESENCE_URL ?? "http://127.0.0.1:3004";
-const PRESENCE_TOKEN = process.env.RELAY_INTERNAL_TOKEN ?? "";
-
-function clientIp(request: Request): string {
-  const fwd = request.headers.get("x-forwarded-for");
-  if (fwd) return fwd.split(",")[0].trim();
-  return request.headers.get("x-real-ip") ?? "local";
-}
-
-/** Best-effort relay termination. The room is already dead in the
- * registry when this runs; a relay that cannot be reached leaves
- * connected members to discover it on their next poll. Never a
- * resurrection. */
-async function notifyRelay(roomId: string): Promise<void> {
-  if (!PRESENCE_TOKEN) return;
-  try {
-    await fetch(`${PRESENCE_URL_BASE}/terminate/${encodeURIComponent(roomId)}`, {
-      method: "POST",
-      headers: { "x-internal-token": PRESENCE_TOKEN },
-      signal: AbortSignal.timeout(3000),
-      cache: "no-store",
-    });
-  } catch {
-    // The registry burn already happened; the relay will catch up.
-  }
-}
+// The "distinct IP" of the corroboration is the RIGHTMOST XFF hop
+// (rate-limit.ts): behind an appending proxy the first hop is whatever
+// the client typed, and counting spoofed leading hops would hand the
+// 3-IP threshold back to a single actor with a script.
 
 /** The one act this system can perform. Mirrors the burn route's
- * registry teardown so a reported room is indistinguishable, to its
- * members, from a creator's burn. */
+ *  registry teardown (single transaction, so a crash mid-burn cannot
+ *  leave a half-dead registry) so a reported room is indistinguishable,
+ *  to its members, from a creator's burn. */
 async function burnRoom(roomId: string, reason: string): Promise<void> {
-  await db.member.deleteMany({ where: { roomId } });
-  await db.room.update({
-    where: { id: roomId },
-    data: {
-      burned: true,
-      burnedAt: new Date(),
-      verifier: null,
-      reportReason: reason.slice(0, REASON_MAX),
-    },
-  });
+  await db.$transaction([
+    db.member.deleteMany({ where: { roomId } }),
+    db.room.update({
+      where: { id: roomId },
+      data: {
+        burned: true,
+        burnedAt: new Date(),
+        verifier: null,
+        reportReason: reason.slice(0, REASON_MAX),
+      },
+    }),
+  ]);
   anonymousReports.delete(roomId);
-  await notifyRelay(roomId);
+  await terminateRoomOnRelay(roomId);
 }
 
 export async function POST(

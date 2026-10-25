@@ -1,0 +1,38 @@
+# CipherChat releases. Gate property, same rule as CI: the security
+# property suite runs BEFORE the release is created. A red suite
+# means no release. Tags containing a hyphen (rc, beta) are marked
+# prerelease automatically.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      # Gate: a red suite means no release.
+      - name: Property suite
+        run: bun run test
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          ARGS=(--title "CipherChat ${TAG}" --notes-file RELEASE_NOTES.md)
+          if [[ "$TAG" == *-* ]]; then ARGS+=(--prerelease); fi
+          gh release create "$TAG" "${ARGS[@]}"
