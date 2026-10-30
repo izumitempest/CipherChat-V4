@@ -27,7 +27,7 @@ const PRACTICES = [
   },
   {
     title: "How it fails",
-    body: "When the relay is down, the app fails closed. Healthchecks are read-only and never modify what they check. Abuse reports are graded by credibility.",
+    body: "When the relay is down, the app fails closed. Healthchecks are read-only and never modify what they check. A room ends when its time runs out or when the creator burns it.",
   },
   {
     title: "Self-hosting",

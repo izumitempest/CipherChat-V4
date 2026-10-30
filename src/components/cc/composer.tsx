@@ -156,9 +156,8 @@ export function Composer({
     return () => {
       stopRecordingTimer();
       releaseMic();
-      recRef.current?.state === "recording" && recRef.current.stop();
+      if (recRef.current?.state === "recording") recRef.current.stop();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   /* One dispatch, one flourish: two small flecks rise from the send
    * button as the letter leaves. Cleared by the pseudo-elements'

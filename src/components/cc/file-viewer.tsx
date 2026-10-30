@@ -23,9 +23,16 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { downloadFile } from "@/components/cc/bubble";
 import { fmtBytes } from "@/lib/format";
 import type { MessageView } from "@/lib/types";
+import { useApp } from "@/store/app";
 import { cn } from "@/lib/utils";
 
 /* ---------------- classification ---------------- */
@@ -160,6 +167,9 @@ export function FileViewer({
 }) {
   const [zoomFor, setZoomFor] = useState<string | null>(null);
   const [wrap, setWrap] = useState(true);
+  // The bytes live in the store's payload map, keyed by the message
+  // id: the message list carries the file's name, not its contents.
+  const payload = useApp((s) => (message ? s.filePayloads[message.id] : undefined));
   // The bytes live once, in memory, behind a revocable blob URL.
   // Opening a different file (or closing) revokes the previous URL:
   // the blob is released and the bytes are left to the GC.
@@ -174,7 +184,7 @@ export function FileViewer({
   // starts at arm's length, no effect needed.
   const zoomed = !!message && message.id === zoomFor;
   const msgId = message?.id;
-  const dataB64 = message?.file?.dataB64;
+  const dataB64 = payload?.dataB64;
   const mime = message?.file?.mime ?? "application/octet-stream";
 
   // State follows the file being viewed. When the message changes
@@ -198,7 +208,13 @@ export function FileViewer({
   }, [message?.id]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    // Escape closes the viewer. The dialog primitive handles it too,
+    // but the viewer is mounted conditionally in some places, and a
+    // stray Escape must never close a room.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (!document.querySelector('[role="dialog"][aria-modal="true"]')) onClose();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
@@ -258,181 +274,196 @@ export function FileViewer({
     (file.mime === "text/html" || /\.html?$/i.test(file.name));
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex flex-col bg-paper/95 backdrop-blur-[16px]"
-      role="dialog"
-      aria-modal="false"
-      aria-label={`${category ?? "file"} ${file.name}`}
-    >
-      <div className="flex items-center justify-between gap-2 px-3 py-2.5">
-        <p className="t-meta min-w-0 flex-1 truncate px-2">
-          {file.name} · {fmtBytes(file.size)} · {file.mime || "unknown type"}
-          {viewOnce ? " · view once" : ""}
-        </p>
-        <div className="flex shrink-0 items-center gap-1">
-          {decodedText ? (
-            <button
-              type="button"
-              onClick={copyText}
-              aria-label="Copy contents"
-              className="flex size-11 items-center justify-center rounded-[12px] text-mute transition-colors duration-150 hover:bg-wash hover:text-charcoal active:bg-wash"
-            >
-              <Copy className="size-5" />
-            </button>
-          ) : null}
-          {viewOnce ? null : (
-            <button
-              type="button"
-              onClick={() =>
-                downloadFile(file.name, file.mime, file.dataB64 ?? "")
-              }
-              aria-label="Download a copy"
-              className="flex size-11 items-center justify-center rounded-[12px] text-mute transition-colors duration-150 hover:bg-wash hover:text-charcoal active:bg-wash"
-            >
-              <Download className="size-5" />
-            </button>
-          )}
-          <button
-            type="button"
-            aria-label="Close viewer"
-            onClick={onClose}
-            className="flex size-11 items-center justify-center rounded-[12px] text-mute transition-colors duration-150 hover:bg-wash hover:text-charcoal active:bg-wash"
-          >
-            <X className="size-5" />
-          </button>
-        </div>
-      </div>
-
-      {viewOnce ? (
-        <p className="t-meta flex items-center gap-1.5 px-5 pb-2">
-          <span
-            aria-hidden
-            className="flex size-4 shrink-0 items-center justify-center rounded-full border border-forest/60 font-sans text-[9px] font-semibold leading-none text-forest"
-          >
-            1
-          </span>
-          View once
-        </p>
-      ) : null}
-
-      <div
-        className={cn(
-          "flex flex-1 justify-center overflow-auto px-5 pb-10",
-          zoomed ? "items-start" : "items-center",
-        )}
+    // A real dialog: the focus moves in, stays in, and comes back
+    // where it was. Escape closes it. A keyboard user cannot tab
+    // behind the viewer into the conversation.
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent
+        showCloseButton={false}
+        overlayClassName="bg-paper/95 backdrop-blur-[16px]"
+        className="inset-0 top-0 left-0 z-[60] flex h-[100dvh] w-screen max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-0 bg-transparent p-0 shadow-none sm:max-w-none"
+        aria-label={`${category ?? "file"} ${file.name}`}
       >
-        {category === "image" && blobUrl ? (
-          <img
-            src={blobUrl}
-            alt={file.name}
-            onClick={() => setZoomFor(zoomed ? null : message.id)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                setZoomFor(zoomed ? null : message.id);
-              }
-            }}
-            tabIndex={0}
-            role="button"
-            aria-label={`${file.name} - ${zoomed ? "zoom out" : "zoom in"}`}
-            className={cn(
-              "settle rounded-[12px] border border-hairline object-contain shadow-float outline-none focus-visible:ring-2 focus-visible:ring-forest/45 focus-visible:ring-offset-2 focus-visible:ring-offset-paper",
-              zoomed
-                ? "h-auto max-h-none w-[220%] max-w-none cursor-zoom-out"
-                : "max-h-full max-w-full cursor-zoom-in",
-            )}
-          />
-        ) : category === "video" && blobUrl ? (
-          <video
-            src={blobUrl}
-            controls
-            playsInline
-            controlsList="nodownload noremoteplayback"
-            disablePictureInPicture={viewOnce}
-            onContextMenu={viewOnce ? (e) => e.preventDefault() : undefined}
-            aria-label={`Video ${file.name}`}
-            className="settle max-h-full max-w-full rounded-[12px] border border-hairline bg-black shadow-float"
-          />
-        ) : category === "audio" && blobUrl ? (
-          <div className="settle flex w-full max-w-[420px] flex-col items-center rounded-[18px] border border-hairline bg-side p-6 text-center">
-            <span className="flex size-14 items-center justify-center rounded-full bg-forest/10 text-forest">
-              <Music className="size-6" aria-hidden />
-            </span>
-            <p className="t-body mt-4 max-w-full truncate">{file.name}</p>
-            <p className="t-meta mt-1">{fmtBytes(file.size)}</p>
-            <audio
-              src={blobUrl}
-              controls
-              controlsList="nodownload noremoteplayback"
-              onContextMenu={viewOnce ? (e) => e.preventDefault() : undefined}
-              aria-label={`Audio ${file.name}`}
-              className="mt-5 w-full"
-            />
-          </div>
-        ) : category === "pdf" && bytes ? (
-          <PdfView
-            bytes={bytes}
-            blobUrl={blobUrl}
-            viewOnce={viewOnce}
-            name={file.name}
-          />
-        ) : category === "csv" && decodedText !== null ? (
-          <CsvTable text={decodedText} name={file.name} />
-        ) : category === "text" && decodedText !== null ? (
-          <div className="settle flex h-full w-full max-w-[860px] flex-col rounded-[14px] border border-hairline bg-side">
-            <div className="flex items-center justify-between gap-2 border-b border-hairline px-4 py-2.5">
-              <p className="t-meta truncate">
-                {isHtmlSource
-                  ? "Shown as source: HTML is never executed here"
-                  : "Plain text"}
-              </p>
+        <DialogTitle className="sr-only">
+          {category ?? "file"} {file.name}
+        </DialogTitle>
+        <DialogDescription className="sr-only">
+          The file is open in the app. Close the viewer to go back.
+        </DialogDescription>
+        <div className="flex items-center justify-between gap-2 px-3 py-2.5">
+          <p className="t-meta min-w-0 flex-1 truncate px-2">
+            {file.name} · {fmtBytes(file.size)} · {file.mime || "unknown type"}
+            {viewOnce ? " · view once" : ""}
+          </p>
+          <div className="flex shrink-0 items-center gap-1">
+            {decodedText ? (
               <button
                 type="button"
-                onClick={() => setWrap((w) => !w)}
-                aria-pressed={wrap}
-                className="rounded-[6px] border border-hairline bg-paper px-2.5 py-1 font-sans text-[11.5px] font-medium text-charcoal transition-colors duration-150 hover:bg-wash"
+                onClick={copyText}
+                aria-label="Copy contents"
+                className="flex size-11 items-center justify-center rounded-[12px] text-mute transition-colors duration-150 hover:bg-wash hover:text-charcoal active:bg-wash"
               >
-                {wrap ? "No wrap" : "Wrap"}
+                <Copy className="size-5" />
               </button>
-            </div>
-            <pre
-              className={cn(
-                "flex-1 overflow-auto px-4 py-3 font-mono text-[12.5px] leading-[19px] text-charcoal",
-                wrap ? "whitespace-pre-wrap break-words" : "whitespace-pre",
-              )}
-            >
-              {decodedText.length > TEXT_SHOW_MAX
-                ? decodedText.slice(0, TEXT_SHOW_MAX)
-                : decodedText}
-            </pre>
-            {decodedText.length > TEXT_SHOW_MAX ? (
-              <p className="t-meta border-t border-hairline px-4 py-2">
-                Showing the first {fmtBytes(TEXT_SHOW_MAX)} of{" "}
-                {fmtBytes(decodedText.length)}. Copy takes the whole file.
-              </p>
             ) : null}
+            {viewOnce ? null : (
+              <button
+                type="button"
+                onClick={() =>
+                  downloadFile(file.name, file.mime, dataB64 ?? "")
+                }
+                aria-label="Download a copy"
+                className="flex size-11 items-center justify-center rounded-[12px] text-mute transition-colors duration-150 hover:bg-wash hover:text-charcoal active:bg-wash"
+              >
+                <Download className="size-5" />
+              </button>
+            )}
+            <button
+              type="button"
+              aria-label="Close viewer"
+              onClick={onClose}
+              className="flex size-11 items-center justify-center rounded-[12px] text-mute transition-colors duration-150 hover:bg-wash hover:text-charcoal active:bg-wash"
+            >
+              <X className="size-5" />
+            </button>
           </div>
-        ) : category === "binary" && bytes ? (
-          <div className="settle flex w-full max-w-[720px] flex-col gap-4">
-            <div className="rounded-[18px] border border-hairline bg-side p-6 text-center">
-              <span className="mx-auto flex size-12 items-center justify-center rounded-[12px] bg-paper text-forest">
-                <FileText className="size-5" aria-hidden />
+        </div>
+
+        {viewOnce ? (
+          <p className="t-meta flex items-center gap-1.5 px-5 pb-2">
+            <span
+              aria-hidden
+              className="flex size-4 shrink-0 items-center justify-center rounded-full border border-forest/60 font-sans text-[9px] font-semibold leading-none text-forest"
+            >
+              1
+            </span>
+            View once
+          </p>
+        ) : null}
+
+        <div
+          className={cn(
+            "flex flex-1 justify-center overflow-auto px-5 pb-10",
+            zoomed ? "items-start" : "items-center",
+          )}
+        >
+          {category === "image" && blobUrl ? (
+            <img
+              src={blobUrl}
+              alt={file.name}
+              onClick={() => setZoomFor(zoomed ? null : message.id)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setZoomFor(zoomed ? null : message.id);
+                }
+              }}
+              tabIndex={0}
+              role="button"
+              aria-label={`${file.name} - ${zoomed ? "zoom out" : "zoom in"}`}
+              className={cn(
+                "settle rounded-[12px] border border-hairline object-contain shadow-float outline-none focus-visible:ring-2 focus-visible:ring-forest/45 focus-visible:ring-offset-2 focus-visible:ring-offset-paper",
+                zoomed
+                  ? "h-auto max-h-none w-[220%] max-w-none cursor-zoom-out"
+                  : "max-h-full max-w-full cursor-zoom-in",
+              )}
+            />
+          ) : category === "video" && blobUrl ? (
+            <video
+              src={blobUrl}
+              controls
+              playsInline
+              controlsList="nodownload noremoteplayback"
+              disablePictureInPicture={viewOnce}
+              onContextMenu={viewOnce ? (e) => e.preventDefault() : undefined}
+              aria-label={`Video ${file.name}`}
+              className="settle max-h-full max-w-full rounded-[12px] border border-hairline bg-black shadow-float"
+            />
+          ) : category === "audio" && blobUrl ? (
+            <div className="settle flex w-full max-w-[420px] flex-col items-center rounded-[18px] border border-hairline bg-side p-6 text-center">
+              <span className="flex size-14 items-center justify-center rounded-full bg-forest/10 text-forest">
+                <Music className="size-6" aria-hidden />
               </span>
-              <p className="t-body mt-4 break-words">{file.name}</p>
-              <p className="t-meta mt-1">
-                {fmtBytes(file.size)} · inspected in memory, first bytes
-                below
-              </p>
+              <p className="t-body mt-4 max-w-full truncate">{file.name}</p>
+              <p className="t-meta mt-1">{fmtBytes(file.size)}</p>
+              <audio
+                src={blobUrl}
+                controls
+                controlsList="nodownload noremoteplayback"
+                onContextMenu={viewOnce ? (e) => e.preventDefault() : undefined}
+                aria-label={`Audio ${file.name}`}
+                className="mt-5 w-full"
+              />
             </div>
-            <div className="overflow-hidden rounded-[14px] border border-hairline bg-side">
-              <HexDump bytes={bytes} />
+          ) : category === "pdf" && bytes ? (
+            <PdfView
+              bytes={bytes}
+              blobUrl={blobUrl}
+              viewOnce={viewOnce}
+              name={file.name}
+            />
+          ) : category === "csv" && decodedText !== null ? (
+            <CsvTable text={decodedText} name={file.name} />
+          ) : category === "text" && decodedText !== null ? (
+            <div className="settle flex h-full w-full max-w-[860px] flex-col rounded-[14px] border border-hairline bg-side">
+              <div className="flex items-center justify-between gap-2 border-b border-hairline px-4 py-2.5">
+                <p className="t-meta truncate">
+                  {isHtmlSource
+                    ? "Shown as source: HTML is never executed here"
+                    : "Plain text"}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setWrap((w) => !w)}
+                  aria-pressed={wrap}
+                  className="rounded-[6px] border border-hairline bg-paper px-2.5 py-1 font-sans text-[11.5px] font-medium text-charcoal transition-colors duration-150 hover:bg-wash"
+                >
+                  {wrap ? "No wrap" : "Wrap"}
+                </button>
+              </div>
+              <pre
+                className={cn(
+                  "flex-1 overflow-auto px-4 py-3 font-mono text-[12.5px] leading-[19px] text-charcoal",
+                  wrap ? "whitespace-pre-wrap break-words" : "whitespace-pre",
+                )}
+              >
+                {decodedText.length > TEXT_SHOW_MAX
+                  ? decodedText.slice(0, TEXT_SHOW_MAX)
+                  : decodedText}
+              </pre>
+              {decodedText.length > TEXT_SHOW_MAX ? (
+                <p className="t-meta border-t border-hairline px-4 py-2">
+                  Showing the first {fmtBytes(TEXT_SHOW_MAX)} of{" "}
+                  {fmtBytes(decodedText.length)}. Copy takes the whole file.
+                </p>
+              ) : null}
             </div>
-          </div>
-        ) : (
-          <p className="t-meta">Opening…</p>
-        )}
-      </div>
-    </div>
+          ) : category === "binary" && bytes ? (
+            <div className="settle flex w-full max-w-[720px] flex-col gap-4">
+              <div className="rounded-[18px] border border-hairline bg-side p-6 text-center">
+                <span className="mx-auto flex size-12 items-center justify-center rounded-[12px] bg-paper text-forest">
+                  <FileText className="size-5" aria-hidden />
+                </span>
+                <p className="t-body mt-4 break-words">{file.name}</p>
+                <p className="t-meta mt-1">
+                  {fmtBytes(file.size)} · inspected in memory, first bytes
+                  below
+                </p>
+              </div>
+              <div className="overflow-hidden rounded-[14px] border border-hairline bg-side">
+                <HexDump bytes={bytes} />
+              </div>
+            </div>
+          ) : !dataB64 ? (
+            /* The bytes are gone: the room's budget took them, or the
+               file burned. Say so instead of opening forever. */
+            <p className="t-meta">This file's contents are no longer here.</p>
+          ) : (
+            <p className="t-meta">Opening…</p>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -29,6 +29,8 @@ function reasonCopy(reason: JoinResult["reason"]): string {
       return "This room doesn't exist, or it has been burned.";
     case "room-full":
       return "This room is full.";
+    case "not-member":
+      return "This room already has a member record for this device's key, and the key doesn't match. Join from the browser you joined with.";
     default:
       return "Something went wrong entering the room. Try again.";
   }

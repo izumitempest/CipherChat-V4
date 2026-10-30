@@ -179,7 +179,13 @@ export function SystemLine({ text }: { text: string }) {
 /** TTL remaining life: the hourglass carries the terracotta signal,
  *  the label stays in the machine voice. In its final ten seconds
  *  the whole label breathes faster (ttl-final), urgency in rhythm
- *  on top of the colour it already carries. */
+ *  on top of the colour it already carries.
+ *
+ *  The countdown ticks every second, and the message list is a live
+ *  log, so a ticking number inside it made a screen reader read the
+ *  number again every second for every expiring message. The ticking
+ *  part is now out of the live region: it is aria-live="off", and the
+ *  label only says anything at a minute and at ten seconds. */
 function TtlRemaining({ expiresAt }: { expiresAt: number }) {
   const [remaining, setRemaining] = useState(() => expiresAt - Date.now());
   useEffect(() => {
@@ -190,10 +196,27 @@ function TtlRemaining({ expiresAt }: { expiresAt: number }) {
   }, [expiresAt]);
   const label = fmtTtlRemaining(remaining);
   const final = remaining > 0 && remaining < 10_000;
+  // Say the time only when it is worth saying: about a minute left,
+  // and ten seconds left. The sentence does not change while it is
+  // on screen, so the announcement happens once when it appears.
+  const spoken =
+    remaining > 60_000 || remaining <= 0
+      ? ""
+      : remaining > 10_000
+        ? "About a minute left before this message burns"
+        : "Ten seconds left before this message burns";
   return (
-    <span className={cn("inline-flex items-center gap-1", final && "ttl-final")}>
+    <span
+      className={cn("inline-flex items-center gap-1", final && "ttl-final")}
+      aria-live="off"
+    >
       <Hourglass className="size-[11px] text-terracotta" aria-hidden />
-      {label}
+      <span aria-hidden="true">{label}</span>
+      {spoken ? (
+        <span className="sr-only" aria-live="polite" aria-atomic="true">
+          {spoken}
+        </span>
+      ) : null}
     </span>
   );
 }
@@ -481,6 +504,9 @@ function FileContent({
   onOpenFile: (message: MessageView) => void;
 }) {
   const file = message.file;
+  // The bytes live in the store's payload map, keyed by the message
+  // id. The message itself carries the name and the size only.
+  const dataB64 = useApp((s) => s.filePayloads[message.id]?.dataB64);
   if (!file) return null;
 
   // View-once: sealed until opened, spent forever after.
@@ -529,11 +555,20 @@ function FileContent({
         className="group block w-full text-left"
         aria-label={`View image ${file.name}`}
       >
-        <img
-          src={`data:${file.mime};base64,${file.dataB64}`}
-          alt={file.name}
-          className="max-h-56 w-full rounded-[10px] object-cover transition duration-150 group-hover:brightness-95"
-        />
+        {dataB64 ? (
+          <img
+            src={`data:${file.mime};base64,${dataB64}`}
+            alt={file.name}
+            className="max-h-56 w-full rounded-[10px] object-cover transition duration-150 group-hover:brightness-95"
+          />
+        ) : (
+          /* The bytes are gone (the room's budget, or the file was
+             burned): the card says so instead of showing a broken
+             image. */
+          <span className="flex max-h-56 w-full items-center justify-center rounded-[10px] bg-wash p-6">
+            <span className="t-meta">The file's contents are no longer here</span>
+          </span>
+        )}
         <p className="t-meta mt-1.5 px-0.5">
           {file.name} · {fmtBytes(file.size)}
         </p>

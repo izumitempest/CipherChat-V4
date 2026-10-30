@@ -9,7 +9,8 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["src/lib/__tests__/**/*.test.ts"],
+    // The property suite, the store rules and the component renders.
+    include: ["src/**/__tests__/**/*.test.ts", "src/**/__tests__/**/*.test.tsx"],
     // The crypto modules are pure; WebCrypto comes from Node's global.
     testTimeout: 30_000,
     hookTimeout: 30_000,

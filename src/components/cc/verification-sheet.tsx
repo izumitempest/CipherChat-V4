@@ -147,7 +147,7 @@ function VerifyRow({
   verified: boolean;
   onToggle: () => void;
 }) {
-  const display = fingerprint ? groupFingerprint(fingerprint) : "···· ····";
+  const display = fingerprint ? groupFingerprint(fingerprint) : "···· ···· ···· ····";
   return (
     <div className="flex items-center gap-3 rounded-[12px] border border-hairline bg-side px-3.5 py-3">
       <span

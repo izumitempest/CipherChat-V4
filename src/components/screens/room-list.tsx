@@ -314,7 +314,16 @@ export function UnlockSheet({
     if (!card || busy || !password.trim()) return;
     setBusy(true);
     setError(null);
-    const res = await joinRoom(card.roomId, password.trim());
+    // The join can throw (a network wall, a server that died mid
+    // answer). An unhandled throw left the sheet spinning forever.
+    let res: Awaited<ReturnType<typeof joinRoom>>;
+    try {
+      res = await joinRoom(card.roomId, password.trim());
+    } catch {
+      setBusy(false);
+      setError("Something went wrong. Try again.");
+      return;
+    }
     setBusy(false);
     if (!res.ok) {
       setError(
@@ -324,6 +333,8 @@ export function UnlockSheet({
             ? "This room's time ran out - it's gone."
           : res.reason === "not-found" || res.reason === "burned"
             ? "This room doesn't exist, or it has been burned."
+            : res.reason === "not-member"
+              ? "This room already has a member record for this device's key, and the key doesn't match. Join from the browser you joined with."
             : "Something went wrong. Try again.",
       );
       return;

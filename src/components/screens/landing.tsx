@@ -105,8 +105,8 @@ export function LandingScreen() {
         style={{ animationDelay: "320ms" }}
       >
         <p className="text-center font-sans text-[11.5px] leading-[17px] text-mute">
-          Messages are encrypted in your browser and destroyed on schedule.
-          We can&rsquo;t read them. Neither can anyone else.
+          Messages are encrypted in your browser. Set them to disappear
+          on a timer if you want. We can&rsquo;t read them.
         </p>
         <div className="mt-3 text-center font-sans text-[11.5px] leading-[17px]">
           <LegalLinks />
@@ -214,7 +214,11 @@ function CreateRoomSheet({
               <span className="inline-flex items-center gap-1.5">
                 <button
                   type="button"
-                  className="font-medium text-forest underline decoration-forest/30 underline-offset-2 hover:decoration-forest"
+                  // A text-sized label with a 44px hit area. The
+                  // pseudo-element carries the extra room, so the
+                  // layout stays one line but a finger has something
+                  // to hit.
+                  className="relative inline-flex items-center gap-1 rounded-[8px] font-medium text-forest underline decoration-forest/30 underline-offset-2 hover:decoration-forest focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest/45 after:absolute after:-inset-[13px] after:content-['']"
                   onClick={() => {
                     if (passRef.current)
                       passRef.current.value = generatePassphrase();

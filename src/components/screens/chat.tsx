@@ -4,7 +4,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Copy, Hourglass, Lock, X } from "lucide-react";
 import { toast } from "sonner";
 import { ChatHeader } from "@/components/cc/chat-header";
@@ -32,6 +32,11 @@ const EMPTY_TYPING: TypingSignal[] = [];
 
 /** Messages quiet down across a gap wider than this. */
 const TIME_GAP_MS = 30 * 60 * 1000;
+
+/** How many letters the document holds at once. The room keeps more
+ *  in memory; the DOM holds this many, plus the ones the reader
+ *  scrolls back to. */
+const WINDOW = 60;
 
 export function ChatScreen({ roomId }: { roomId: string }) {
   // Subscribe to the room's message memory: entering a room resets it,
@@ -112,6 +117,20 @@ function ActiveRoom({ roomId }: { roomId: string }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const groups = useMessageGroups(messages);
 
+  /* The DOM window. The room keeps every letter in memory (up to the
+   * memory cap), but the document holds only the last WINDOW of them,
+   * plus the ones the reader scrolled back to. A long room does not
+   * turn into ten thousand nodes. */
+  const [windowSize, setWindowSize] = useState(WINDOW);
+  const visibleGroups = useMemo(
+    () => groups.slice(Math.max(0, groups.length - windowSize)),
+    [groups, windowSize],
+  );
+  const hiddenAbove = groups.length - visibleGroups.length;
+  // The height before the window grows, so the reader's place in the
+  // log can be kept when the older lines arrive.
+  const growAnchorRef = useRef<number | null>(null);
+
   /* The jump affordance, present only when the newest line is out
    * of sight. Counts what arrived below the fold while reading. */
   const [showJump, setShowJump] = useState(false);
@@ -126,7 +145,12 @@ function ActiveRoom({ roomId }: { roomId: string }) {
     nearBottomRef.current = near;
     setShowJump(!near && el.scrollHeight > el.clientHeight + 80);
     if (near) setNewBelow(0);
-  }, []);
+    // Back at the top: bring the older lines in.
+    if (el.scrollTop < 120 && hiddenAbove > 0) {
+      growAnchorRef.current = el.scrollHeight;
+      setWindowSize((n) => n + WINDOW);
+    }
+  }, [hiddenAbove]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -236,14 +260,34 @@ function ActiveRoom({ roomId }: { roomId: string }) {
    * view and let it announce itself with a soft ring of forest,
    * once. If the original is no longer in this session's memory
    * (expired, burned, or from before we joined), say so quietly. */
-  const jumpToMessage = useCallback((id: string) => {
+  const pendingJumpRef = useRef<string | null>(null);
+  const jumpToMessage = useCallback(
+    (id: string) => {
+      const index = groups.findIndex((g) => g.message.id === id);
+      if (index < 0) {
+        toast("That message is no longer in this session");
+        return;
+      }
+      // The target may sit above the window: widen the window to
+      // reach it, then the effect below does the scrolling.
+      const needed = groups.length - index + 10;
+      if (needed > windowSize) setWindowSize(needed);
+      pendingJumpRef.current = id;
+    },
+    [groups, windowSize],
+  );
+
+  // The jump lands once the target is in the document. The effect runs
+  // after every render, because the target arrives when the window
+  // widens, which is a render of its own.
+  useEffect(() => {
+    const id = pendingJumpRef.current;
+    if (!id) return;
     const el = scrollRef.current?.querySelector(
       `[data-mid="${CSS.escape(id)}"]`,
     ) as HTMLElement | null;
-    if (!el) {
-      toast("That message is no longer in this session");
-      return;
-    }
+    if (!el) return;
+    pendingJumpRef.current = null;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     el.scrollIntoView({
       behavior: reduced ? "auto" : "smooth",
@@ -252,7 +296,17 @@ function ActiveRoom({ roomId }: { roomId: string }) {
     el.classList.remove("quote-flash");
     void el.offsetWidth; // restart the animation on repeated jumps
     el.classList.add("quote-flash");
-  }, []);
+  });
+
+  // The window grew: keep the reader's place in the log.
+  useEffect(() => {
+    const el = scrollRef.current;
+    const before = growAnchorRef.current;
+    if (!el || before === null) return;
+    growAnchorRef.current = null;
+    const delta = el.scrollHeight - before;
+    if (delta > 0) el.scrollTop += delta;
+  }, [visibleGroups]);
 
   const beginReply = useCallback((m: MessageView) => {
     setReplyTarget(m);
@@ -337,6 +391,10 @@ function ActiveRoom({ roomId }: { roomId: string }) {
           className="h-full overflow-y-auto overscroll-contain scroll-quiet"
           role="log"
           aria-live="polite"
+          // Only new messages are announced. Without this, every
+          // change inside the log (a ticking countdown, a reaction
+          // count) was read out again.
+          aria-relevant="additions"
           aria-label="Messages"
         >
           <div className="mx-auto w-full max-w-[720px] px-4 pb-5 pt-4">
@@ -345,7 +403,7 @@ function ActiveRoom({ roomId }: { roomId: string }) {
                 {/* System lines stay in the log: the room's closing
                     note still reads, above the quiet of no letters. */}
                 <TimeAwareMessages
-                  groups={groups.filter((g) => g.message.kind === "system")}
+                  groups={visibleGroups.filter((g) => g.message.kind === "system")}
                   onOpenFile={() => {}}
                   onBurnMessage={() => {}}
                 />
@@ -402,7 +460,7 @@ function ActiveRoom({ roomId }: { roomId: string }) {
               </>
             ) : (
               <TimeAwareMessages
-                groups={groups}
+                groups={visibleGroups}
                 onOpenFile={(m) => setViewing(m)}
                 onBurnMessage={(m) => void burnMessage(roomId, m.id)}
                 onReplyMessage={beginReply}
@@ -646,6 +704,8 @@ function LockedRoomView({ roomId }: { roomId: string }) {
           ? "That password doesn't match this room."
           : res.reason === "not-found" || res.reason === "burned"
             ? "This room doesn't exist, or it has been burned."
+            : res.reason === "not-member"
+              ? "This room already has a member record for this device's key, and the key doesn't match. Join from the browser you joined with."
             : "Something went wrong. Try again.",
       );
       return;

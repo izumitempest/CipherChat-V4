@@ -29,7 +29,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
   title: "CipherChat - a conversation that leaves no trace",
   description:
-    "End-to-end encrypted, ephemeral rooms. No accounts, no history, no trace. Messages are encrypted in your browser and destroyed on schedule.",
+    "End-to-end encrypted, ephemeral rooms. No accounts, no history, no trace. Messages are encrypted in your browser, and you can set them to disappear on a timer.",
   applicationName: "CipherChat",
   manifest: "/manifest.webmanifest",
   icons: {
@@ -43,7 +43,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "CipherChat - a conversation that leaves no trace",
     description:
-      "End-to-end encrypted, ephemeral rooms. No accounts, no history, no trace. Messages are encrypted in your browser and destroyed on schedule.",
+      "End-to-end encrypted, ephemeral rooms. No accounts, no history, no trace. Messages are encrypted in your browser, and you can set them to disappear on a timer.",
     siteName: "CipherChat",
     type: "website",
     images: [
