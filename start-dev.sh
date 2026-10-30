@@ -21,9 +21,10 @@
 #
 # Usage:
 #   ./start-dev.sh            start everything (stop stale first)
-#   ./start-dev.sh --lan      same, but the browser relay URL points at this
-#                             machine's LAN IP (phone testing); rewrites
-#                             NEXT_PUBLIC_RELAY_URL in .env
+#   ./start-dev.sh --lan      same, plus two quick tunnels (app and relay) so
+#                             a phone can open the room over https; plain
+#                             http on a LAN address is not a secure context,
+#                             and WebCrypto needs one
 #   ./start-dev.sh status     are the services up?
 #   ./start-dev.sh stop       stop everything the script knows about
 #   ./start-dev.sh restart    stop + start
@@ -87,6 +88,15 @@ stop_all() {
   # containers too. The dev relay is stopped by its HOST ports below
   # (container ports are namespaced away from the host).
   if pkill -f "next dev -p $WEB_PORT" 2>/dev/null; then killed=1; fi
+  # The quick tunnels from --lan mode.
+  if [ -f "$RUN_DIR/tunnel-relay.pid" ]; then
+    kill "$(cat "$RUN_DIR/tunnel-relay.pid")" 2>/dev/null || true
+    killed=1
+  fi
+  if [ -f "$RUN_DIR/tunnel-app.pid" ]; then
+    kill "$(cat "$RUN_DIR/tunnel-app.pid")" 2>/dev/null || true
+    killed=1
+  fi
   for port in $WEB_PORT $RELAY_PORT $PRESENCE_PORT; do
     local pids; pids="$(port_pids "$port")"
     if [ -n "$pids" ]; then
@@ -135,27 +145,22 @@ ensure_env() {
     say "DATABASE_URL present (kept: $(env_get DATABASE_URL))"
   fi
 
-  # The browser-facing relay URL. With --lan it is FORCED to the LAN IP
-  # (phones on the network must not use localhost); otherwise only filled
-  # in when missing.
+  # The browser-facing relay URL. With --lan the relay is reached through
+  # its own quick tunnel (https), because a page on https cannot open a
+  # ws:// socket, and a LAN address over plain http is not a secure
+  # context at all.
   local desired_relay="http://localhost:$RELAY_PORT"
   if [ "${LAN_MODE:-0}" = 1 ]; then
-    local ip; ip="$(lan_ip)"
-    [ -z "$ip" ] && die "--lan: could not detect this machine's LAN IP"
-    desired_relay="http://$ip:$RELAY_PORT"
+    desired_relay="__TUNNEL__"
   fi
-  if ! env_has NEXT_PUBLIC_RELAY_URL || [ "${LAN_MODE:-0}" = 1 ]; then
-    if env_has NEXT_PUBLIC_RELAY_URL; then
-      # rewrite in place (LAN mode switch)
-      sed -i.bak -E "s|^NEXT_PUBLIC_RELAY_URL=.*|NEXT_PUBLIC_RELAY_URL=$desired_relay|" .env && rm -f .env.bak
-      say "NEXT_PUBLIC_RELAY_URL set to $desired_relay (rewritten for --lan)"
-    else
-      printf '\n# Where the browser finds the relay (auto)\n' >> .env
-      printf 'NEXT_PUBLIC_RELAY_URL=%s\n' "$desired_relay" >> .env
-      say "set NEXT_PUBLIC_RELAY_URL=$desired_relay"
-    fi
+  if [ "$desired_relay" = "__TUNNEL__" ]; then
+    say "NEXT_PUBLIC_RELAY_URL will be the relay's tunnel URL (--lan)"
+  elif ! env_has NEXT_PUBLIC_RELAY_URL; then
+    printf '\n# Where the browser finds the relay (auto)\n' >> .env
+    printf 'NEXT_PUBLIC_RELAY_URL=%s\n' "$desired_relay" >> .env
+    say "set NEXT_PUBLIC_RELAY_URL=$desired_relay"
   else
-    say "NEXT_PUBLIC_RELAY_URL present (kept: $(env_get NEXT_PUBLIC_RELAY_URL)) — use --lan to switch"
+    say "NEXT_PUBLIC_RELAY_URL present (kept: $(env_get NEXT_PUBLIC_RELAY_URL))"
   fi
 
   if ! env_has NEXT_PUBLIC_SITE_URL; then
@@ -172,8 +177,10 @@ ensure_db() {
     say "generating Prisma client…"
     bunx prisma generate
   fi
-  say "pushing schema to the dev database (idempotent)…"
-  bunx prisma db push --skip-generate --accept-data-loss
+  say "applying migrations to the dev database…"
+  # The same step the production container runs: back up, baseline if
+  # the database predates the migrations, apply what is pending.
+  bun "$ROOT/deploy/entrypoint-migrate.mjs"
 }
 
 # --- 4. launch --------------------------------------------------------------
@@ -216,7 +223,12 @@ start_all() {
   local lan; lan="$(lan_ip)"
   printf '\033[1m  CipherChat is up\033[0m\n'
   printf '    local:   http://localhost:%s\n' "$WEB_PORT"
-  [ -n "$lan" ] && printf '    LAN:     http://%s:%s   (relay must match: %s)\n' "$lan" "$WEB_PORT" "$(env_get NEXT_PUBLIC_RELAY_URL)"
+  if [ -n "$app_url" ]; then
+    printf '    phone:   %s   (https, the tunnel; a LAN http address will not do)\n' "$app_url"
+    printf '    relay:   %s\n' "$relay_tunnel_url"
+  elif [ -n "$lan" ]; then
+    printf '    LAN:     http://%s:%s   (plain http: the crypto will not run there)\n' "$lan" "$WEB_PORT"
+  fi
   printf '    logs:    %s, %s\n' "$LOG_WEB" "$LOG_RELAY"
   printf '    stop:    ./start-dev.sh stop\n'
   printf '    status:  ./start-dev.sh status\n'

@@ -53,8 +53,11 @@ prompt
 server.log
 # Skills directory
 /skills/
+# The AI review tool's working files (hook state, ledgers, reports).
+# Same category as .claude/ or .vscode/: they are not part of the app.
+.mimosa/
 # --- local runtime state + sandbox artifacts (never ship) ---
-# The live dev database (each machine pushes its own schema: bun run db:push)
+# The live dev database (the schema lives in prisma/migrations: bun run db:migrate)
 /db/
 # Stale Prisma-side db dir: `prisma db push` has been known to drop one here
 # when run with cwd pinned to the schema folder; the runtime uses /db/ above.

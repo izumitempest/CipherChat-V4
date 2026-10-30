@@ -29,6 +29,11 @@ export default defineConfig({
     // whole class of timing flakiness. The update-prompt behavior
     // itself is a first-install-silent design in sw-register.tsx.
     serviceWorkers: "block",
+    // Run against a system Chromium when the Playwright download is
+    // not around: E2E_BROWSER_PATH=/path/to/chrome bunx playwright test
+    launchOptions: process.env.E2E_BROWSER_PATH
+      ? { executablePath: process.env.E2E_BROWSER_PATH }
+      : undefined,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",

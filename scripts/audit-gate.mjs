@@ -15,18 +15,19 @@
 //      `vulnerabilities` key, which the old parser read as "clean".
 //      That fail-open hole is why the payloads below are shape-checked.)
 //
-//   2. The RUNTIME/DEV SPLIT comes from npm's materialized lockfile
-//      (`npm install --package-lock-only`, owned by this script): a
-//      package marked `"dev": true` there is reachable only through
-//      devDependencies and never ships. The split is the one remaining
-//      approximation (npm re-resolves ranges to derive it) and is
-//      stated as such in AUDIT.md. Versions and advisories are
-//      lockfile-exact; only the classification rides on npm.
+//   2. The RUNTIME/DEV SPLIT comes from the same lockfile: the script
+//      walks bun.lock from the root workspace's production
+//      dependencies through the dependency edges, so the scope is
+//      exactly what can ship. It used to come from npm's materialized
+//      lockfile, which meant the gate carried two lockfiles, needed
+//      the network to build the second one, and classified with a
+//      resolver that was not the one that installs the project. One
+//      lockfile, one audit command. See bugs/BUGS.md B43.
 //
 // The gate fails CLOSED: an unparseable payload, a missing lockfile, a
-// failed materialization, or an error object where findings were
-// expected is a gate FAILURE, never a clean pass. A gate that audits
-// nothing is red.
+// failed tree read, or an error object where findings were expected is
+// a gate FAILURE, never a clean pass. A gate that audits nothing is
+// red.
 //
 // Failures on critical/high runtime findings exit 1 EXCEPT for the
 // enumerated exceptions below, keyed by (module, advisory id), so a NEW
@@ -38,6 +39,7 @@
 // runtime image, and each is dispositioned in AUDIT.md.
 
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 
 const EXCEPTIONS = [
   {
@@ -108,32 +110,72 @@ if (
   );
 }
 
-// ---- 2. Scope: the runtime/dev split from npm's materialized lockfile
+// ---- 2. Scope: the runtime/dev split from the same lockfile
 
-run("npm", [
-  "install",
-  "--package-lock-only",
-  "--ignore-scripts",
-  "--no-audit",
-  "--silent",
-]);
+// bun.lock is JSON with trailing commas, so it needs a tolerant read.
+// The walk starts at the root workspace's production dependencies and
+// follows the dependency edges through the lockfile: what it reaches
+// is what can ship.
+function parseLock(text) {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      out += ch;
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      out += ch;
+      continue;
+    }
+    if (ch === ",") {
+      let j = i + 1;
+      while (j < text.length && /\s/.test(text[j])) j++;
+      if (text[j] === "}" || text[j] === "]") continue; // trailing comma
+    }
+    out += ch;
+  }
+  return JSON.parse(out);
+}
+
+function runtimeModulesFromLock(lock) {
+  const packages = lock?.packages;
+  const root = lock?.workspaces?.[""]?.dependencies;
+  if (typeof packages !== "object" || packages === null) {
+    die("bun.lock has no packages map.");
+  }
+  if (typeof root !== "object" || root === null) {
+    die("bun.lock has no root workspace dependencies.");
+  }
+  const seen = new Set();
+  const queue = Object.keys(root);
+  while (queue.length) {
+    const name = queue.pop();
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const entry = packages[name];
+    if (!entry) continue;
+    const meta = entry[2] ?? {};
+    for (const key of ["dependencies", "optionalDependencies", "peerDependencies"]) {
+      for (const dep of Object.keys(meta[key] ?? {})) queue.push(dep);
+    }
+  }
+  return seen;
+}
+
 let lock;
 try {
-  lock = JSON.parse(execFileSync("cat", ["package-lock.json"], { encoding: "utf8" }));
-} catch {
-  die("package-lock.json could not be read after materialization.");
+  lock = parseLock(readFileSync("bun.lock", "utf8"));
+} catch (err) {
+  die(`bun.lock could not be read: ${err.message}`);
 }
-const packages = lock?.packages;
-if (typeof packages !== "object" || packages === null) {
-  die("materialized package-lock.json has no packages map.");
-}
-const runtimeModules = new Set();
-for (const [path, p] of Object.entries(packages)) {
-  if (!path.startsWith("node_modules/")) continue;
-  if (p?.dev) continue; // reachable only via devDependencies, never ships
-  const name = path.slice("node_modules/".length).split("/node_modules/").pop();
-  runtimeModules.add(name);
-}
+const runtimeModules = runtimeModulesFromLock(lock);
 if (runtimeModules.size === 0) {
   die("runtime module set is empty — the scope source is broken, not the tree clean.");
 }

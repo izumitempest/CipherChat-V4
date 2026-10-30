@@ -1,100 +1,53 @@
 #!/bin/sh
-# CipherChat dev launcher: runs both required services from one command.
+# CipherChat dev launcher (the old one).
 #
-#   scripts/dev.sh           # web (:3000) + relay (:3003, presence :3004)
-#   scripts/dev.sh web       # only the Next.js app
-#   scripts/dev.sh relay     # only the relay
-#   scripts/dev.sh check     # prerequisites only, no startup
+# There are two launchers in this repository and there used to be two
+# ways to start the stack, which is one too many. start-dev.sh at the
+# repository root is the supported path: it fills in a missing .env,
+# applies the migrations, stops stale instances, starts the relay and
+# the web app detached, waits for all three ports, and can put a pair
+# of https tunnels in front for phone testing.
 #
-# Prereqs (checked up front):
-#   - bun on PATH
-#   - .env exists (DATABASE_URL, RELAY_INTERNAL_TOKEN, NEXT_PUBLIC_RELAY_URL)
-#   - mini-services/relay-service/node_modules installed (bun install)
-#   - prisma client generated (bun run db:generate)
+# This file stays so the old command still works. It forwards to
+# start-dev.sh and does nothing of its own.
 #
-# The relay's own "dev" script uses bun --hot, which the README warns does
-# not reliably reload socket handlers; this launcher runs it plainly and
-# simply keeps both processes alive together. Ctrl-C stops both.
+#   scripts/dev.sh          → start-dev.sh up
+#   scripts/dev.sh web      → start-dev.sh up   (web only is not supported
+#                                              by start-dev.sh; use
+#                                              bun run dev for the app alone)
+#   scripts/dev.sh relay    → bun mini-services/relay-service/index.ts
+#   scripts/dev.sh check    → start-dev.sh status
+#
+# See bugs/BUGS.md B42.
 
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-cd "$ROOT"
-
-MODE="${1:-all}"
-
-die() { echo "dev.sh: $1" >&2; exit 1; }
-
-command -v bun >/dev/null 2>&1 || die "bun not found on PATH"
-[ -f .env ] || die ".env missing (cp .env.example .env, then set RELAY_INTERNAL_TOKEN)"
-
-# RELAY_INTERNAL_TOKEN must be set and must not still be the example value.
-token=$(awk -F= '/^RELAY_INTERNAL_TOKEN=/ {print $2}' .env | tail -1)
-[ -n "$token" ] || die "RELAY_INTERNAL_TOKEN is empty in .env"
-[ "$token" != "change-me-openssl-rand-hex-24" ] || \
-  die "RELAY_INTERNAL_TOKEN is still the placeholder; run: openssl rand -hex 24"
-
-[ -d mini-services/relay-service/node_modules ] || \
-  die "relay deps missing; run: cd mini-services/relay-service && bun install"
-
-[ -d node_modules/.prisma/client ] || \
-  die "prisma client not generated; run: bun run db:generate"
-
-if [ "$MODE" = "check" ]; then
-  echo "dev.sh: prerequisites ok"
-  exit 0
-fi
-
-# DATABASE_URL is file:./db/custom.db (resolved relative to the repo's
-# working directory by Next.js standalone at runtime). Make sure the
-# target directory always exists; a missing one means a 500 on first write.
-mkdir -p db
-
-WEB_PID=""
-RELAY_PID=""
-WEB_LOG=dev.log
-RELAY_LOG=relay-dev.log
-
-cleanup() {
-  trap '' INT TERM
-  [ -n "$RELAY_PID" ] && kill "$RELAY_PID" 2>/dev/null || true
-  [ -n "$WEB_PID" ] && kill "$WEB_PID" 2>/dev/null || true
-  wait 2>/dev/null || true
-  echo "dev.sh: stopped"
-  exit 0
-}
-trap cleanup INT TERM
-
-start_web() {
-  echo "dev.sh: web on :3000 (log: $WEB_LOG)"
-  bun run dev >>"$WEB_LOG" 2>&1 &
-  WEB_PID=$!
-}
-
-start_relay() {
-  echo "dev.sh: relay on :3003, internal presence :3004 (log: $RELAY_LOG)"
-  (cd mini-services/relay-service && bun --env-file=../../.env index.ts) >>"$RELAY_LOG" 2>&1 &
-  RELAY_PID=$!
-}
+MODE="${1:-up}"
 
 case "$MODE" in
-  all)   start_relay; start_web ;;
-  web)   start_web ;;
-  relay) start_relay ;;
-  *)     die "usage: scripts/dev.sh [all|web|relay|check]" ;;
+  up)
+    exec "$ROOT/start-dev.sh" up
+    ;;
+  web)
+    echo "dev.sh: the web app alone"
+    exec bun run dev
+    ;;
+  relay)
+    echo "dev.sh: the relay alone"
+    exec bun "$ROOT/mini-services/relay-service/index.ts"
+    ;;
+  check|status)
+    exec "$ROOT/start-dev.sh" status
+    ;;
+  stop)
+    exec "$ROOT/start-dev.sh" stop
+    ;;
+  restart)
+    exec "$ROOT/start-dev.sh" restart
+    ;;
+  *)
+    echo "usage: scripts/dev.sh [up|web|relay|check|status|stop|restart]" >&2
+    exit 1
+    ;;
 esac
-
-# Portable watchdog: if a child exits, report and stop the other.
-while :; do
-  if [ -n "$WEB_PID" ] && ! kill -0 "$WEB_PID" 2>/dev/null; then
-    echo "dev.sh: web (pid $WEB_PID) exited; tail of $WEB_LOG:" >&2
-    tail -n 5 "$WEB_LOG" >&2 || true
-    cleanup
-  fi
-  if [ -n "$RELAY_PID" ] && ! kill -0 "$RELAY_PID" 2>/dev/null; then
-    echo "dev.sh: relay (pid $RELAY_PID) exited; tail of $RELAY_LOG:" >&2
-    tail -n 5 "$RELAY_LOG" >&2 || true
-    cleanup
-  fi
-  sleep 2
-done
