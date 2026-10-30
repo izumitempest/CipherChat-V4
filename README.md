@@ -41,26 +41,29 @@ browser. The server is a blind relay that cannot read a single frame.
   (✓ acknowledged · ✦ noted · ♥ warmly received · ☾ later). Marks are
   encrypted, signed, uniform-sized frames. The relay cannot tell
   a mark happened.
-- **Captioned files.** Attach a file with words. The caption is carried on
-  the file's meta frame, canonical-signed like any text message.
+- **Captioned files.** Attach a file with words. The caption rides the
+  file's meta frame, and the signature covers the whole frame body:
+  the caption, the file's name, its type, its size and the ttl all
+  ride inside it.
 - **Refresh locks every room.** Keys live only in memory. Reload the page
   and each room must be unlocked again with its password.
 - **Verifiable identity.** You are a derived alias and a fingerprint others
   can verify out-of-band. Your signing key is per-room: the same device
   in two rooms is two different, unlinkable identities.
 
-## How the crypto works (protocol v2)
+## How the crypto works (protocol v3)
 
 | Property | Mechanism |
 | --- | --- |
 | Room entry key | argon2id (64 MB, t=3, p=1) from the password + a random salt in a versioned key bundle (legacy PBKDF2 rooms still unlock) |
-| Every frame | JSON → ECDSA-P256 signature → **padded to a uniform size** → AES-256-GCM |
-| Uniformity | All control frames (messages, typing, receipts, burns, key offers, file meta, ink marks) are the same size; every file transfer is the same fixed number of chunk frames, so the relay cannot read file sizes or even tell typing from messages |
+| Every frame | JSON → ECDSA-P256 signature over the **whole body** → **padded to a uniform size** → AES-256-GCM |
+| Uniformity | All control frames (messages, typing, receipts, burns, key offers, file meta, ink marks) are the same size, so the relay cannot tell typing from a message. A file is padded to the smallest size bucket that holds it (64 KB, 256 KB, 1 MB, 2 MB), so the relay learns the bucket and not the file's exact size |
 | Replay defense | per-sender monotonic counters, ±10-minute timestamp window, frame-id dedup, refresh-surviving watermarks |
-| Rotation on leave | the remaining members switch to a **new random key**, delivered pairwise over ephemeral ECDH. The leaver never receives it, and it is not derived from the password |
+| Rotation on leave | the remaining members switch to a **new random key**, delivered pairwise over ephemeral ECDH. The leaver is not sent it at rotation time, and it is not derived from the password |
 | Silent-departure grace | a member whose connection drops without a clean leave is removed **2 minutes** later while anyone remains connected. The clock lives on the remaining clients: the relay's live presence (token-guarded, server-to-server) is the connection authority the eviction route consults, the epoch ledger makes the rotation durable, and the departed member simply re-enters with the password when they return |
 | Departure proof | leaving requires a signature from the member's registered key. A room-code holder cannot trigger nuisance rotations in your name |
-| Rejoin after rotation | the current key arrives ECDH-wrapped and encrypted under the password-derived entry key, so only a joiner who proved the password can open it |
+| Rejoin after rotation | the current key arrives ECDH-wrapped and encrypted under the password-derived entry key, so only a joiner who proved the password can open it. A password holder who comes back gets the current key like anyone else |
+| Joining proves the password | the server keeps a join verifier, an HMAC over the key derivation output bound to the room, and never publishes it. The client proves knowledge with a fresh HMAC, so a link holder can read nobody's roster and register nobody |
 | Forgery | messages are signed inside the encrypted payload and verified against the REST member registry; forgeries render as a plain rejection line |
 | Verifiability | fingerprints derive from registered public keys; verification marks live on your device |
 
@@ -72,7 +75,9 @@ property test.
 The full property suite is enforced by tests named after the properties
 they protect: replay, rotation, padding, KDF, identity, hardening,
 silent-departure grace, departure proofs, admission, reply integrity,
-canonical collision-proofing, report grading, passphrase CSPRNG source.
+canonical collision-proofing, the join proof, the creator token, the
+file chunk shape, the relay's member binding, the trust boundaries of
+the API routes, passphrase CSPRNG source.
 The per-round inventory and the current count live in `CHANGES.md`
 (this section does not restate them; duplicated counts
 go stale). Run the suite with `bun run test`.
@@ -82,8 +87,9 @@ go stale). Run the suite with `bun run test`.
 Read this part. These are the main limitations.
 
 - **Metadata.** The relay sees who talks to whom, when, and how much.
-  Frame sizes are uniform, so it cannot read file sizes or distinguish
-  typing from messages, but the fact of communication is visible.
+  Frame sizes are uniform, so it cannot distinguish typing from
+  messages, and a file's size is hidden inside a bucket, but the fact
+  of communication is visible and the bucket is not.
 - **View-once is a promise, not enforcement.** Any member can passively
   decrypt a view-once file on arrival and keep it without opening the
   viewer. Inherent to group E2EE; Signal has the same limit.
@@ -127,38 +133,39 @@ reload socket handlers).
 
 ### Development (one command)
 
-`scripts/dev.sh` starts both services from the repo root, one terminal:
+`start-dev.sh` at the repository root starts the whole stack, one
+terminal:
 
 ```bash
-scripts/dev.sh         # web on :3000 and relay on :3003,+:3004
-scripts/dev.sh check   # validate prerequisites without starting
-scripts/dev.sh web     # only the Next.js app
-scripts/dev.sh relay   # only the relay
+./start-dev.sh            # web on :3000, relay on :3003, presence on :3004
+./start-dev.sh --lan      # the same, plus two https tunnels for a phone
+./start-dev.sh status     # are the services up?
+./start-dev.sh stop       # stop everything the script knows about
+./start-dev.sh restart    # stop, then start
 ```
+
+`scripts/dev.sh` still exists and forwards to it, so the old command
+keeps working.
 
 What it does:
 
-- Checks before starting: `bun` on PATH, `.env` exists and
-  `RELAY_INTERNAL_TOKEN` is set and not the placeholder, the relay's
-  `node_modules` exists, and the Prisma client is generated.
-- Starts the app (`bun run dev`) as `dev.log` and the relay as
-  `relay-dev.log`, and keeps both alive as a pair: if either exits, the
-  script prints the last 5 lines of that log and stops the other, so you
-  never run a half-dead stack.
-- `Ctrl-C` stops both.
+- Fills in any missing variable in `.env` (never overwrites an existing
+  one): `RELAY_INTERNAL_TOKEN` as 48 random hex, the database path, the
+  relay URL and the site URL.
+- Generates the Prisma client and applies the migrations, so the
+  database is the right shape before the app talks to it.
+- Stops anything already sitting on 3000, 3003 or 3004, so a stale
+  instance never answers in your place.
+- Starts the relay and the web app detached, so they survive the
+  terminal closing. Logs land in `dev.log` and `relay-dev.log`, the
+  pids in `.run/`.
+- Waits until all three ports answer, then prints where to go.
 
-What it deliberately does not do:
-
-- Use `bun --hot` on the relay. Socket handlers do not reliably reload
-  through it, which is why the README's manual note exists. The
-  launcher restarts the whole process instead.
-- Read `.env.local`. The relay's own `dev` script does; the launcher
-  only sources `.env` because that is what exists here. If you add a
-  `.env.local`, extend the line in `start_relay`.
-- Create `prisma/db/`. `DATABASE_URL=file:./db/custom.db` is resolved
-  relative to the repo's working directory at runtime, which is the
-  repo root, so the launcher creates `db/` instead. (`prisma/db/custom.db`
-  is a leftover from earlier development and is not used.)
+With `--lan` it also opens two Cloudflare quick tunnels, one for the app
+and one for the relay, and writes the relay's tunnel URL into `.env`
+before the web app starts. Plain http on a LAN address is not a secure
+context, and WebCrypto needs one, so a phone cannot join over the LAN
+address itself.
 
 The relay URL is configuration, not code: `NEXT_PUBLIC_RELAY_URL`
 (dev: absolute `http://localhost:3003/`; production: same-origin
@@ -177,8 +184,10 @@ docker compose up -d        # app + relay + Caddy with automatic TLS
 
 That is the whole self-host setup: `deploy/` contains the web Dockerfile
 (Next.js standalone output + Prisma), the relay Dockerfile, and the
-compose file that wires them behind Caddy. `docker compose down -v`
-removes the database volume too. Burn your rooms first if you mean it.
+compose file that wires them behind Caddy. The compose file runs the
+migrations before the app starts, so the schema is right without a
+manual step. `docker compose down -v` removes the database volume too.
+Burn your rooms first if you mean it.
 
 On a machine with only Docker installed, `docker compose up` gives a
 working HTTPS site; verify the golden path with **two devices** (two
@@ -237,10 +246,11 @@ bunx playwright test                # against a running dev stack (base URL
 `.github/workflows/ci.yml` runs two jobs:
 
 - **verify**: lint → `tsc --noEmit` (the relay included) → the full
-  property suite → the dependency audit → production build. The audit
-  is split by scope: the **runtime tree** gate is blocking (exceptions
-  enumerated per advisory in `scripts/audit-gate.mjs` + `AUDIT.md`),
-  the full-tree view is advisory and dispositioned per advisory.
+  property suite → the dependency audit → the migrations → the
+  production build. The audit is split by scope: the **runtime tree**
+  gate is blocking (exceptions enumerated per advisory in
+  `scripts/audit-gate.mjs` + `AUDIT.md`), the full-tree view is
+  advisory and dispositioned per advisory.
 - **e2e**: builds the production compose stack on the runner (web +
   relay + Caddy), waits for it to answer, and drives the golden path
   through it; traces, screenshots, and stack logs upload on failure.
@@ -280,21 +290,28 @@ the cost of grinding resistance, not a bug. The sealing screen says so.
 The architecture permits exactly one act of moderation: ending a
 room. There is no content to review (the server is blind), no member
 to suspend (identity is per-room and derived), no history to scrub
-(none is stored). Reports are **graded by credibility** (see
-`SECURITY.md` for the mechanics):
+(none is stored). There is no report button in the app and no report
+endpoint on the server, because the only act a report could trigger
+was ending the room, and every path to that act was reachable by
+anyone holding an invite link.
 
-- **A member's report acts at once.** The report button in room
-  settings signs `cc-report-v1` with the room's signing key. Members
-  are the only humans who can see content, so they are the only
-  credible content reporters.
-- **A stranger's report needs corroboration.** Anonymous reports are
-  tallied per room by distinct IP; three independent networks burn
-  the room as the backstop.
+A graded report looked safer because it had to carry a signature from
+a registered key, but registering took no proof of anything, so a link
+holder could register and then burn. The anonymous version was worse:
+three distinct IPs counted, the tally lived in memory, and the server
+kept a reporter's free text for seven days against the nothing-stored
+promise. Grading bought the shape of moderation without the
+substance, so the feature went.
+
+A room ends three ways: its clock runs out, the creator burns it, or
+the operator terminates it. The creator holds the burn button. The
+operator holds a token-guarded `POST /terminate` on the relay's
+internal port for the legal cases.
 
 Rooms can also be reported to **lilice308@gmail.com** (also listed in
 Settings → About). Self-hosters should publish their own contact and
-keep the operator path (`POST /terminate` on the relay's internal
-port, token-guarded) for the legal cases.
+keep the operator path for the legal cases. The mechanics are in
+`SECURITY.md`.
 
 ## Documentation
 

@@ -1122,3 +1122,656 @@ Round 32: the anonymous kill switch (graded reports), the canonical
 separator collision (field-11 escaping + named proofs), the red audit
 gate (split + surgery + dispositions), and the never-executed CI
 workflow (Run #1 fired; its one failure fixed).
+
+## 17. Protocol v3, the signing string covers the whole frame
+
+Two bugs, one fix. The v2 signing string joined variable-length fields
+with a pipe and escaped only one of them, so two different bodies could
+produce the same string and a signature made for one verified for the
+other. And it signed only the text and the top level file sha, so the
+ttl, the view-once flag, the file name and mime, the file bytes and the
+key offer contents all travelled unsigned. A member holding the room key
+could rewrite any of those in somebody else's frame and the signature
+still passed. These are bugs/BUGS.md B1 and B2.
+
+The canonical is now `canonicalV3FromBody(roomId, body)`. It takes the
+body out of its own signature, serialises it with sorted keys and
+dropped undefineds, hashes it with SHA-256, and puts that hash under a
+length-prefixed room id:
+
+    "2:v3" + "<roomId bytes>:<roomId>" + "64:<body hash>"
+
+Nothing has to be escaped, so nothing can be forgotten to escape. Every
+field the body carries is inside the hash, including fields nobody had
+thought about when the protocol was written. The sealer and the verifier
+call the same function with the same body, so the two sides cannot
+drift apart, which is how the old bug got in.
+
+v2 frames are refused rather than verified. A v2 signing string cannot
+be trusted to mean one body, so keeping it readable would keep the hole
+open. A v3 build drops v2 frames, a v2 build drops v3 frames, and
+neither prints a rejection line for the other. The room goes still.
+
+New: `src/lib/__tests__/protocol-v3.test.ts`. It re-encrypts a real
+frame under the room key with one field changed and the sender's own
+signature still attached, which is exactly what a member can do, and
+asserts the receiver says no. That covers the old text and file sha
+collision, the ttl, the view-once flag, the quote, the file metadata,
+the chunk bytes and the key offer contents. It also asserts a v2 frame
+and a frame for another room are refused.
+
+Changed: `protocol.ts` (the canonical, `WIRE_VERSION = 3`, frames
+stamped v3), `room-protocol.ts` (verification through the new
+canonical, plus a room id check), `store/app.ts` (v3 frames only, the
+legacy v1 envelope path untouched), the tests that described the old
+canonical, and the protocol sections of `DESIGN.md`, `SECURITY.md`,
+`RELEASE_NOTES.md` and `COMPONENTS.md`.
+
+197 tests across 20 files pass. tsc clean. lint 0 errors, 2 warnings in
+the composer, same as before. `bun run build` succeeds.
+
+Still open, and not touched by this pass: the member registry write path
+takes no proof of possession (B6), joining does not prove you know the
+password (B7), the file assembler does not check chunk shape (B3), two
+clients can rotate into the same version with different keys (B4), and
+the rest of the list in `bugs/BUGS.md`.
+
+## 18. The abuse report goes
+
+The report feature is gone: the API route, the store action, the
+settings row and its modal, the proof module, the database column and
+the copy that pointed at all of it.
+
+Why now. The server holds no content, so it has nothing to review, no
+member to suspend and no history to scrub. The one act moderation could
+take was ending a room, and every path to that act was reachable by
+anyone holding an invite link. Round 32 graded the report to fix that.
+The grading did not fix it:
+
+- The member-signed report looked safe because the report had to carry
+  an ECDSA signature from a registered room key. Registering took no
+  proof of anything (B6, B7), so a link-holder could register a key and
+  then burn the room with one POST. A kill switch with a keyring.
+- The anonymous report was the same kill switch with a tally in front
+  of it. Three distinct IPs burned the room (B11), the tally lived in
+  memory so a restart reset it (B12), and the server kept the
+  reporter's free text for seven days against the nothing-stored
+  promise (B13).
+- The report also never checked the server's answer. A failed report
+  still played the local burn (B23).
+
+So the feature went rather than staying as a second way to do the one
+thing it could do.
+
+What survives: the creator's burn button, the token-guarded relay
+`POST /terminate/:roomId` for the operator, and the contact address in
+README and Settings then About. A room ends when its time runs out,
+when the creator burns it, or when the operator terminates it.
+
+Removed:
+
+- `src/app/api/rooms/[roomId]/report/route.ts`
+- `src/lib/report-proof.ts`
+- `store/app.ts`: the `reportRoom` action
+- `cc/settings-sheet.tsx`: the Report this room row and its modal
+- `prisma/schema.prisma`: the `reportReason` column
+- `cc/app-settings-sheet.tsx` and `portfolio/stack.tsx`: the copy
+- the report proof and tally tests in `task-32-last-round.test.ts`
+
+The leave proof keeps its own suite in `task-22.1-leave-proof.test.ts`.
+The old database rows keep their `reportReason` text until the next
+`prisma db push` drops the column; the deploy entrypoint runs that on
+every start, so a deployed room loses it on the next boot.
+
+Docs: the protocol and moderation sections of `SECURITY.md`,
+`DESIGN.md`, `RELEASE_NOTES.md` and `COMPONENTS.md` now say how a room
+actually ends. `README.md` still has the abuse section, it is the
+project's own file to edit, and it now points at a feature that is gone.
+
+184 tests across 20 files pass, down from 197: the thirteen report
+proof and tally tests went with the code they tested.
+
+## 19. The member update asks for proof of possession (B6)
+
+The member registry is writable by anyone who knows the room id. The
+roster is public, so a stranger could read a member's pubkey and post
+it back. The route found the member by pubkey and overwrote the row:
+the alias, the ink index and the ECDH key. The ECDH key is what a key
+offer is encrypted to, so overwriting it meant the next key offer went
+to whoever posted last. The room key with it.
+
+The update path now carries a signature from the member's own
+registered key, over `cc-member-v1:{roomId}:{ecdhPub}:{ts}`. The ECDH
+key is inside the signature, so a captured proof cannot be replayed onto
+another key. The join path writes a new row, so it needs no proof:
+there is nobody to take over.
+
+The window is a day, not the ten minutes the leave proof uses. A device
+with a wrong clock must not lock its owner out of a room they are
+already in, and the proof names the ECDH key, so a long window costs
+almost nothing.
+
+New: `src/lib/member-proof.ts`, `src/lib/__tests__/member-proof.test.ts`.
+
+Changed: `src/app/api/rooms/[roomId]/members/route.ts` (the update path
+asks for the proof and refuses without one), `src/store/app.ts` (the
+create and join flows sign it and send it, and the join maps a refused
+proof to its own reason), and the join error copy in
+`src/components/screens/invite.tsx`, `room-list.tsx` and `chat.tsx`.
+
+Checked by hand against a running server: posting a member's pubkey
+back with no proof, with a forged proof and without an ECDH key all
+answer 403 `proof-required`, and the row keeps its alias, its ink index
+and its ECDH key.
+
+194 tests across 21 files pass. tsc clean, lint 0 errors and the same
+two warnings in the composer, and both Playwright specs pass in Brave,
+including the rejoin, which is the path that asks for the proof.
+
+Still open: joining proves no knowledge of the password (B7), the
+roster is world-readable (B8), and the alias the server stores is
+whatever the client sent (B9).
+
+## 20. The file assembler checks the chunk shape (B3)
+
+A file arrives as one meta frame plus a fixed number of chunk frames.
+The assembler took the sender's word for the shape: any total, any
+seq, any payload. A member could name a total of a billion and feed
+the assembler an unbounded number of distinct chunks for one file, and
+it held every one of them. That is a memory ceiling with no ceiling.
+
+The receiver now checks the shape before it stores anything:
+
+- the total has to be the fixed 44 chunks
+- the seq has to be an integer inside the range
+- the payload has to be non-empty and at most 64,000 characters
+- the meta has to be sane: the size inside the format's limit, a
+  lowercase sha, a name and a mime within bounds
+
+And the pending transfers share a byte budget, 16MB of chunk strings.
+When a chunk does not fit, the oldest transfer is dropped, and when it
+does not fit even on an empty budget it is refused. The ceiling on the
+number of pending transfers stays at 32, and it now counts bytes too.
+
+New: `src/lib/__tests__/file-chunk-shape.test.ts`, and
+`FILE_MAX_BYTES` in `protocol.ts`.
+
+Changed: `src/lib/room-protocol.ts` (the chunk and meta checks, the
+pending byte budget, an optional budget for tests), `protocol.ts` (the
+size limit), and the file sections of `DESIGN.md` and `COMPONENTS.md`.
+
+202 tests across 22 files pass. tsc clean, lint 0 errors and the same
+two warnings in the composer, and both Playwright specs pass in Brave,
+the golden path included, which moves a file through the whole
+transfer.
+
+Still open: the relay has no byte budget of its own (B17, B32), and the
+file payload is padded to a fixed 2.8MB of base64 for every file, so a
+small file costs the same as a large one.
+
+## 21. A key version is a pair, not a counter (B4)
+
+A key version used to be the next number above the one the client
+held. Two members falling back at the same time could land on the same
+number, install two different keys under it, and read nothing of each
+other afterwards: a receiver only accepts a version strictly greater
+than the one it holds, so the second offer was ignored and the room
+split in two.
+
+A version is a pair now: the server's rotation epoch, and a fresh
+random offset inside it. The pair compares as one number, so a version
+from a later epoch always wins, and two rotations inside one epoch
+land on two different numbers. The higher one wins, the lower one
+takes it, and the room is one room again.
+
+The offset is fresh per rotation and always clears the offset this
+client already holds, so a client never installs a version below its
+own. A client whose offset sits at the top of its epoch steps into the
+next epoch instead of drawing again.
+
+The residual: two rotations in the same epoch that draw the same
+32-bit offset would still collide. One in four billion. The other way
+out is the server handing out every version, which costs a round trip
+in the middle of the rotation ceremony.
+
+New: `src/lib/__tests__/rotation-version.test.ts`.
+
+Changed: `protocol.ts` (`ROTATION_VERSION_SPAN`, `rotationVersion`,
+`rotationEpochOf`), `room-protocol.ts` (the version policy, the cap
+now counts epochs, an injectable offset for tests), `store/app.ts` (the
+fallback passes the server's epoch instead of a random jump, the leave
+ceremony reads the epoch from the registry), and the rotation sections
+of `DESIGN.md` and `COMPONENTS.md`.
+
+209 tests across 23 files pass. tsc clean, lint 0 errors and the same
+two warnings in the composer, and both Playwright specs pass in Brave,
+the golden path included, which leaves, rotates and rejoins.
+
+## 22. Joining proves you know the password (B7, B8, B9)
+
+Three things were open about the member registry. All three are
+closed.
+
+**The join.** Anyone holding the link could register a member row:
+a name of their choosing, an ink of their choosing, and a seat in the
+roster. The server has no way to tell them from somebody who knows the
+password.
+
+The server now holds a join verifier: an HMAC over the key derivation
+output, bound to the room id, in a column it does not publish. The
+client proves knowledge by HMAC-ing a timestamp and a nonce with that
+verifier, so every proof is fresh, expires in ten minutes, and a
+captured one cannot be replayed later. The password never leaves the
+client and the server still cannot derive the room key: it never had
+the derivation output to begin with, and the verifier is one-way.
+
+The public key bundle stays what it was: a known-plaintext oracle for
+offline password guessing, which the argon2 cost is there to make
+expensive. The verifier is a separate value and never leaves the
+server.
+
+**The roster.** It was world-readable: anybody with the link could read
+every member's public key, alias and ECDH key. It now answers only to
+a proof, so only a password holder can read it. The clients fetch it
+with the proof in a header.
+
+**The alias.** The server stored whatever alias and ink the client
+sent, so a member could wear another member's name. It derives both
+from the public key now, with the same function the client uses, and
+ignores what the client sends.
+
+Rooms sealed before this change have no verifier stored and the server
+cannot invent one, so they keep the old rule: the link holder can
+register, and the roster is readable. Legacy rooms are short lived by
+design. New rooms are sealed with a verifier from the start.
+
+New: `src/lib/join-proof.ts`, `src/lib/__tests__/join-proof.test.ts`.
+
+Changed: `src/lib/kdf.ts` (the bundle comes with a join verifier, the
+unlock returns it), `src/lib/crypto.ts` (the legacy key bits, for the
+verifier), `prisma/schema.prisma` (the `joinProof` column),
+`api/rooms/[roomId]/verifier/route.ts` (the creator stores the
+verifier), `api/rooms/[roomId]/members/route.ts` (the join and the
+roster ask for the proof, the alias and the ink are derived),
+`src/store/app.ts` (the create and join flows send the proof, the
+roster fetch carries it) and `src/lib/session.ts` (the verifier is
+session state, in memory only, like the password).
+
+223 tests across 24 files pass. tsc clean, and both Playwright specs
+pass in Brave. Checked by hand against a running server too: a roster
+read with no proof, a join with no proof and a roster read with a
+junk proof all answer 403.
+
+Still open: the room-full cap is a soft cap, so a coordinated attacker
+with many IPs can still fill a room with real members. The public
+bundle is still an offline password oracle, by design.
+
+## 23. The creator token, the server's answers, the body cap, the headers (B20, B21, B22, B24, B14, B15, B16)
+
+**The creator token.** It authorized burning a room and changing its
+lifetime, and it sat in SQLite in the clear. The comment in the room
+route said the server held only something hash-comparable, which was
+not true. The server now stores sha256 of the token, domain separated,
+and compares it in constant time. The plain token goes back to the
+creator once and lives on their device, in localStorage, because
+burning has to work after a refresh. Rooms sealed before the change
+stored the token plain; the plain one still works and the server
+replaces it with the hash on first use.
+
+**The server's answers.** Three places pushed on regardless of what
+the server said. Creating a room ignored a refused creation and went
+on to seal a room that did not exist. Sealing ignored a refused seal
+and left the creator in a room nobody could unlock. Burning ignored a
+refused burn and showed the burn screen for a room that was still
+alive. All three now stop at the refusal and say what happened.
+
+**The body cap.** Every route under /api/rooms read its JSON body with
+request.json(), which buffers whatever arrives. One shared reader now
+caps bodies at 64 KB, checks the content-length first and counts the
+bytes as they arrive (the header can lie, so the count decides). A body
+over the cap answers 413.
+
+**The headers.** The app now sends a Content-Security-Policy with a
+fresh nonce per request, made in a middleware and handed to Next
+through the x-nonce header, so the policy can name the nonce instead
+of waving every inline script through with 'unsafe-inline'. With it:
+nosniff, no-referrer, DENY framing, a permissions policy that closes
+the camera and the microphone, cross-origin isolation, and HSTS in
+production. The static files get the same headers from next.config.ts,
+and the Caddy edge sets them too.
+
+**The relay's CORS.** The relay answered every origin. It holds no
+content, but it does hold the room map and the presence table, and a
+page on any site could open a socket, join a room whose id it knew and
+read the membership. The relay now answers only the app's origin, from
+RELAY_ALLOWED_ORIGINS, with the local app and the deployed site as the
+defaults.
+
+New: `src/lib/creator-token.ts`, `src/lib/api-body.ts`, `src/lib/csp.ts`,
+`src/middleware.ts`, `src/lib/__tests__/creator-token.test.ts`.
+
+Changed: `api/rooms/route.ts`, `api/rooms/[roomId]/route.ts`,
+`api/rooms/[roomId]/burn/route.ts`, `api/rooms/[roomId]/verifier/route.ts`,
+`api/rooms/[roomId]/members/route.ts`, `api/rooms/[roomId]/leave/route.ts`,
+`api/rooms/[roomId]/evict/route.ts`, `src/store/app.ts`,
+`src/components/cc/settings-sheet.tsx`, `src/components/screens/room-list.tsx`,
+`next.config.ts`, `deploy/Caddyfile`,
+`mini-services/relay-service/index.ts`, `prisma/schema.prisma`.
+
+231 tests across 25 files pass. tsc clean, lint clean apart from the
+two old warnings in composer.tsx. Both Playwright specs pass in Brave.
+Checked by hand: a 200 KB body answers 413, a body over the cap is
+refused on every route, the relay hands the allowed origin a CORS
+header and a foreign origin none, and the headers are on the response.
+
+Still open: the CSP allows 'unsafe-inline' for styles, because React
+writes inline styles. A nonce for styles would need the same treatment
+in every styled component. The relay's allowed origins are a list, not
+a policy: a site behind the same origin would still be inside it.
+
+## 24. The relay counts bytes, speaks for the member it holds, and the janitor sweeps the clockless rooms (B17, B32, B19)
+
+**Bytes.** The relay's frame bucket allowed 20 frames a second with a
+burst of 64. A frame can be 128 KB, so one socket could push 2.5 MB a
+second forever and nothing accounted for it. There is now a byte
+bucket beside the frame bucket: 1 MB a second sustained, 8 MB of
+burst, charged with each frame's own size. A whole file transfer (44
+padded frames, about 4 MB) fits inside the burst. The frame bucket
+still stands, so the small frames are counted too.
+
+**The member id.** The relay took the member id from every event the
+client sent. A client could announce that somebody else had left,
+which moved a live member's presence clock, or type under somebody
+else's name, or ask for a key as somebody else. The relay now binds a
+socket to the member ids it claimed when it joined, and every later
+event speaks for the bound id. The client's own id is ignored. A
+socket that never joined a room can no longer push frames into it.
+
+**The clockless rooms.** The janitor deleted rooms whose clock had run
+out. A null expiry is not less than anything in SQLite, so "until
+burned" rooms stayed in the database forever. They are now swept after
+a year, and only when every member row is inactive and nobody has
+been seen since. A room somebody is sitting in is left alone. The rule
+is in the room lifetime copy and in DESIGN.md.
+
+New: `src/lib/relay-binding.ts`, `src/lib/__tests__/relay-binding.test.ts`.
+
+Changed: `src/lib/rate-limit.ts` (the bucket takes a cost, so one
+bucket serves frames and bytes), `mini-services/relay-service/index.ts`
+(the byte bucket, the member binding, the room member cap),
+`src/lib/janitor.ts`, `src/components/cc/settings-sheet.tsx`.
+
+240 tests across 26 files pass. tsc clean, lint clean apart from the
+two old warnings in composer.tsx. Both Playwright specs pass in Brave.
+
+Still open: the relay's byte bucket is per socket, so a member with
+many sockets has many buckets. The relay holds no frame bodies, so
+the memory it uses is the room map, now capped at 64 members a room.
+
+## 25. The schema has migrations now (B18)
+
+The production container created the schema with `prisma db push` on
+every boot and never upgraded an existing volume. The first schema
+change after a deploy would break the running app, and nothing in the
+repository said what the schema was supposed to be at any version.
+
+There are migrations now:
+
+- `prisma/migrations/0_init` is the baseline. Every statement is
+  written with IF NOT EXISTS, so it can run against a database the
+  old push flow left behind without wiping it.
+- `prisma/migrations/1_join_proof` adds the join verifier column.
+- A new `migrate` stage in the web Dockerfile, and a `migrate`
+  service in the compose file. It runs once per deploy, before the
+  web container starts.
+- The migration step backs the database up first (one backup, beside
+  the file), baselines a database that has tables but no migration
+  history, and then applies whatever is pending.
+- The web container no longer bakes a schema template and no longer
+  carries the Prisma CLI. The runtime image is smaller and the
+  migrations are the only thing that touches the schema.
+- CI applies the migrations before the production build, so a broken
+  migration fails the build instead of the first deploy after it.
+
+The local flow is `bun run db:migrate` (a dev migration) and
+`bun run db:deploy` (the deploy one). The old `db:push` script is
+still there for the sandbox.
+
+Still open: there is no downgrade story. A migration that breaks the
+database is undone by restoring the backup, not by running a migration
+backwards.
+
+## 26. The file viewer is a real dialog, the countdown stops talking, the landing copy stops overclaiming (B25, B26, B27, B34, B38)
+
+**The file viewer.** It was a hand-rolled overlay with `role="dialog"`
+and `aria-modal="false"`: no focus move, no trap, no restore. A
+keyboard user could tab behind it into the conversation. It is now the
+project's dialog primitive, so the focus moves in, stays in, comes back
+where it was, and Escape closes it. The backdrop is the viewer's own
+paper surface, not the usual dim.
+
+**The countdown.** The message list is a live log, and every message
+with a TTL ticked once a second inside it, so a screen reader read the
+number again every second for every expiring message. The log now
+announces additions only, the ticking label is out of the live region,
+and the countdown says something twice: about a minute left, and ten
+seconds left.
+
+**The new password button.** It was 17px of text with a 17px hit
+area. The label stays small; the hit area is now 44px.
+
+**The landing copy.** "Messages are encrypted in your browser and
+destroyed on schedule. We can't read them. Neither can anyone else."
+overclaimed twice: the timer is off by default, and the room's members
+can read everything. It now says the messages are encrypted in the
+browser, you can set them to disappear on a timer if you want, and the
+server cannot read them. The page metadata says the same thing.
+
+**The seed fallback.** The comment in the seed vault promised that a
+browser without IndexedDB keeps the seed in memory for the page load
+only. The fallback wrote the raw 32 bytes to localStorage under
+`cc.seed` instead, so the device seed landed on disk in the clear on
+exactly the browsers least able to keep it safe. It is memory only now,
+and the comment is true.
+
+New: nothing.
+
+Changed: `src/components/cc/file-viewer.tsx`,
+`src/components/ui/dialog.tsx`, `src/components/cc/bubble.tsx`,
+`src/components/screens/chat.tsx`, `src/components/screens/landing.tsx`,
+`src/app/layout.tsx`, `src/lib/room-identity.ts`, `src/store/app.ts`,
+`DESIGN.md`, `COMPONENTS.md`.
+
+240 tests across 26 files pass. tsc clean, lint clean apart from the
+two old warnings in composer.tsx. Both Playwright specs pass in Brave.
+
+Still open: the countdown still ticks a timer for every expiring
+message, which is work the browser does whether or not anybody is
+listening.
+
+## 27. The repo housekeeping (B39, B40, B41, B42, B43, B44, B30, B31)
+
+**Bun was a dependency.** `"bun": "^1.4.2"` sat in `dependencies`, which
+puts `node_modules/.bin/bun` ahead of the system bun inside package
+scripts. That is why the documented relay command died with "Bun's
+postinstall script was not run". Bun is a tool you run, not a thing
+the app depends on. It is gone.
+
+**Dead dependencies.** `z-ai-web-dev-sdk`, `next-auth`, the Capacitor
+packages, the dnd-kit packages and `@tanstack/react-table` were
+declared and imported nowhere. A vendored AI SDK in a privacy app is
+the worst of them. All gone. Forty of the forty-eight files in
+`src/components/ui/` were never imported either: eight remain (button,
+context-menu, dialog, input, popover, sheet, sonner, toast).
+
+**The review tool's files.** Twenty-one `.mimosa/` files were tracked:
+per-session hook state, finding ledgers, task review reports. Same
+category as committing `.claude/` or `.vscode/`. They are untracked
+now and ignored.
+
+**Two launchers.** `scripts/dev.sh` and `start-dev.sh` did overlapping
+jobs with different behaviour. `start-dev.sh` is the supported path
+now: it fills in a missing `.env`, applies the migrations, stops stale
+instances, starts both services detached, waits for all three ports and
+can put a pair of https tunnels in front for phone testing.
+`scripts/dev.sh` forwards to it.
+
+**One lockfile, one audit command.** The blocking audit gate read
+`bun.lock` for the findings and materialized an npm lockfile for the
+runtime/dev split. Two lockfiles, two package managers, and a resolver
+that was not the one installing the project. The split now comes from
+`bun.lock` itself: the gate walks it from the root workspace's
+production dependencies through the dependency edges. No network in the
+loop, no second lockfile, and the scope is exactly what can ship.
+
+**LAN phone testing.** `--lan` served the app and the relay over plain
+http on a LAN address. WebCrypto needs a secure context, so the first
+crypto call failed and the service worker never installed. The mode now
+starts a quick tunnel for the app and one for the relay, over https,
+and prints the phone URL. The relay URL is written into `.env` before
+the web server starts, because `NEXT_PUBLIC_` vars are inlined into
+the client bundle.
+
+**Strict mode.** On. An app full of sockets, timers and async effects
+hides double-mount bugs when it is off.
+
+**Fingerprints.** The verification fingerprint was 8 hex characters, 32
+bits, and people are asked to compare it out loud over another
+channel. 32 bits is a birthday collision every 65,000 keys. It is 16
+hex now, 64 bits, in four groups: `3F2A · 91BC · 4D70 · C2E1`.
+
+240 tests across 26 files pass. tsc clean, lint clean apart from the
+two old warnings in composer.tsx. Both Playwright specs pass in Brave
+with strict mode on.
+
+## 28. The routes get tested (B45)
+
+The protocol primitives had tests. The places where trust changes
+hands did not: the API routes, the store, the components. There is now
+a route suite that runs against a real database, a throwaway one in
+the temp folder, created by the migrations and thrown away after.
+
+Covered now:
+
+- a new member with no password proof is refused
+- a join whose proof was made for another room is refused
+- a join with a good proof lands, and the stored alias and ink are the
+  server's derivation, not the client's word
+- an ECDH key change with no proof of possession is refused, and the
+  row keeps its old key
+- the same key with its proof refreshes the row
+- a body over the cap is refused with 413
+- the roster is refused without the join proof and answers with it
+- a burn with the wrong creator token does not burn
+- a burn with the right creator token does
+
+249 tests across 27 files pass, and the production build succeeds with
+the middleware registered.
+
+## 29. A small file costs a small amount of traffic (B33)
+
+Every file was padded to the same total payload and split into the
+same 44 chunk frames, so a 1 KB voice note cost about 4 MB of
+ciphertext. The padding was there to hide the file's size from the
+relay, and it did, at a price nobody asked to pay.
+
+Files now land in a size bucket: 64 KB, 256 KB, 1 MB, 2 MB. A file is
+padded to the smallest bucket that holds it and split into that
+bucket's chunks, so the wire cost is a step function. A 1 KB note
+travels in three frames now instead of forty five.
+
+The trade is honest and it is written down: the number of frames says
+which bucket the file is in, so the relay learns the bucket, not the
+file's true size. The true size stays inside the encrypted meta frame.
+The receiver accepts only the buckets' chunk counts, so a sender
+cannot name an arbitrary total and make the assembler hold it.
+
+The largest allowed file is unchanged: 2 MB.
+
+## 30. The docs tell the truth again (B36, B37)
+
+DESIGN.md §4 said "no counts, no badges" while the app ships an
+unread count pill, and it argued for the room key from PBKDF2 at
+750,000 iterations while new rooms use argon2id and PBKDF2 is the
+legacy unlock path only. Both lines are corrected now, with a note
+about what the line used to say.
+
+The rest of the documents caught up with the code in this round: the
+security contract (the join proof, the hashed creator token, the body
+cap, the relay's CORS and byte bucket, the member binding), the threat
+model (the file buckets, the security headers that exist now), the
+component inventory (the new modules, the middleware, the migrations,
+the fingerprint width) and the release notes.
+
+The lint warnings in the composer are gone too, and the accidental
+executable bits on 37 tracked files are off.
+
+The relay's origin list takes the onion address into account. Tor
+writes that address on the first boot, so it cannot be listed by name
+beforehand, and an onion deployment would otherwise have been refused
+by the CORS pin from the last round.
+
+## 31. The store is slices, the memory is bounded, the document is a window (B28, B29, B5)
+
+The store was one file of about 2100 lines. It is five slices now, one
+per concern, in `src/store/`:
+
+- `lifecycle.ts` — boot, the hash router, the desk
+- `registry.ts` — the REST registry: create, join, roster, lifetime
+- `sessions.ts` — the room's life: enter, leave, burn, panic, teardown
+- `transport.ts` — the relay socket and what arrives on it
+- `receive.ts` — the receive pipeline: a frame arrives, the cipher
+  decides, and the result becomes a letter
+- `messages.ts` — the message memory, the file payloads, and the send,
+  spend, mark and burn actions
+- `timers.ts` — the clocks: burn, typing, cover traffic, rotation, the
+  silent-departure grace
+- `desk.ts` — the room cards on this device
+
+The slices take the store's `set` and `get` as arguments, so none of
+them imports the store and the dependency graph is a tree. The state
+shape and the shared types moved to `src/store/types.ts`.
+
+The memory rules came out of the same work. A room keeps at most 500
+letters and the oldest go when the cap is reached. The file bytes live
+outside the message list, in their own map keyed by the message id,
+under a 32MB budget per room: the oldest file is dropped when the
+budget is reached, its card says the contents are no longer here, and a
+letter that falls off the cap takes its file with it. The document holds
+60 letters at a time; scrolling back to the top brings the older ones
+in, and the reader's place in the log is kept when they arrive.
+
+The tests came out of it too. The store's rules are pure functions over
+plain data, so they are tested directly: the cap, the payload budget,
+the payload that goes with its letter, the mark toggle. The store's
+wiring is tested too, so a slice that forgets an action fails a test
+instead of a room. And the bubble is rendered on the server and read as
+markup, so the rules a reader would notice are held to account.
+
+273 tests across 30 files pass, tsc is clean, eslint is clean, the build
+succeeds, and both Playwright specs pass in Brave.
+
+## 32. The README tells the truth (B10, B35)
+
+Two README sentences were wrong, and the ones around them had gone
+stale as well.
+
+**B10.** The rotation row said "The leaver never receives it". The
+truth is narrower: the leaver is not sent the new key at rotation
+time, and a password holder who comes back gets the current key like
+anyone else. The E2E has said so for a while. The row says that now.
+
+**B35.** The captioned-files bullet said the caption is
+"canonical-signed like any text message". Under protocol v2 that was
+false: the old signing string covered some fields and not others. The
+whole frame body is signed now, so the caption, the file's name, its
+type, its size and the ttl all ride inside one signature.
+
+Around them: the protocol heading says v3, the uniformity row
+describes the size buckets instead of a fixed number of chunk frames,
+a row for the join proof was added, the property-suite list dropped
+"report grading" (the feature is gone) and names the new suites, the
+metadata bullet says the bucket is visible, the reporting section
+describes what is actually there (no report button, no report
+endpoint, three ways a room ends), and the development section
+describes `start-dev.sh` as it is, tunnels included.
