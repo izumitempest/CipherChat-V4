@@ -27,6 +27,15 @@ export function fromB64(b64: string): Uint8Array<ArrayBuffer> {
   return out;
 }
 
+/** Compare two strings without leaking where they differ. The length
+ *  is not hidden, the contents are. */
+export function equalInConstantTime(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 /* ---------------- room key derivation ---------------- */
 
 export async function deriveRoomKey(
@@ -34,14 +43,32 @@ export async function deriveRoomKey(
   epoch: number,
   password: string,
 ): Promise<CryptoKey> {
+  const raw = await deriveRoomKeyBits(roomId, epoch, password);
+  return crypto.subtle.importKey(
+    "raw",
+    raw as unknown as BufferSource,
+    { name: "AES-GCM" },
+    false,
+    ["encrypt", "decrypt"],
+  );
+}
+
+/** The raw legacy room key bytes, for the paths that need them
+ *  outside the CryptoKey (the join verifier). Same derivation as
+ *  deriveRoomKey, same key. */
+export async function deriveRoomKeyBits(
+  roomId: string,
+  epoch: number,
+  password: string,
+): Promise<Uint8Array> {
   const baseKey = await crypto.subtle.importKey(
     "raw",
     encoder.encode(password),
     "PBKDF2",
     false,
-    ["deriveKey"],
+    ["deriveBits"],
   );
-  return crypto.subtle.deriveKey(
+  const bits = await crypto.subtle.deriveBits(
     {
       name: "PBKDF2",
       salt: encoder.encode(`cipherchat:v1:${roomId}:${epoch}`),
@@ -49,10 +76,9 @@ export async function deriveRoomKey(
       hash: "SHA-256",
     },
     baseKey,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"],
+    256,
   );
+  return new Uint8Array(bits);
 }
 
 /* ---------------- verifier (wrong-password detection) ---------------- */

@@ -35,6 +35,11 @@ export interface RoomSession {
   /** true only for rooms whose key bundle predates protocol v2;
    *  gates the legacy (unpadded, unguarded) envelope receive path */
   legacy: boolean;
+  /** the join verifier for this room: an HMAC over the key derivation
+   *  output, bound to the room. It is what lets the server tell a
+   *  password holder from a link holder, so the roster and the join
+   *  ask for it. In memory only, like the password it came from. */
+  joinVerifier?: string;
 }
 
 const sessions = new Map<string, RoomSession>();

@@ -1,4 +1,17 @@
-// CipherChat wire protocol, version 2.
+// CipherChat wire protocol. v3 is current.
+//
+// v2 is refused, not accepted. Its canonical glued variable-length
+// fields together with "|" and escaped only one of them, so two
+// different bodies could produce the same signing string and a
+// signature made for one verified for the other. Keeping v2 readable
+// would keep that hole open, so a v3 build drops v2 frames and a v2
+// build drops v3 frames. The split is quiet on both sides: neither
+// prints a "rejected" line for the other, the room just goes still.
+//
+// v3 signs the whole frame body, so every field the body carries is
+// covered: the text, the ttl, the view-once flag, the file name and
+// mime, the file bytes, the key offer contents, and whatever gets
+// added to a frame after this line was written.
 //
 // Everything the relay carries is a uniform padded encrypted frame:
 //
@@ -10,10 +23,13 @@
 //       4000 characters, which is up to 16 KB of UTF-8; 4096 could not
 //       contain the product's own maximum message. Uniformity is the
 //       property; the size must simply dominate every control payload.
-//   file chunk frames → FILE_FRAME_BYTES (65536), and every file,
-//     regardless of true size, is padded to the same total payload
-//     length and split into the same FIXED number of chunks, so the
-//     relay cannot read file sizes from the traffic it forwards.
+//   file chunk frames → FILE_FRAME_BYTES (65536). A file is padded to
+//     the smallest SIZE BUCKET that holds it and split into that
+//     bucket's number of chunks. The relay therefore learns the
+//     bucket, not the file's true size, and a 1 KB note costs about
+//     64 KB of traffic instead of the 4 MB a fixed payload used to
+//     cost. The trade is honest: the number of frames says which
+//     bucket the file is in.
 //
 // Replay defense lives here too: every frame body carries a per-sender
 // monotonic counter inside a per-session tag, a timestamp checked
@@ -22,10 +38,11 @@
 import {
   signCanonical,
   verifyCanonical,
+  sha256HexOfBytes,
   toB64,
   fromB64,
 } from "./crypto";
-import { isReplySnapshot, type ReplySnapshot } from "./types";
+import { type ReplySnapshot } from "./types";
 
 export { toB64, fromB64 };
 export type { ReplySnapshot };
@@ -39,13 +56,62 @@ export const CONTROL_FRAME_BYTES = 20480;
 export const FILE_FRAME_BYTES = 65536;
 /** base64 characters of file payload carried per chunk frame */
 export const FILE_CHUNK_B64 = 64000;
-/** FIXED total base64 length every file transfer is padded to.
- *  Must dominate ceil(2 MiB / 3) * 4, the largest allowed file. */
-export const FILE_PAYLOAD_B64 = 2_800_000;
-export const FILE_TOTAL_CHUNKS = Math.ceil(FILE_PAYLOAD_B64 / FILE_CHUNK_B64);
+
+/** File size buckets, smallest first. A file is padded to the
+ *  smallest bucket that holds it, so the wire cost is a step
+ *  function: 64 KB, 256 KB, 1 MB, 2 MB. Before the buckets, every
+ *  file was padded to the largest one and split into the same 44
+ *  chunks, so a 1 KB voice note cost about 4 MB of traffic. */
+export const FILE_BUCKETS = [64 * 1024, 256 * 1024, 1024 * 1024, 2 * 1024 * 1024].map(
+  (bytes) => ({ bytes, b64: Math.ceil(bytes / 3) * 4 }),
+);
+
+/** The bucket a file of this size is padded to. A file bigger than
+ *  the largest bucket is refused by the size check; the caller never
+ *  gets here with one. */
+export function fileBucketFor(size: number): { bytes: number; b64: number } {
+  for (const bucket of FILE_BUCKETS) {
+    if (size <= bucket.bytes) return bucket;
+  }
+  return FILE_BUCKETS[FILE_BUCKETS.length - 1];
+}
+
+/** How many chunk frames a bucket is split into. */
+export function fileChunksFor(bucketB64: number): number {
+  return Math.ceil(bucketB64 / FILE_CHUNK_B64);
+}
+
+/** The chunk counts a receiver accepts: one per bucket. */
+export const FILE_TOTALS = FILE_BUCKETS.map((b) => fileChunksFor(b.b64));
+
+/** The largest file the wire format can carry, in bytes: the largest
+ *  bucket. A file meta claiming more than this is refused. */
+export const FILE_MAX_BYTES = FILE_BUCKETS[FILE_BUCKETS.length - 1].bytes;
+
+/** Frame version this build seals with. Reads accept this version only:
+ *  a v2 frame is dropped, because v2's signing string cannot tell two
+ *  different bodies apart. */
+export const WIRE_VERSION = 3;
 
 export const TS_WINDOW_MS = 10 * 60 * 1000;
 export const KEY_GRACE_MS = 30_000;
+
+/** A key version is a pair: the rotation epoch it belongs to, and a
+ *  random offset inside that epoch. The pair compares as one number,
+ *  so a version from a later epoch always wins, and two rotations
+ *  inside one epoch land on two different numbers instead of both
+ *  installing a different key under the same one. */
+export const ROTATION_VERSION_SPAN = 2 ** 32;
+
+/** The version number for a rotation in this epoch, at this offset. */
+export function rotationVersion(epoch: number, offset: number): number {
+  return epoch * ROTATION_VERSION_SPAN + offset;
+}
+
+/** The epoch a version belongs to. */
+export function rotationEpochOf(version: number): number {
+  return Math.floor(version / ROTATION_VERSION_SPAN);
+}
 export const PENDING_TTL_MS = 5_000;
 export const PENDING_MAX = 64;
 
@@ -114,7 +180,7 @@ export interface FrameBody {
 }
 
 export interface WireFrame {
-  v: 2;
+  v: 3;
   roomId: string;
   /** key version this frame is encrypted under. 0 = encrypted under the
    *  password-derived ENTRY key (key-delivery offers), readable by
@@ -308,6 +374,17 @@ export function escapeCanonicalField(s: string): string {
   return s.replace(/%/g, "%25").replace(/\|/g, "%7C").replace(/\u001f/g, "%1f");
 }
 
+/** The v2 signing string. LEGACY. Nothing in the running product
+ *  builds or verifies this any more.
+ *
+ *  It is kept in the tree for one reason: the regression test that
+ *  says why v2 frames are refused. v2 joined variable-length fields
+ *  with "|" and escaped only `messageId`, so `{text:"hello|world",
+ *  fileSha:""}` and `{text:"hello", fileSha:"world|"}` produced the
+ *  same string. The escaping fixed one boundary and left the rest of
+ *  the fields raw, which is the bug. Do not build new frames with it,
+ *  and do not verify frames with it: a v2 frame is refused at the
+ *  door. */
 export function canonicalV2(f: {
   roomId: string;
   kv: number;
@@ -348,6 +425,78 @@ export function canonicalV2(f: {
   return reply ? `${base}|${reply}` : base;
 }
 
+/* ---------------- canonical v3 ---------------- */
+
+/* v3 fixes two bugs at once.
+
+B1: v2 concatenated variable-length fields with "|" and escaped only
+`messageId`, so `{text:"hello|world", fileSha:""}` and
+`{text:"hello", fileSha:"world|"}` signed the same string, and a
+signature made for one verified for the other.
+
+B2: v2 signed only the text and the top level file sha. The ttl, the
+view-once flag, the file name and mime, the file bytes and the key
+offer contents all travelled unsigned, so a member holding the room
+key could rewrite them and the sender's signature still verified.
+
+v3 fixes both by signing the body as a whole:
+
+    "<len>:v3" + "<len>:<roomId>" + "<len>:<sha256 of the body>"
+
+The body is serialised canonically (object keys sorted, undefined
+dropped, numbers formatted the way JSON formats them) and then hashed.
+Every field the body carries sits inside that hash, including fields
+nobody had thought about when the protocol was written. The outer
+fields are length-prefixed, so no two different (room, body) pairs can
+produce the same string.
+
+Length prefixing means there is nothing to escape, and therefore
+nothing to forget to escape. The length is a UTF-8 byte count so a
+value holding astral characters counts the same on both sides. */
+
+/** One canonical field: "<utf8 byte count>:<value>". */
+function fieldV3(s: string): string {
+  return `${encoder.encode(s).length}:${s}`;
+}
+
+/** Deterministic JSON. Object keys sorted, undefined dropped, arrays
+ *  keep their order, numbers formatted exactly the way JSON formats
+ *  them. Both ends build it from the same values, so the bytes match. */
+export function canonicalJson(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) {
+    return `[${value.map((v) => (v === undefined ? "null" : canonicalJson(v))).join(",")}]`;
+  }
+  const t = typeof value;
+  if (t === "number") {
+    const n = value as number;
+    return Number.isFinite(n) ? String(n) : "null";
+  }
+  if (t === "boolean") return value ? "true" : "false";
+  if (t === "string") return JSON.stringify(value);
+  if (t !== "object") return "null"; // undefined, function, symbol
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj)
+    .filter((k) => obj[k] !== undefined)
+    .sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`).join(",")}}`;
+}
+
+/** The canonical string for a frame body.
+ *
+ *  The body minus its own signature is serialised canonically and
+ *  hashed, so the signature covers every field the body carries. The
+ *  sealer and the verifier both call this one function with the same
+ *  body, so the two sides cannot drift apart.
+ *
+ *  The two outer fields are length-prefixed, so no two different
+ *  (room, body) pairs produce the same string. */
+export async function canonicalV3FromBody(roomId: string, body: unknown): Promise<string> {
+  const { sig: _sig, ...rest } = (body ?? {}) as Record<string, unknown>;
+  const hash = await sha256HexOfBytes(encoder.encode(canonicalJson(rest)));
+  return fieldV3("v3") + fieldV3(roomId) + fieldV3(hash);
+}
+
 /* ---------------- seal / open ---------------- */
 
 export async function sealFrame(opts: {
@@ -368,27 +517,12 @@ export async function sealFrame(opts: {
   const counter = opts.clock.next();
   const ts = Date.now();
   const kind = String(opts.body.kind ?? "");
-  const text = typeof opts.body.text === "string" ? opts.body.text : undefined;
-  const fileSha = typeof opts.body.fileSha === "string" ? opts.body.fileSha : undefined;
-  const messageId = typeof opts.body.messageId === "string" ? opts.body.messageId : undefined;
-  const reply = isReplySnapshot(opts.body.reply) ? opts.body.reply : undefined;
 
-  const canonical = canonicalV2({
-    roomId: opts.roomId,
-    kv: opts.kv,
-    senderId: opts.senderId,
-    sessionTag: opts.clock.sessionTag,
-    counter,
-    ts,
-    kind,
-    text,
-    fileSha,
-    messageId,
-    reply,
-  });
-  const sig = opts.sigPrivJwk ? await signCanonical(opts.sigPrivJwk, canonical) : "";
-
-  const body: FrameBody = {
+  // The body as it goes on the wire, before the signature goes in.
+  // The canonical is computed from THIS object, so the verifier, which
+  // reads the same object back out of the ciphertext, rebuilds the
+  // same string.
+  const preSeal: FrameBody = {
     ...(opts.body as object),
     kind: kind as FrameKind,
     senderId: opts.senderId,
@@ -396,10 +530,17 @@ export async function sealFrame(opts: {
     counter,
     ts,
     kv: opts.kv,
-    sig,
+    sig: "",
   };
 
-  const padded = padToSize(encoder.encode(JSON.stringify(body)), opts.frameSize);
+  // v3 canonical: the whole body, hashed, under a length-prefixed
+  // room id. Every field the body carries is inside the signature.
+  const canonical = await canonicalV3FromBody(opts.roomId, preSeal);
+  const sig = opts.sigPrivJwk ? await signCanonical(opts.sigPrivJwk, canonical) : "";
+
+  const sealed: FrameBody = { ...preSeal, sig };
+
+  const padded = padToSize(encoder.encode(JSON.stringify(sealed)), opts.frameSize);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ct = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
@@ -407,7 +548,7 @@ export async function sealFrame(opts: {
     padded as unknown as BufferSource,
   );
   return {
-    v: 2,
+    v: WIRE_VERSION,
     roomId: opts.roomId,
     kv: opts.kv,
     from: opts.senderId,

@@ -17,12 +17,16 @@ import {
   CONTROL_FRAME_BYTES,
   FILE_CHUNK_B64,
   FILE_FRAME_BYTES,
-  FILE_PAYLOAD_B64,
-  FILE_TOTAL_CHUNKS,
+  FILE_MAX_BYTES,
+  FILE_TOTALS,
+  fileBucketFor,
+  fileChunksFor,
   KEY_GRACE_MS,
   PENDING_MAX,
   PENDING_TTL_MS,
-  canonicalV2,
+  ROTATION_VERSION_SPAN,
+  WIRE_VERSION,
+  canonicalV3FromBody,
   createReplayGuard,
   createSendClock,
   ecdhUnwrapKey,
@@ -31,6 +35,7 @@ import {
   importAesKey,
   openFrame,
   padB64Payload,
+  rotationEpochOf,
   sealFrame,
   type FileMetaBody,
   type FrameBody,
@@ -51,7 +56,6 @@ import {
   verifyCanonical,
 } from "./crypto";
 import { signLeaveProof } from "./leave-proof";
-import { signReportProof } from "./report-proof";
 import { isReactionMark, isReplySnapshot, type ReplySnapshot } from "./types";
 
 export interface RegistryEntry {
@@ -78,6 +82,13 @@ export interface CipherInit {
   graceMs?: number;
   /** optional persistence for replay watermarks; survives refresh */
   watermarks?: WatermarkStore;
+  /** the pending file-transfer byte budget, in base64 characters.
+   *  Lowered in tests so the ceiling can be reached without moving
+   *  sixteen megabytes. */
+  pendingFileByteBudget?: number;
+  /** where the rotation version offset comes from. Injectable, so
+   *  the version policy can be tested without luck. */
+  randomOffset?: () => number;
 }
 
 /** Persists per-(sender, session) counter watermarks so a page refresh
@@ -123,9 +134,11 @@ export type OpenResult =
         | "sha";
     };
 
-/** Hard ceiling for key versions. Offers claiming versions beyond this
- *  are rejected: a hostile member could otherwise install kv = 2^53 and
- *  permanently brick every future rotation (newKv would equal kv). */
+/** Hard ceiling for key versions, counted in EPOCHS. A version is an
+ *  epoch and an offset inside it, so the cap applies to the epoch
+ *  part: offers claiming an epoch beyond this are rejected. A hostile
+ *  member could otherwise install a version so high that every future
+ *  rotation lands below it and the room can never rotate again. */
 export const KVERSION_CAP = 1_000_000;
 
 interface InstalledKey {
@@ -142,7 +155,38 @@ interface AssemblingFile {
   reply?: ReplySnapshot;
   metaTs: number;
   chunks: Map<number, string>;
+  /** how many base64 characters this transfer is holding, so the
+   *  pending byte budget can be kept honest */
+  bytes: number;
 }
+
+/** How many file transfers may be in flight at once. Each one holds
+ *  chunk strings, so this is a memory ceiling as much as a politeness
+ *  one. */
+const MAX_PENDING_FILES = 32;
+
+/** The file meta has to be sane before it is stored. The size decides
+ *  how much of the assembled payload is the file, the name and the
+ *  mime are rendered, and the sha is compared against the bytes later.
+ *  A signed meta can still be nonsense: the sender is authenticated,
+ *  not trusted. */
+function isSaneFileMeta(file: FileMetaBody): boolean {
+  if (typeof file.messageId !== "string" || file.messageId.length === 0) return false;
+  if (typeof file.name !== "string" || file.name.length > 256) return false;
+  if (typeof file.mime !== "string" || file.mime.length > 128) return false;
+  if (!Number.isInteger(file.size) || file.size < 0 || file.size > FILE_MAX_BYTES) return false;
+  if (typeof file.sha !== "string" || !/^[0-9a-f]{64}$/.test(file.sha)) return false;
+  if (file.ttlSec !== undefined && (!Number.isFinite(file.ttlSec) || file.ttlSec < 0)) {
+    return false;
+  }
+  if (file.viewOnce !== undefined && typeof file.viewOnce !== "boolean") return false;
+  return true;
+}
+
+/** The pending byte budget for file transfers, in base64 characters.
+ *  A full file is 2.8M characters, so this holds a handful of files
+ *  and refuses a flood. */
+const MAX_PENDING_BYTES = 16 * 1024 * 1024;
 
 export class RoomCipher {
   readonly roomId: string;
@@ -162,6 +206,12 @@ export class RoomCipher {
   private pending: { frame: WireFrame; at: number }[] = [];
   private readyQueue: WireFrame[] = [];
   private readonly files = new Map<string, AssemblingFile>();
+  /** base64 characters held by the pending file transfers */
+  private pendingFileBytes = 0;
+  /** the ceiling for those characters */
+  private readonly pendingByteBudget: number;
+  /** the source of the rotation version offset */
+  private readonly offsetSource: () => number;
   private readonly highWater: Record<string, number> = {};
   private readonly watermarks?: WatermarkStore;
 
@@ -174,6 +224,10 @@ export class RoomCipher {
     this.entryKey = init.entryKey;
     this.now = init.now ?? Date.now;
     this.graceMs = init.graceMs ?? KEY_GRACE_MS;
+    this.pendingByteBudget = init.pendingFileByteBudget ?? MAX_PENDING_BYTES;
+    this.offsetSource =
+      init.randomOffset ??
+      (() => crypto.getRandomValues(new Uint32Array(1))[0] as number);
     this.watermarks = init.watermarks;
     this.keys.set(1, { key: init.entryKey, raw: new Uint8Array(0), installedAt: this.now() });
     if (init.watermarks) {
@@ -225,7 +279,7 @@ export class RoomCipher {
     if (
       kv <= this.kv ||
       !Number.isSafeInteger(kv) ||
-      kv > KVERSION_CAP
+      rotationEpochOf(kv) > KVERSION_CAP
     ) {
       return [];
     }
@@ -384,15 +438,6 @@ export class RoomCipher {
     return signLeaveProof(this.sigPriv, this.roomId, this.selfId, ts);
   }
 
-  /** Sign the graded abuse-report proof (cc-report-v1:{roomId}:
-   *  {memberId}:{ts}) with this room's signing key: the member half
-   *  of the report endpoint's credibility grading. Same shape as the
-   *  departure proof, different domain prefix: neither replays as
-   *  the other. */
-  async signReportProof(ts: number = Date.now()) {
-    return signReportProof(this.sigPriv, this.roomId, this.selfId, ts);
-  }
-
   /** A file becomes exactly 1 control-sized meta frame plus a FIXED
    *  number of uniform chunk frames, regardless of true file size. */
   async sealFile(opts: {
@@ -408,7 +453,12 @@ export class RoomCipher {
     /** quoted-reply target; rides the meta frame, signature-covered */
     reply?: ReplySnapshot;
   }): Promise<WireFrame[]> {
-    const padded = padB64Payload(opts.dataB64, FILE_PAYLOAD_B64);
+    // The bucket: the smallest one that holds the file. The padding
+    // hides the true size inside the bucket, and the bucket decides
+    // how many frames the file costs.
+    const bucket = fileBucketFor(opts.size);
+    const padded = padB64Payload(opts.dataB64, bucket.b64);
+    const total = fileChunksFor(bucket.b64);
     const messageId = crypto.randomUUID();
     const meta = await this.seal(
       {
@@ -433,11 +483,11 @@ export class RoomCipher {
       { frameId: messageId },
     );
     const frames: WireFrame[] = [meta];
-    for (let seq = 0; seq < FILE_TOTAL_CHUNKS; seq++) {
+    for (let seq = 0; seq < total; seq++) {
       const dataB64 = padded.slice(seq * FILE_CHUNK_B64, (seq + 1) * FILE_CHUNK_B64);
       frames.push(
         await this.seal(
-          { kind: "file:chunk", chunk: { messageId, seq, total: FILE_TOTAL_CHUNKS, dataB64 } },
+          { kind: "file:chunk", chunk: { messageId, seq, total, dataB64 } },
           FILE_FRAME_BYTES,
         ),
       );
@@ -502,15 +552,21 @@ export class RoomCipher {
   /** Rotate unconditionally: generate a RANDOM new room key and
    *  deliver it pairwise over ECDH. Callers decide whether they have
    *  the right to rotate (see rotateAsCoordinator / the rejoin
-   *  fallback in the store: simultaneous fallbacks converge because
-   *  version offers are monotonic).
+   *  fallback in the store).
+   *
+   *  `serverEpoch` is the server's rotation ledger, the shared lower
+   *  bound on the versions the room has used. The new version is that
+   *  epoch plus a fresh random offset, so two members rotating at the
+   *  same time land on two different versions and one of them wins,
+   *  instead of both installing a different key under the same number
+   *  and reading nothing of each other afterwards.
    *
    *  `rot` marks the offer as the formal leave-ceremony (receivers
    *  verify the sender is their coordinator). Fallback re-keys use
    *  rot=false: a member-initiated delivery, still ECDH-wrapped,
    *  signature-checked, registry-gated and version-monotonic. */
-  async rotateTo(minKv?: number, rot = true): Promise<WireFrame[]> {
-    const newKv = Math.max(this.kv, minKv ?? 0) + 1;
+  async rotateTo(serverEpoch = 0, rot = true): Promise<WireFrame[]> {
+    const newKv = this.nextVersion(serverEpoch);
     const keyRaw = crypto.getRandomValues(new Uint8Array(32));
     const key = await importAesKey(keyRaw);
     this.keys.set(newKv, { key, raw: keyRaw, installedAt: this.now() });
@@ -536,14 +592,43 @@ export class RoomCipher {
   /** Rotate IF this client is the deterministic coordinator (the
    *  normal ceremony after a member leaves).
    *
-   *  `minKv` is the server's rotation ledger (room epoch): a member
-   *  re-joining after a refresh may have lost count of rotations, and a
-   *  departed member may hold keys up to that version, so the new
-   *  version must exceed it. Offers are encrypted under the ENTRY key so
-   *  every member can read them no matter which version they hold. */
-  async rotateAsCoordinator(minKv?: number): Promise<WireFrame[]> {
+   *  `serverEpoch` is the server's rotation ledger (room epoch): a
+   *  member re-joining after a refresh may have lost count of
+   *  rotations, and a departed member may hold keys up to that epoch,
+   *  so the new version has to sit in a later one. Offers are
+   *  encrypted under the ENTRY key so every member can read them no
+   *  matter which version they hold. */
+  async rotateAsCoordinator(serverEpoch = 0): Promise<WireFrame[]> {
     if (this.expectedCoordinator() !== this.selfId) return [];
-    return this.rotateTo(minKv);
+    return this.rotateTo(serverEpoch);
+  }
+
+  /** The next key version for a rotation.
+   *
+   *  A version is an epoch and an offset inside it. The epoch is the
+   *  server's rotation ledger, or this client's own epoch when that
+   *  is further ahead. The offset is fresh, so two rotations in one
+   *  epoch land on two different versions. The offset also has to
+   *  clear this client's own offset in that epoch, or the new
+   *  version would not be greater than the one already held. */
+  private nextVersion(serverEpoch: number): number {
+    const epoch = Math.max(rotationEpochOf(this.kv), Math.floor(serverEpoch));
+    const base = epoch * ROTATION_VERSION_SPAN;
+    const minOffset = this.kv - base;
+    let offset = this.randomOffset();
+    for (let i = 0; i < 8 && offset <= minOffset; i++) offset = this.randomOffset();
+    if (offset <= minOffset) {
+      // This client's offset sits at the top of the epoch. Take the
+      // next epoch rather than draw again.
+      return (epoch + 1) * ROTATION_VERSION_SPAN;
+    }
+    return base + offset;
+  }
+
+  /** A fresh offset inside a rotation epoch. Injectable, so the
+   *  version policy can be tested without luck. */
+  private randomOffset(): number {
+    return this.offsetSource();
   }
 
   /** Deliver the CURRENT room key to a new member: ECDH-wrapped and
@@ -568,11 +653,20 @@ export class RoomCipher {
   async open(frame: WireFrame): Promise<OpenResult> {
     if (
       !frame ||
-      frame.v !== 2 ||
+      // v3 only. A v2 frame is dropped here rather than verified
+      // under the old canonical, because that canonical cannot tell
+      // two different bodies apart. An old tab and a new tab simply do
+      // not hear each other.
+      frame.v !== WIRE_VERSION ||
       typeof frame.ct !== "string" ||
       typeof frame.iv !== "string" ||
       typeof frame.from !== "string"
     ) {
+      return { type: "reject", reason: "shape" };
+    }
+    // A frame addressed to another room never gets here, but say so
+    // out loud rather than relying on the key to fail.
+    if (frame.roomId !== this.roomId) {
       return { type: "reject", reason: "shape" };
     }
     // Addressed to someone else (the relay broadcasts everything).
@@ -617,24 +711,15 @@ export class RoomCipher {
     if (!body) return { type: "reject", reason: "decrypt" };
 
     // Signature against the sender's REGISTERED key.
-    const canonical = canonicalV2({
-      roomId: this.roomId,
-      kv: frame.kv,
-      senderId: frame.from,
-      sessionTag: body.sessionTag,
-      counter: body.counter,
-      ts: body.ts,
-      kind: body.kind,
-      text: body.text,
-      fileSha: body.fileSha,
-      messageId: body.messageId,
-      // Raw, exactly as produced by the sender: verification must
-      // recompute the
-      // sender's canonical string, not a cleaned-up one. Sanitising
-      // for the UI happens later, after the signature has bound these
-      // bytes to their author.
-      reply: isReplySnapshot(body.reply) ? body.reply : undefined,
-    });
+    //
+    // The canonical covers the WHOLE body, so a member who holds the
+    // room key cannot rewrite the ttl, the view-once flag, the file
+    // metadata, the file bytes or the key offer contents and still
+    // pass this check. The body is hashed exactly as it arrived, not
+    // as a cleaned-up version of it: sanitising for the UI happens
+    // later, after the signature has bound these bytes to their
+    // author.
+    const canonical = await canonicalV3FromBody(this.roomId, body);
     const okSig = await verifyCanonical(entry.pubkey, canonical, body.sig);
     if (!okSig) return { type: "reject", reason: "signature" };
 
@@ -684,31 +769,62 @@ export class RoomCipher {
         return { type: "cover" };
       case "file:meta": {
         if (!body.file?.messageId) return { type: "reject", reason: "shape" };
+        if (!isSaneFileMeta(body.file)) return { type: "reject", reason: "shape" };
         // Bounded: a flood of orphan metas cannot grow the map forever.
-        if (this.files.size > 32) {
-          const oldest = this.files.keys().next().value;
-          if (oldest !== undefined) this.files.delete(oldest);
-        }
+        this.dropOldestFileIfNeeded();
         this.files.set(body.file.messageId, {
           meta: body.file,
           text: typeof body.text === "string" && body.text.length > 0 ? body.text : undefined,
           reply: isReplySnapshot(body.reply) ? body.reply : undefined,
           metaTs: body.ts,
           chunks: new Map(),
+          bytes: 0,
         });
         return { type: "file-meta", senderId: frame.from };
       }
       case "file:chunk": {
         const c = body.chunk;
-        if (!c?.messageId || typeof c.seq !== "number" || typeof c.total !== "number") {
+        if (!c || typeof c.messageId !== "string" || c.messageId.length === 0) {
           return { type: "reject", reason: "shape" };
+        }
+        // The chunk shape is fixed and known: a file is split into one
+        // of the size buckets' chunk counts, each chunk at most
+        // FILE_CHUNK_B64 characters, and the seq says which one this
+        // is. Before this check, a sender could name any total and
+        // any seq, so the assembler could be fed an unbounded number
+        // of distinct chunks for one file and hold them all.
+        if (!Number.isInteger(c.total) || !FILE_TOTALS.includes(c.total)) {
+          return { type: "reject", reason: "shape" };
+        }
+        if (!Number.isInteger(c.seq) || c.seq < 0 || c.seq >= c.total) {
+          return { type: "reject", reason: "shape" };
+        }
+        if (typeof c.dataB64 !== "string" || c.dataB64.length === 0) {
+          return { type: "reject", reason: "shape" };
+        }
+        if (c.dataB64.length > FILE_CHUNK_B64) return { type: "reject", reason: "shape" };
+        const known = this.files.get(c.messageId);
+        if (!known) return { type: "reject", reason: "shape" };
+        // The byte budget: the pending transfers may not hold more than
+        // their ceiling of chunk strings. When a chunk does not fit,
+        // the oldest transfers go until it does.
+        const previous = known.chunks.get(c.seq);
+        const delta = c.dataB64.length - (previous?.length ?? 0);
+        if (this.pendingFileBytes + delta > this.pendingByteBudget) {
+          this.evictFilesUntilRoom(delta);
         }
         const file = this.files.get(c.messageId);
         if (!file) return { type: "reject", reason: "shape" };
-        file.chunks.set(c.seq, c.dataB64 ?? "");
+        if (this.pendingFileBytes + delta > this.pendingByteBudget) {
+          return { type: "reject", reason: "shape" };
+        }
+        file.chunks.set(c.seq, c.dataB64);
+        file.bytes += delta;
+        this.pendingFileBytes += delta;
         if (file.chunks.size < c.total) return { type: "file-chunk", senderId: frame.from };
         // Complete: assemble, verify, deliver.
         this.files.delete(c.messageId);
+        this.pendingFileBytes -= file.bytes;
         let padded = "";
         for (let i = 0; i < c.total; i++) padded += file.chunks.get(i) ?? "";
         const realLength = Math.ceil(file.meta.size / 3) * 4;
@@ -732,6 +848,31 @@ export class RoomCipher {
         return this.openOffer(body.offer, frame.from);
       default:
         return { type: "reject", reason: "shape" };
+    }
+  }
+
+  /** Keep the number of pending file transfers at or below the cap.
+   *  The oldest transfer goes first, and its bytes come off the
+   *  pending budget with it. */
+  private dropOldestFileIfNeeded(): void {
+    while (this.files.size >= MAX_PENDING_FILES) {
+      const oldest = this.files.keys().next().value;
+      if (oldest === undefined) return;
+      const dropped = this.files.get(oldest);
+      this.files.delete(oldest);
+      if (dropped) this.pendingFileBytes -= dropped.bytes;
+    }
+  }
+
+  /** Drop the oldest pending transfers until a chunk of `incoming`
+   *  characters fits inside the pending byte budget. */
+  private evictFilesUntilRoom(incoming: number): void {
+    while (this.pendingFileBytes + incoming > this.pendingByteBudget && this.files.size > 0) {
+      const oldest = this.files.keys().next().value;
+      if (oldest === undefined) return;
+      const dropped = this.files.get(oldest);
+      this.files.delete(oldest);
+      if (dropped) this.pendingFileBytes -= dropped.bytes;
     }
   }
 
@@ -779,7 +920,7 @@ export class RoomCipher {
       payload.kv !== offer.kv ||
       typeof offer.kv !== "number" ||
       !Number.isSafeInteger(offer.kv) ||
-      offer.kv > KVERSION_CAP ||
+      rotationEpochOf(offer.kv) > KVERSION_CAP ||
       offer.kv <= this.kv
     ) {
       return { type: "reject", reason: "offer" };

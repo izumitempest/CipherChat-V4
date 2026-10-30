@@ -2,9 +2,13 @@
 //
 // Three proofs the change record asked for by name:
 //
-//   31.5  A pre-reply (eleven-field) plain frame verifies under the
-//         current canonical. The rollout is clean in BOTH directions,
-//         not just the documented "old tab drops reply frames" one.
+//   31.5  The canonical covers the whole frame body, so the order the
+//         body was built in cannot change it and no field can travel
+//         unsigned. (This block used to prove that a pre-reply
+//         eleven-field frame still verified under the current
+//         canonical. The v3 canonical replaced that promise: v2 and
+//         v3 do not talk to each other, because v2's signing string
+//         could not tell two different bodies apart.)
 //   31.4  The room-password generator draws six words from the CSPRNG
 //         over the 256-word list (2^48 candidates), and from nothing
 //         else (Math.random never touched).
@@ -14,87 +18,59 @@
 //         re-encode.
 
 import { describe, it, expect, afterEach } from "vitest";
-import { canonicalV2, replyCanonical } from "@/lib/protocol";
+import { canonicalV3FromBody } from "@/lib/protocol";
 import { generatePassphrase, PASS_WORDS } from "@/lib/identity";
 import { imageHasMetadata, imageNeedsScan } from "@/lib/media";
-import { signCanonical, verifyCanonical } from "@/lib/crypto";
-import type { ReplySnapshot } from "@/lib/types";
 
 /* ---------------- 31.5 canonical versioning ---------------- */
 
-const FRAME = {
-  roomId: "ROOMX1",
-  kv: 3,
+/* v3 signs the whole frame body. There is no slot list to keep in
+ * step with the body shape: the body is serialised canonically and
+ * hashed, so every field it carries is covered, including fields
+ * added after this test was written. */
+
+const BODY = {
+  kind: "text",
   senderId: "m-sender",
   sessionTag: "tag-abc",
   counter: 41,
   ts: 1717000000123,
-  kind: "text",
+  kv: 3,
+  sig: "",
   text: "the words themselves",
-  fileSha: undefined,
-  messageId: undefined,
 } as const;
 
-/** The canonical exactly as the pre-reply (Task 19) code built it:
- * eleven fields, joined on "|", nothing appended. */
-function preReplyCanonical(f: typeof FRAME): string {
-  return [
-    "v2",
-    f.roomId,
-    f.kv,
-    f.senderId,
-    f.sessionTag,
-    f.counter,
-    f.ts,
-    f.kind,
-    f.text ?? "",
-    f.fileSha ?? "",
-    f.messageId ?? "",
-  ].join("|");
-}
-
 describe("canonical versioning (31.5)", () => {
-  it("a plain frame's canonical is byte-identical to the pre-reply eleven-field form", () => {
-    expect(canonicalV2({ ...FRAME })).toBe(preReplyCanonical(FRAME));
+  it("the canonical does not depend on the order the body was built in", async () => {
+    const a = await canonicalV3FromBody("ROOMX1", BODY);
+    const b = await canonicalV3FromBody("ROOMX1", {
+      sig: "",
+      text: "the words themselves",
+      kv: 3,
+      ts: 1717000000123,
+      counter: 41,
+      sessionTag: "tag-abc",
+      senderId: "m-sender",
+      kind: "text",
+    });
+    expect(a).toBe(b);
   });
 
-  it("a pre-reply signature verifies under the current canonical - the rollout proof", async () => {
-    const pair = await crypto.subtle.generateKey(
-      { name: "ECDSA", namedCurve: "P-256" },
-      true,
-      ["sign", "verify"],
-    );
-    const priv = await crypto.subtle.exportKey("jwk", pair.privateKey);
-    const pub = await crypto.subtle.exportKey("jwk", pair.publicKey);
-
-    // An "old tab" signs the eleven-field string…
-    const oldSig = await signCanonical(priv, preReplyCanonical(FRAME));
-    // …and the current verifier recomputes the same string for a plain
-    // frame, so the signature holds. Old letters stay verifiable.
-    expect(await verifyCanonical(pub, canonicalV2({ ...FRAME }), oldSig)).toBe(true);
-
-    // And the mirror: a "new tab" plain signature verifies for anyone
-    // still running the old canonical. Plain letters never fork.
-    const newSig = await signCanonical(priv, canonicalV2({ ...FRAME }));
-    expect(await verifyCanonical(pub, preReplyCanonical(FRAME), newSig)).toBe(true);
+  it("a changed field changes the canonical", async () => {
+    const base = await canonicalV3FromBody("ROOMX1", BODY);
+    expect(await canonicalV3FromBody("ROOMX1", { ...BODY, text: "other words" })).not.toBe(base);
+    expect(await canonicalV3FromBody("ROOMX1", { ...BODY, ttlSec: 60 })).not.toBe(base);
+    expect(await canonicalV3FromBody("ROOMX1", { ...BODY, viewOnce: true })).not.toBe(base);
+    expect(await canonicalV3FromBody("OTHERROOM", BODY)).not.toBe(base);
   });
 
-  it("a reply is appended as a twelfth slot - and only then", () => {
-    const reply: ReplySnapshot = {
-      id: "msg-9",
-      senderId: "m-other",
-      snippet: "what was answered",
-    };
-    const plain = canonicalV2({ ...FRAME });
-    const quoted = canonicalV2({ ...FRAME, reply });
-    expect(quoted).toBe(`${plain}|${replyCanonical(reply)}`);
-    expect(quoted.split("|")).toHaveLength(12);
-    expect(plain.split("|")).toHaveLength(11);
-    // A reply that fails the shape guard serialises as absent: the
-    // canonical falls back to the plain form, never to garbage.
-    expect(
-      canonicalV2({ ...FRAME, reply: { id: 1 } as unknown as ReplySnapshot }),
-    ).toBe(plain);
+  it("the signature field is not part of the canonical (it is computed over it)", async () => {
+    const unsigned = await canonicalV3FromBody("ROOMX1", { ...BODY, sig: "" });
+    const signed = await canonicalV3FromBody("ROOMX1", {
+      ...BODY,
+      sig: "not-a-real-signature",
+    });
+    expect(unsigned).toBe(signed);
   });
 });
 

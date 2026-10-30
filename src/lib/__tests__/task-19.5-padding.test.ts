@@ -14,8 +14,10 @@ import {
   createSendClock,
   CONTROL_FRAME_BYTES,
   FILE_FRAME_BYTES,
-  FILE_PAYLOAD_B64,
-  FILE_TOTAL_CHUNKS,
+  FILE_BUCKETS,
+  FILE_MAX_BYTES,
+  fileBucketFor,
+  fileChunksFor,
   fromB64,
 } from "@/lib/protocol";
 import { makeRoom, randomAesKey } from "./helpers";
@@ -117,8 +119,8 @@ describe("sealed control frames are uniform", () => {
   });
 });
 
-describe("file transfers hide their size", () => {
-  it("a 1 KB file and a 300 KB file produce the SAME frame count and frame sizes", async () => {
+describe("file transfers hide their size inside a bucket", () => {
+  it("a 1 KB file and a 300 KB file land in different buckets", async () => {
     const roomId = "FILROOM";
     const entryKey = await randomAesKey();
     const [alice] = await makeRoom(roomId, ["m-alice"], entryKey);
@@ -143,9 +145,13 @@ describe("file transfers hide their size", () => {
       sha: await sha256HexOfBytes(legacyFromB64(bigB64)),
     });
 
-    // Same total number of frames: 1 meta + a FIXED number of chunks.
-    expect(tinyFrames).toHaveLength(bigFrames.length);
-    expect(tinyFrames).toHaveLength(1 + FILE_TOTAL_CHUNKS);
+    // The bucket decides the frame count: 1 meta + the bucket's
+    // chunks. The tiny file lands in the 64 KB bucket and the big one
+    // in the 1 MB bucket, so the tiny file costs a fraction of the
+    // traffic it used to.
+    expect(tinyFrames.length).toBeLessThan(bigFrames.length);
+    expect(tinyFrames).toHaveLength(1 + fileChunksFor(fileBucketFor(1024).b64));
+    expect(bigFrames).toHaveLength(1 + fileChunksFor(fileBucketFor(300 * 1024).b64));
 
     // Every chunk frame has the same uniform ciphertext size.
     const chunkSizes = new Set(
@@ -159,10 +165,29 @@ describe("file transfers hide their size", () => {
     expect(fromB64(tinyFrames[0].ct).length).toBe(CONTROL_FRAME_BYTES + 16);
   });
 
-  it("the padded payload is always the fixed total length", () => {
-    expect(FILE_PAYLOAD_B64).toBeGreaterThanOrEqual(
-      Math.ceil((2 * 1024 * 1024) / 3) * 4,
-    );
+  it("the padded payload is always the bucket's length", () => {
+    for (const bucket of FILE_BUCKETS) {
+      expect(bucket.b64).toBe(Math.ceil(bucket.bytes / 3) * 4);
+    }
+    // The largest bucket holds the largest allowed file.
+    expect(FILE_MAX_BYTES).toBe(2 * 1024 * 1024);
+  });
+
+  it("a small file costs about one bucket, not the whole payload", async () => {
+    const roomId = "FILROOM0";
+    const entryKey = await randomAesKey();
+    const [alice] = await makeRoom(roomId, ["m-alice"], entryKey);
+
+    const tinyB64 = Buffer.from("A".repeat(1024), "utf8").toString("base64");
+    const frames = await alice.cipher.sealFile({
+      name: "tiny.txt",
+      mime: "text/plain",
+      size: 1024,
+      dataB64: tinyB64,
+      sha: await sha256HexOfBytes(legacyFromB64(tinyB64)),
+    });
+    // One meta frame plus two chunks: the 64 KB bucket.
+    expect(frames).toHaveLength(3);
   });
 
   it("a receiver reassembles a padded file and recovers the exact original bytes", async () => {

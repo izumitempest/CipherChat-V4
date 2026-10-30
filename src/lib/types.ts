@@ -139,8 +139,9 @@ export interface MessageView {
     name: string;
     mime: string;
     size: number;
-    dataB64?: string;
-    url?: string;
+    /** The bytes live in the store's payload map, keyed by the
+     *  message id. They do not ride in the message: the list stays
+     *  light and the memory is bounded. */
   };
   ttlSec?: number;
   expiresAt?: number;

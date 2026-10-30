@@ -79,15 +79,22 @@ export async function sha256Hex(input: string): Promise<string> {
   ).join("");
 }
 
-/** Fingerprint of a signing public key (JWK): first 8 hex of sha256(x|y). */
+/** Fingerprint of a signing public key (JWK): the first 16 hex of
+ *  sha256(x|y), which is 64 bits.
+ *
+ *  It used to be 8 hex, 32 bits, and people are asked to compare this
+ *  out loud over another channel. 32 bits is a birthday collision
+ *  every 65,000 keys. 64 bits is not a birthday collision in any room
+ *  that will ever exist, and it still fits on one line of a phone. */
 export async function keyFingerprint(pubJwk: JsonWebKey): Promise<string> {
   const hex = await sha256Hex(`${pubJwk.x}|${pubJwk.y}`);
-  return hex.slice(0, 8).toUpperCase();
+  return hex.slice(0, 16).toUpperCase();
 }
 
-/** Grouped for reading aloud: 3F2A · 91BC */
+/** Grouped for reading aloud: 3F2A · 91BC · 4D70 · C2E1 */
 export function groupFingerprint(fp: string): string {
-  return `${fp.slice(0, 4)} · ${fp.slice(4, 8)}`;
+  if (fp.length <= 8) return `${fp.slice(0, 4)} · ${fp.slice(4, 8)}`;
+  return `${fp.slice(0, 4)} · ${fp.slice(4, 8)} · ${fp.slice(8, 12)} · ${fp.slice(12, 16)}`;
 }
 
 export function aliasFromFingerprint(hex: string): string {

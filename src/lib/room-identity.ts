@@ -34,7 +34,7 @@ export interface RoomSigningIdentity {
   privJwk: JsonWebKey;
   pubJwk: JsonWebKey;
   fingerprintHex: string; // full 64-char hex
-  fingerprint: string; // 8-char display form
+  fingerprint: string; // 16-char display form (64 bits)
 }
 
 /** The vault-path identity: the room's signing key held as a
@@ -47,10 +47,15 @@ export interface RoomSigningSecrets {
   fingerprint: string;
 }
 
-/** The device seed. In old versions this was stored in localStorage as
- *  `cc.seed`; it is now migrated into the IndexedDB seed vault, so this
- *  function exists only for tests. Rooms get per-room keys from it.
- *  Keys never leave the device. */
+/** The device seed, for the path where the IndexedDB seed vault is
+ *  not available (older browsers, some privacy modes). The seed stays
+ *  in memory: it is NOT written to localStorage, so a browser without
+ *  IndexedDB does not leave the raw device seed on disk. A legacy
+ *  `cc.seed` left by an older version is read once and used, which
+ *  keeps the identity the same for as long as that copy is there.
+ *
+ *  This is a runtime path, not a test helper. Rooms get per-room keys
+ *  from the seed, and the keys never leave the device. */
 export async function loadDeviceSeed(): Promise<Uint8Array> {
   try {
     const raw = localStorage.getItem(SEED_KEY);
@@ -63,13 +68,10 @@ export async function loadDeviceSeed(): Promise<Uint8Array> {
   } catch {
     /* fall through to generation */
   }
-  const seed = crypto.getRandomValues(new Uint8Array(32));
-  try {
-    localStorage.setItem(SEED_KEY, JSON.stringify(Array.from(seed)));
-  } catch {
-    /* private mode: seed lives for this page load only */
-  }
-  return seed;
+  // Memory only. The seed dies with the page, and identities do not
+  // survive a refresh on this path. That is the trade the seed vault
+  // comment promises, and now it is true.
+  return crypto.getRandomValues(new Uint8Array(32));
 }
 
 function b64url(bytes: Uint8Array): string {
@@ -147,7 +149,7 @@ export async function scalarToRoomIdentity(
       privJwk,
       pubJwk,
       fingerprintHex,
-      fingerprint: fingerprintHex.slice(0, 8).toUpperCase(),
+      fingerprint: fingerprintHex.slice(0, 16).toUpperCase(),
     };
   } catch {
     return null;
@@ -233,7 +235,7 @@ async function scalarToRoomSigningSecrets(
       privKey,
       pubJwk,
       fingerprintHex,
-      fingerprint: fingerprintHex.slice(0, 8).toUpperCase(),
+      fingerprint: fingerprintHex.slice(0, 16).toUpperCase(),
     };
   } catch {
     return null;

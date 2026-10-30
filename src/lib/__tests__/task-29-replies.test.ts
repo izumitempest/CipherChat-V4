@@ -127,7 +127,7 @@ describe("quoted replies on the wire", () => {
   });
 
   it("changing the quote changes the canonical string (tamper = bad signature)", async () => {
-    const { canonicalV2 } = await import("@/lib/protocol");
+    const { canonicalV3FromBody } = await import("@/lib/protocol");
     const { signCanonical, verifyCanonical } = await import("@/lib/crypto");
     const pair = await crypto.subtle.generateKey(
       { name: "ECDSA", namedCurve: "P-256" },
@@ -137,7 +137,6 @@ describe("quoted replies on the wire", () => {
     const priv = await crypto.subtle.exportKey("jwk", pair.privateKey);
     const pub = await crypto.subtle.exportKey("jwk", pair.publicKey);
     const base = {
-      roomId: "R",
       kv: 2,
       senderId: "m-a",
       sessionTag: "t",
@@ -145,12 +144,13 @@ describe("quoted replies on the wire", () => {
       ts: 1234,
       kind: "text",
       text: "same words",
+      sig: "",
     } as const;
-    const honest = canonicalV2({
+    const honest = await canonicalV3FromBody("R", {
       ...base,
       reply: { id: "msg-1", senderId: "m-b", snippet: "what was actually said" },
     });
-    const forged = canonicalV2({
+    const forged = await canonicalV3FromBody("R", {
       ...base,
       reply: { id: "msg-1", senderId: "m-b", snippet: "what was NOT said" },
     });

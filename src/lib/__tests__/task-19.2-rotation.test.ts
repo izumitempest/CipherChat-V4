@@ -15,7 +15,7 @@
 
 import { describe, it, expect } from "vitest";
 import { makeRoom, broadcast, randomAesKey } from "./helpers";
-import { KEY_GRACE_MS } from "@/lib/protocol";
+import { KEY_GRACE_MS, rotationEpochOf } from "@/lib/protocol";
 
 describe("ACCEPTANCE - the departed member cannot read the room after rotation", () => {
   it("Mallory leaves, keeps password + roomId + live pipeline, and cannot decrypt post-rotation frames", async () => {
@@ -46,7 +46,8 @@ describe("ACCEPTANCE - the departed member cannot read the room after rotation",
     const results = await broadcast(offerFrames, [alice, bob, mallory], "m-alice");
     // Bob installed the new key:
     expect(results[0]).toMatchObject({ type: "offer-installed", rotation: true });
-    expect(bob.cipher.kv).toBe(2);
+    const rotatedKv = bob.cipher.kv;
+    expect(rotatedKv).toBeGreaterThan(1);
     // Mallory did NOT (offer addressed to Bob; ECDH pair is Alice↔Bob):
     expect(results[1].type).toBe("reject");
     expect(mallory.cipher.kv).toBe(1);
@@ -72,9 +73,9 @@ describe("ACCEPTANCE - the departed member cannot read the room after rotation",
     }
 
     // Mallory cannot re-enter by re-deriving from the password: her
-    // entry key is version 1; the room is on version 2, and the v2
+    // entry key is version 1; the room is on a later version, and that
     // key was NEVER derived from the password.
-    expect(mallory.cipher.getKey(2)).toBeUndefined();
+    expect(mallory.cipher.getKey(rotatedKv)).toBeUndefined();
   });
 
   it("Mallory cannot inject into the rotated room (registry eviction)", async () => {
@@ -124,21 +125,23 @@ describe("rotation ceremony hardening", () => {
     const entryKey = await randomAesKey();
     const [alice, bob] = await makeRoom(roomId, ["m-alice", "m-bob"], entryKey);
 
-    // Legitimate rotation to kv 2:
+    // Legitimate rotation to a fresh version:
     const offers = await alice.cipher.rotateAsCoordinator();
     await bob.cipher.open(offers[0]);
-    expect(bob.cipher.kv).toBe(2);
+    const rotatedKv = bob.cipher.kv;
+    expect(rotatedKv).toBeGreaterThan(1);
 
-    // A replayed/stale offer claiming kv 2 again (or lower) installs nothing:
+    // A replayed/stale offer claiming an older version again (or
+    // lower) installs nothing:
     const stale = await alice.cipher.sealKeyOffer({
       to: "m-bob",
-      kv: 2,
+      kv: rotatedKv,
       keyRaw: crypto.getRandomValues(new Uint8Array(32)),
       rot: true,
     });
     const r = await bob.cipher.open(stale[0]);
     expect(r.type).toBe("reject");
-    expect(bob.cipher.kv).toBe(2);
+    expect(bob.cipher.kv).toBe(rotatedKv);
   });
 
   it("an offer whose ECDH key does not match the sender's registered key is rejected (UKS defense)", async () => {
@@ -173,7 +176,7 @@ describe("rotation ceremony hardening", () => {
     // Alice rotates; Bob installs the new key.
     const offers = await alice.cipher.rotateAsCoordinator();
     await bob.cipher.open(offers[0]);
-    expect(bob.cipher.kv).toBe(2);
+    expect(bob.cipher.kv).toBeGreaterThan(1);
 
     // The in-flight kv-1 frame arrives AFTER rotation; grace saves it:
     const during = await bob.cipher.open(inFlight[0]);
@@ -191,25 +194,27 @@ describe("rotation ceremony hardening", () => {
     const entryKey = await randomAesKey();
     const [alice, bob, mallory] = await makeRoom(roomId, ["m-alice", "m-bob", "m-mallory"], entryKey, { now: () => now });
 
-    // Mallory leaves; Alice (coordinator) rotates to kv 2. The server's
-    // epoch ledger now reads 2 (it persists; the key does not).
+    // Mallory leaves; Alice (coordinator) rotates to a fresh version.
+    // The server's epoch ledger now reads 2 (it persists; the key does
+    // not).
     for (const m of [alice, bob]) m.cipher.registry.delete("m-mallory");
     const offers1 = await alice.cipher.rotateAsCoordinator();
     await bob.cipher.open(offers1[0]);
-    expect(bob.cipher.kv).toBe(2);
+    expect(bob.cipher.kv).toBeGreaterThan(1);
 
     // EVERY remaining member refreshes: fresh ciphers, same entry key,
     // kv back at 1. Mallory keeps her live session, holding the
     // password, kv1, AND kv2.
     const [alice2, bob2] = await makeRoom(roomId, ["m-alice", "m-bob"], entryKey, { now: () => now });
 
-    // The ledger says epoch 2 → the coordinator rotates PAST it:
+    // The ledger says epoch 2 → the coordinator rotates PAST it: the
+    // new version sits in epoch 2, not in the epoch it was holding.
     const offers2 = await alice2.cipher.rotateAsCoordinator(2);
-    expect(alice2.cipher.kv).toBe(3);
+    expect(rotationEpochOf(alice2.cipher.kv)).toBe(2);
     expect(offers2.length).toBe(1);
     const r = await bob2.cipher.open(offers2[0]);
     expect(r).toMatchObject({ type: "offer-installed", rotation: true });
-    expect(bob2.cipher.kv).toBe(3);
+    expect(bob2.cipher.kv).toBe(alice2.cipher.kv);
 
     // Mallory, with password, roomId, live pipeline, kv1 + kv2, cannot
     // read the post-refresh traffic:
@@ -232,20 +237,28 @@ describe("rotation ceremony hardening", () => {
 
     // Both members stale at kv 1 (everyone refreshed, nobody answered
     // the key request). Both fall back with member-initiated offers
-    // (rot=false) and randomized version jumps:
-    const a = await alice.cipher.rotateTo(4, false); // alice lands on kv 5
-    const b = await bob.cipher.rotateTo(7, false); // bob lands on kv 8
-    expect(alice.cipher.kv).toBe(5);
-    expect(bob.cipher.kv).toBe(8);
+    // (rot=false). The versions are the server's epoch plus a fresh
+    // random offset, so the two land on different numbers even when
+    // the epoch is the same:
+    const a = await alice.cipher.rotateTo(4, false);
+    const b = await bob.cipher.rotateTo(4, false);
+    expect(alice.cipher.kv).not.toBe(bob.cipher.kv);
+    expect(alice.cipher.kv).toBeGreaterThan(1);
+    expect(bob.cipher.kv).toBeGreaterThan(1);
 
     // Each receives the other's offer. It is encrypted under the entry
-    // key, so readable by any password holder at any version:
-    const ra = await alice.cipher.open(b[0]); // kv 8 > 5 → installs
-    const rb = await bob.cipher.open(a[0]); // kv 5 < 8 → ignored
-    expect(ra).toMatchObject({ type: "offer-installed" });
-    expect(rb.type).toBe("reject");
-    expect(alice.cipher.kv).toBe(8);
-    expect(bob.cipher.kv).toBe(8);
+    // key, so readable by any password holder at any version. The
+    // higher version wins: the lower holder installs it, the higher
+    // one ignores the offer that is below it.
+    const higher = alice.cipher.kv > bob.cipher.kv ? alice : bob;
+    const lower = higher === alice ? bob : alice;
+    const fromHigher = higher === alice ? a[0] : b[0];
+    const fromLower = lower === alice ? a[0] : b[0];
+    const accepted = await lower.cipher.open(fromHigher);
+    const refused = await higher.cipher.open(fromLower);
+    expect(accepted).toMatchObject({ type: "offer-installed" });
+    expect(refused.type).toBe("reject");
+    expect(higher.cipher.kv).toBe(lower.cipher.kv);
 
     // Traffic flows under the converged key:
     const msg = await bob.cipher.sealText({ text: "converged" });
@@ -270,10 +283,11 @@ describe("rotation ceremony hardening", () => {
     expect(r1.type).toBe("reject");
     expect(bob.cipher.kv).toBe(1);
 
-    // Same for an out-of-bound but representable version:
+    // Same for a version whose EPOCH is past the cap. The version is
+    // an epoch and an offset, so the cap counts epochs:
     const big = await alice.cipher.sealKeyOffer({
       to: "m-bob",
-      kv: 1_000_000_000,
+      kv: 1_000_001 * 2 ** 32 + 7,
       keyRaw: crypto.getRandomValues(new Uint8Array(32)),
       rot: false,
     });
@@ -284,7 +298,7 @@ describe("rotation ceremony hardening", () => {
     // The room can still rotate normally afterwards:
     const offers = await alice.cipher.rotateAsCoordinator();
     expect((await bob.cipher.open(offers[0])).type).toBe("offer-installed");
-    expect(bob.cipher.kv).toBe(2);
+    expect(bob.cipher.kv).toBeGreaterThan(1);
   });
 
   it("parked pending frames expire - a stale undecryptable frame cannot squat the buffer", async () => {
@@ -315,7 +329,8 @@ describe("rotation ceremony hardening", () => {
     // Room rotates past the password-derived key:
     const offers = await alice.cipher.rotateAsCoordinator();
     await bob.cipher.open(offers[0]);
-    expect(bob.cipher.kv).toBe(2);
+    const rotatedKv = bob.cipher.kv;
+    expect(rotatedKv).toBeGreaterThan(1);
 
     // A newcomer with the right password derives the same entry key:
     const [newbie] = await makeRoom(roomId, ["m-new"], entryKey);
@@ -339,7 +354,7 @@ describe("rotation ceremony hardening", () => {
     expect(deliver).toHaveLength(1);
     const r = await newbie.cipher.open(deliver[0]);
     expect(r).toMatchObject({ type: "offer-installed", rotation: false });
-    expect(newbie.cipher.kv).toBe(2);
+    expect(newbie.cipher.kv).toBe(rotatedKv);
 
     // The newcomer can now read live traffic:
     const live = await bob.cipher.sealText({ text: "welcome" });
