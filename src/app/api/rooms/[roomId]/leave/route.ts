@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { IpRateLimiter, clientIp } from "@/lib/rate-limit";
 import { verifyLeaveProof } from "@/lib/leave-proof";
 import { roomExpired } from "@/lib/room-ttl";
+import { readJsonBody } from "@/lib/api-body";
 
 // POST /api/rooms/:roomId/leave. A member leaves, PROVING POSSESSION of
 // the room signing key: the request carries {memberId, ts, sig}, and we
@@ -22,11 +23,18 @@ export async function POST(
     return NextResponse.json({ error: "slow-down" }, { status: 429 });
   }
   const { roomId } = await params;
-  const body = (await request.json().catch(() => null)) as {
+  const read = await readJsonBody<{
     memberId?: string;
     ts?: number;
     sig?: string;
-  } | null;
+  }>(request);
+  if (!read.ok) {
+    if (read.reason === "too-large") {
+      return NextResponse.json({ error: "body-too-large" }, { status: 413 });
+    }
+    return NextResponse.json({ error: "invalid-proof" }, { status: 400 });
+  }
+  const body = read.body;
   if (!body?.memberId || typeof body.ts !== "number" || typeof body.sig !== "string") {
     return NextResponse.json({ error: "invalid-proof" }, { status: 400 });
   }

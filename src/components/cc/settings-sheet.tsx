@@ -5,7 +5,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, ChevronRight, Flag } from "lucide-react";
+import { Check, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import {
   Sheet,
@@ -74,7 +74,6 @@ export function SettingsSheet({
   const adjustRoomTtl = useApp((s) => s.adjustRoomTtl);
   const burnRoom = useApp((s) => s.burnRoom);
   const leaveRoom = useApp((s) => s.leaveRoom);
-  const reportRoom = useApp((s) => s.reportRoom);
   const setStoreCoverTraffic = useApp((s) => s.setCoverTraffic);
   const showLegal = useLegalSheet((s) => s.show);
   const session = getSession(roomId);
@@ -91,8 +90,6 @@ export function SettingsSheet({
   const [roomTtlBusy, setRoomTtlBusy] = useState(false);
   const [confirmBurn, setConfirmBurn] = useState(false);
   const [burning, setBurning] = useState(false);
-  const [confirmReport, setConfirmReport] = useState(false);
-  const [reporting, setReporting] = useState(false);
 
   // Re-seed the local fields each time the sheet opens (the
   // render-time adjustment pattern, no effects needed).
@@ -198,6 +195,11 @@ export function SettingsSheet({
               )}
               {isCreator ? (
                 <p className="t-meta">Only you can change this. The clock belongs to the room's creator.</p>
+              ) : null}
+              {roomTtl === 0 ? (
+                <p className="t-meta">
+                  A room with no clock is swept after a year if nobody is in it.
+                </p>
               ) : null}
             </div>
 
@@ -316,27 +318,6 @@ export function SettingsSheet({
             </p>
           </div>
 
-          {/* Report abuse: the graded path (Task 32). A member's
-              report is SIGNED with the room key and ends the room at
-              once; a stranger's needs three networks' corroboration.
-              Members only (the creator already holds burn); separated
-              from Leave by whitespace, somber, never crowding it. */}
-          {!isCreator && session ? (
-            <div className="mt-6 pb-2">
-              <button
-                type="button"
-                onClick={() => setConfirmReport(true)}
-                className="mx-auto flex h-11 items-center gap-2 rounded-[8px] px-3 font-sans text-[13px] text-mute transition-colors duration-150 hover:bg-wash hover:text-charcoal"
-              >
-                <Flag className="size-4" aria-hidden />
-                Report this room
-              </button>
-              <p className="t-meta mt-1 text-center">
-                For misuse, not manners: a member&rsquo;s report is signed with
-                their room key and ends the room at once.
-              </p>
-            </div>
-          ) : null}
         </SheetContent>
       </Sheet>
 
@@ -356,9 +337,21 @@ export function SettingsSheet({
               busy={burning}
               onClick={async () => {
                 setBurning(true);
-                await burnRoom(roomId);
+                const res = await burnRoom(roomId);
                 setBurning(false);
                 setConfirmBurn(false);
+                if (!res.ok) {
+                  // The room is still alive. The burn screen did not
+                  // come up, so the room stays open and the sheet
+                  // closes over it.
+                  toast("The room did not burn", {
+                    description:
+                      res.reason === "refused"
+                        ? "The server refused it. The room is still open."
+                        : "The server did not answer. The room is still open.",
+                  });
+                  return;
+                }
                 onOpenChange(false);
               }}
             >
@@ -371,39 +364,6 @@ export function SettingsSheet({
         </DialogContent>
       </Dialog>
 
-      {/* Report - also irreversible, also centered. */}
-      <Dialog open={confirmReport} onOpenChange={setConfirmReport}>
-        <DialogContent className="max-w-[400px] rounded-[18px] border-hairline bg-paper p-6 shadow-float">
-          <DialogHeader className="p-0 text-left">
-            <DialogTitle className="t-title">Report this room?</DialogTitle>
-            <DialogDescription className="mt-2 font-sans text-[13.5px] leading-[20px] text-charcoal/80">
-              Your report is signed with your room key, so it acts at
-              once: the room ends for everyone, immediately. It cannot
-              unsend anything: nothing is kept. To add detail, or to
-              reach the project author for anything the room itself cannot
-              fix, write to lilice308@gmail.com.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="mt-6 flex flex-col gap-2 sm:flex-col">
-            <DestructiveAction
-              full
-              busy={reporting}
-              onClick={async () => {
-                setReporting(true);
-                await reportRoom(roomId);
-                setReporting(false);
-                setConfirmReport(false);
-                onOpenChange(false);
-              }}
-            >
-              {reporting ? "Sending" : "Send the report"}
-            </DestructiveAction>
-            <SecondaryAction full onClick={() => setConfirmReport(false)}>
-              Cancel
-            </SecondaryAction>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }

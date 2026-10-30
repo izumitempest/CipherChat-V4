@@ -320,10 +320,8 @@ export function AppSettingsSheet({
             <div className="flex items-start gap-2.5 px-1 pt-1">
               <Flag className="mt-0.5 size-4 shrink-0 text-mute" aria-hidden />
               <p className="t-meta">
-                A room being misused can be reported from its settings:
-                a member&rsquo;s report is signed with their room key and ends
-                the room at once. A stranger's needs corroboration. For
-                anything the room itself cannot fix,{" "}
+                A room ends when its time runs out, or when the creator
+                burns it. For anything else, the{" "}
                 <button
                   type="button"
                   onClick={() => {
@@ -336,8 +334,8 @@ export function AppSettingsSheet({
                 >
                   lilice308@gmail.com
                 </button>{" "}
-                reaches the project author. Reporting cannot unsend anything,
-                because nothing is kept.
+                address reaches the project author. A room that is gone
+                cannot be unsent, because nothing is kept.
               </p>
             </div>
           </div>

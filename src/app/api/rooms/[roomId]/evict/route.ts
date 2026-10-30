@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { IpRateLimiter, clientIp } from "@/lib/rate-limit";
 import { authorizeEviction, OFFLINE_UNKNOWN } from "@/lib/silent-grace";
 import { PRESENCE_BASE } from "@/lib/relay-admin";
+import { readJsonBody } from "@/lib/api-body";
 
 // POST /api/rooms/:roomId/evict. Lock out a SILENT leaver.
 //
@@ -61,10 +62,17 @@ export async function POST(
   }
 
   const { roomId } = await params;
-  const body = (await request.json().catch(() => null)) as {
+  const read = await readJsonBody<{
     memberId?: string; // the silent leaver to write out
     callerId?: string; // the (coordinator) member asking
-  } | null;
+  }>(request);
+  if (!read.ok) {
+    if (read.reason === "too-large") {
+      return NextResponse.json({ error: "body-too-large" }, { status: 413 });
+    }
+    return NextResponse.json({ error: "invalid-request" }, { status: 400 });
+  }
+  const body = read.body;
   if (!body?.memberId || !body?.callerId) {
     return NextResponse.json({ error: "invalid-request" }, { status: 400 });
   }

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { IpRateLimiter, ROOM_CREATE_PER_MIN, clientIp } from "@/lib/rate-limit";
 import { sweepRooms } from "@/lib/janitor";
+import { hashCreatorToken } from "@/lib/creator-token";
+import { readJsonBody } from "@/lib/api-body";
 import {
   parseRoomTtlSec,
   roomExpired,
@@ -44,8 +46,15 @@ export async function POST(request: Request) {
   if (!createLimiter.allow(clientIp(request))) {
     return NextResponse.json({ error: "slow-down" }, { status: 429 });
   }
-  const body = (await request.json().catch(() => null)) as { ttlSec?: unknown } | null;
-  const parsed = body?.ttlSec === undefined ? { ok: true, ttlSec: ROOM_TTL_DEFAULT_SEC } : parseRoomTtlSec(body.ttlSec);
+  const read = await readJsonBody<{ ttlSec?: unknown }>(request);
+  if (!read.ok) {
+    if (read.reason === "too-large") {
+      return NextResponse.json({ error: "body-too-large" }, { status: 413 });
+    }
+    return NextResponse.json({ error: "invalid-body" }, { status: 400 });
+  }
+  const body = read.body;
+  const parsed = body.ttlSec === undefined ? { ok: true, ttlSec: ROOM_TTL_DEFAULT_SEC } : parseRoomTtlSec(body.ttlSec);
   if (!parsed.ok) {
     return NextResponse.json({ error: "invalid-ttl" }, { status: 400 });
   }
@@ -57,10 +66,14 @@ export async function POST(request: Request) {
     const id = makeRoomId();
     const existing = await db.room.findUnique({ where: { id } });
     if (existing && !roomExpired(existing.expiresAt)) continue;
+    const creatorToken = makeToken();
     const room = await db.room.create({
       data: {
         id,
-        creatorToken: makeToken(),
+        // The server stores the HASH of the creator token, never the
+        // token itself. The plain token goes back to the creator once
+        // and lives on their device.
+        creatorToken: await hashCreatorToken(creatorToken),
         epoch: 1,
         expiresAt: parsed.ttlSec
           ? new Date(Date.now() + parsed.ttlSec * 1000)
@@ -70,7 +83,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         roomId: room.id,
-        creatorToken: room.creatorToken,
+        creatorToken,
         epoch: room.epoch,
         expiresAt: room.expiresAt?.toISOString() ?? null,
       },

@@ -20,6 +20,11 @@ export async function randomAesKey(): Promise<CryptoKey> {
 export interface TestMember {
   id: string;
   cipher: RoomCipher;
+  /** the member's signing keys, so a test can seal a body the cipher
+   *  would never produce (a malformed chunk, say) with a signature
+   *  the receiver accepts */
+  privJwk: JsonWebKey;
+  pubJwk: JsonWebKey;
 }
 
 /** A room of N members with cross-registered registries, one shared
@@ -65,7 +70,7 @@ export async function makeRoom(
     });
     // every member sees the full registry (incl. self)
     for (const [id, entry] of registry) cipher.registry.set(id, { ...entry });
-    members.push({ id: m.id, cipher });
+    members.push({ id: m.id, cipher, privJwk: m.privJwk, pubJwk: m.pubJwk });
   }
   return members;
 }

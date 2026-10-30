@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { IpRateLimiter, ROOM_INFO_PER_MIN, clientIp } from "@/lib/rate-limit";
 import { roomExpired } from "@/lib/room-ttl";
 import { argon2ParamsWithinLimits } from "@/lib/kdf-limits";
+import { creatorTokenMatches } from "@/lib/creator-token";
+import { readJsonBody } from "@/lib/api-body";
 
 // PUT /api/rooms/:roomId/verifier. The CREATOR stores an encrypted
 // known-plaintext blob. Joiners derive their key and try to decrypt it:
@@ -35,10 +37,18 @@ export async function PUT(
     return NextResponse.json({ error: "slow-down" }, { status: 429 });
   }
   const { roomId } = await params;
-  const body = (await request.json().catch(() => null)) as {
+  const read = await readJsonBody<{
     verifier?: string;
     creatorToken?: string;
-  } | null;
+    joinProof?: string;
+  }>(request);
+  if (!read.ok) {
+    if (read.reason === "too-large") {
+      return NextResponse.json({ error: "body-too-large" }, { status: 413 });
+    }
+    return NextResponse.json({ error: "invalid-verifier" }, { status: 400 });
+  }
+  const body = read.body;
   if (!body?.verifier || typeof body.verifier !== "string" || body.verifier.length > 512) {
     return NextResponse.json({ error: "invalid-verifier" }, { status: 400 });
   }
@@ -66,7 +76,7 @@ export async function PUT(
   }
   if (
     typeof body.creatorToken !== "string" ||
-    body.creatorToken !== room.creatorToken
+    !(await creatorTokenMatches(room.creatorToken, body.creatorToken))
   ) {
     return NextResponse.json({ error: "not-authorized" }, { status: 403 });
   }
@@ -74,6 +84,18 @@ export async function PUT(
     // Already set. Idempotent no-op for the rightful creator.
     return NextResponse.json({ ok: true, alreadySealed: true });
   }
-  await db.room.update({ where: { id: roomId }, data: { verifier: body.verifier } });
+  // The join verifier goes in beside the bundle: an HMAC over the key
+  // derivation output, bound to this room. The server keeps it and
+  // never publishes it, and it is what lets the server tell a
+  // password holder from somebody holding only the link. Rooms sealed
+  // before this had no verifier and keep the old rule.
+  const joinProof =
+    typeof body.joinProof === "string" && body.joinProof.length > 0 && body.joinProof.length <= 128
+      ? body.joinProof
+      : null;
+  await db.room.update({
+    where: { id: roomId },
+    data: { verifier: body.verifier, joinProof },
+  });
   return NextResponse.json({ ok: true });
 }

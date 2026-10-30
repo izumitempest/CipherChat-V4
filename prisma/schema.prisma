@@ -24,11 +24,11 @@ datasource db {
 model Room {
   id           String    @id // public room code used in invite links
   verifier     String? // encrypted known-plaintext set by the creator (JSON {iv, ct})
-  creatorToken String // secret held only by the creator, authorizes burn + lifetime changes
+  joinProof    String? // HMAC over the key derivation output, bound to the room. Never published: it is what lets the server tell a password holder from a link holder. See lib/join-proof.ts.
+  creatorToken String // sha256 of the creator token, hex. The token itself is never stored. Authorizes burn + lifetime changes.
   epoch        Int       @default(1) // key-derivation epoch; bumped on member leave (key rotation)
   burned       Boolean   @default(false)
   burnedAt     DateTime?
-  reportReason String?   // set when terminated via the abuse endpoint — operator forensics, capped at the route
   expiresAt    DateTime? // chosen by the creator at creation; null = until burned. Expired rooms are refused and swept.
   createdAt    DateTime  @default(now())
   members      Member[]

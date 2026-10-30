@@ -14,8 +14,9 @@
 // blobs and derives the old way.
 
 import { argon2id } from "hash-wasm";
-import { deriveRoomKey, checkVerifier, toB64, fromB64 } from "./crypto";
+import { deriveRoomKey, deriveRoomKeyBits, checkVerifier, toB64, fromB64 } from "./crypto";
 import { clampArgon2Params } from "./kdf-limits";
+import { joinVerifierFromRaw } from "./join-proof";
 
 export const ARGON2_PARAMS = { m: 65_536, t: 3, p: 1 } as const;
 
@@ -36,7 +37,7 @@ async function deriveArgon2(
   password: string,
   salt: Uint8Array,
   params: { m: number; t: number; p: number },
-): Promise<CryptoKey> {
+): Promise<{ key: CryptoKey; raw: Uint8Array }> {
   const raw = await argon2id({
     password,
     salt,
@@ -46,31 +47,39 @@ async function deriveArgon2(
     hashLength: 32,
     outputType: "binary",
   });
-  return crypto.subtle.importKey(
+  const key = await crypto.subtle.importKey(
     "raw",
     raw as unknown as BufferSource,
     { name: "AES-GCM" },
     false,
     ["encrypt", "decrypt"],
   );
+  return { key, raw: new Uint8Array(raw) };
 }
 
 /** Create a version-2 bundle for a new room. Returns the derived entry
- *  key and the blob the server will store (and anyone can fetch; the
- *  salt is not secret, only memory-hard). */
+ *  key, the blob the server will store (and anyone can fetch; the salt
+ *  is not secret, only memory-hard), and the join verifier: an HMAC
+ *  over the derivation output, bound to the room. The verifier is not
+ *  part of the bundle and never leaves the server. It is what lets the
+ *  server tell a password holder from somebody holding only the link.
+ *  See join-proof.ts. */
 export async function createKeyBundleV2(
   password: string,
-): Promise<{ key: CryptoKey; bundle: KeyBundleV2 }> {
+  roomId: string,
+): Promise<{ key: CryptoKey; bundle: KeyBundleV2; joinVerifier: string }> {
   const salt = crypto.getRandomValues(new Uint8Array(16));
-  const key = await deriveArgon2(password, salt, ARGON2_PARAMS);
+  const { key, raw } = await deriveArgon2(password, salt, ARGON2_PARAMS);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ct = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
     key,
     new TextEncoder().encode(JSON.stringify({ check: VERIFY_CHECK_V2 })),
   );
+  const joinVerifier = await joinVerifierFromRaw(raw, roomId);
   return {
     key,
+    joinVerifier,
     bundle: {
       v: 2,
       alg: "argon2id",
@@ -87,13 +96,17 @@ export async function createKeyBundleV2(
 /** Unlock a room with its bundle. Versioned: v2 bundles derive with
  *  argon2id using the parameters and salt IN the bundle; versionless
  *  blobs are legacy PBKDF2 rooms and derive the old way (their salt is
- *  deterministic from roomId + epoch). Returns null on wrong password. */
+ *  deterministic from roomId + epoch). Returns null on wrong password.
+ *
+ *  The join verifier comes with the key: it is the same derivation
+ *  output under an HMAC, so the client can prove it knows the
+ *  password to the server without sending the password or the key. */
 export async function unlockWithBundle(
   password: string,
   bundleJson: string | null | undefined,
   roomId: string,
   epoch: number,
-): Promise<CryptoKey | null> {
+): Promise<{ key: CryptoKey; joinVerifier: string } | null> {
   if (!bundleJson) return null;
   let blob: Record<string, unknown>;
   try {
@@ -108,7 +121,7 @@ export async function unlockWithBundle(
     // can never make each guess cheaper than the floor (and can never
     // OOM a joiner's tab with an absurd ceiling).
     const params = clampArgon2Params(blob, ARGON2_PARAMS);
-    const key = await deriveArgon2(password, fromB64(String(blob.salt)), params);
+    const { key, raw } = await deriveArgon2(password, fromB64(String(blob.salt)), params);
     try {
       const pt = await crypto.subtle.decrypt(
         { name: "AES-GCM", iv: fromB64(String(blob.iv)) },
@@ -116,7 +129,8 @@ export async function unlockWithBundle(
         fromB64(String(blob.ct)),
       );
       const parsed = JSON.parse(new TextDecoder().decode(pt));
-      return parsed?.check === VERIFY_CHECK_V2 ? key : null;
+      if (parsed?.check !== VERIFY_CHECK_V2) return null;
+      return { key, joinVerifier: await joinVerifierFromRaw(raw, roomId) };
     } catch {
       return null;
     }
@@ -124,5 +138,7 @@ export async function unlockWithBundle(
 
   // Legacy v1 room: PBKDF2 with the deterministic salt.
   const key = await deriveRoomKey(roomId, epoch, password);
-  return (await checkVerifier(key, bundleJson)) ? key : null;
+  if (!(await checkVerifier(key, bundleJson))) return null;
+  const raw = await deriveRoomKeyBits(roomId, epoch, password);
+  return { key, joinVerifier: await joinVerifierFromRaw(raw, roomId) };
 }

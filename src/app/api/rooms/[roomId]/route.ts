@@ -4,6 +4,8 @@ import { IpRateLimiter, ROOM_INFO_PER_MIN, clientIp } from "@/lib/rate-limit";
 import { sweepRooms } from "@/lib/janitor";
 import { ROOM_MEMBER_CAP } from "@/lib/admission";
 import { parseRoomTtlSec, roomExpired } from "@/lib/room-ttl";
+import { creatorTokenMatches, hashCreatorToken, isPlainCreatorToken } from "@/lib/creator-token";
+import { readJsonBody } from "@/lib/api-body";
 
 // GET /api/rooms/:roomId. Public room info for the invite surface.
 // Returns only what a stranger at an invite link needs. No secrets.
@@ -48,19 +50,25 @@ export async function GET(
 }
 
 // PATCH /api/rooms/:roomId. The creator adjusts the room's lifetime
-// while it lives. Requires the creator token (held only by the room's
-// creator, never on the server beyond the hash-comparable original).
-// Body: { creatorToken: string, ttlSec: number } (0 = until burned).
-// A room whose time has already run out cannot be resurrected.
+// while it lives. Requires the creator token, which the creator holds
+// and the server stores only as a hash (sha256, domain separated),
+// compared in constant time. A database dump does not yield a working
+// token. Body: { creatorToken: string, ttlSec: number } (0 = until
+// burned). A room whose time has already run out cannot be
+// resurrected.
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ roomId: string }> },
 ) {
   const { roomId } = await params;
-  const body = (await request.json().catch(() => null)) as {
-    creatorToken?: unknown;
-    ttlSec?: unknown;
-  } | null;
+  const read = await readJsonBody<{ creatorToken?: unknown; ttlSec?: unknown }>(request);
+  if (!read.ok) {
+    if (read.reason === "too-large") {
+      return NextResponse.json({ error: "body-too-large" }, { status: 413 });
+    }
+    return NextResponse.json({ error: "invalid-body" }, { status: 400 });
+  }
+  const body = read.body;
   if (typeof body?.creatorToken !== "string" || body.creatorToken.length === 0) {
     return NextResponse.json({ error: "not-authorized" }, { status: 403 });
   }
@@ -75,8 +83,16 @@ export async function PATCH(
   if (roomExpired(room.expiresAt)) {
     return NextResponse.json({ error: "room-expired" }, { status: 410 });
   }
-  if (body.creatorToken !== room.creatorToken) {
+  if (!(await creatorTokenMatches(room.creatorToken, body.creatorToken))) {
     return NextResponse.json({ error: "not-authorized" }, { status: 403 });
+  }
+  // Rooms sealed before the token was hashed store it plain; the first
+  // successful use replaces it with the hash.
+  if (isPlainCreatorToken(room.creatorToken)) {
+    await db.room.update({
+      where: { id: roomId },
+      data: { creatorToken: await hashCreatorToken(body.creatorToken) },
+    });
   }
   const expiresAt = parsed.ttlSec
     ? new Date(Date.now() + parsed.ttlSec * 1000)
