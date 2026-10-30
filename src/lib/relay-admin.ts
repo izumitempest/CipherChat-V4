@@ -1,8 +1,8 @@
 // Server-to-server room termination on the relay's internal port
-// (3004, token-guarded, never routed through the gateway). Shared by
-// the REST /burn and /report routes so that ANY registry-side burn
-// reaches connected members immediately as "room:burned" — the event
-// every client already runs its burn sequence on.
+// (3004, token-guarded, never routed through the gateway). Called by
+// the REST /burn route so a registry-side burn reaches connected
+// members immediately as "room:burned" — the event every client
+// already runs its burn sequence on.
 //
 // This is the sanctioned termination channel. The relay no longer
 // honors a client-emitted "room:burn" socket event at all: that event

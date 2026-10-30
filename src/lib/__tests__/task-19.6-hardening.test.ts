@@ -17,6 +17,8 @@ import {
   FRAME_SIZE_CAP_BYTES,
   RELAY_FRAME_RATE,
   RELAY_FRAME_BURST,
+  RELAY_BYTE_RATE,
+  RELAY_BYTE_BURST,
   ROOM_CREATE_PER_MIN,
 } from "@/lib/rate-limit";
 
@@ -56,6 +58,50 @@ describe("relay per-socket token bucket (20 frames/sec)", () => {
   });
 });
 
+describe("relay per-socket byte bucket", () => {
+  it("charges the frame's own size, so a big frame costs more", () => {
+    let now = 3_000_000;
+    const bucket = new TokenBucket(
+      { ratePerSec: RELAY_BYTE_RATE, capacity: RELAY_BYTE_BURST },
+      () => now,
+    );
+    // A file frame is about 87 KB on the wire.
+    const fileFrame = 90_000;
+    // A whole file transfer (44 frames) fits inside the burst.
+    for (let i = 0; i < 44; i++) {
+      expect(bucket.tryTake(fileFrame)).toBe(true);
+    }
+    // Keep going until the burst is spent: 8 MB / 90 KB is 93 frames.
+    for (let i = 44; i < 93; i++) {
+      expect(bucket.tryTake(fileFrame)).toBe(true);
+    }
+    // The burst is spent; the next big frame does not fit.
+    expect(bucket.tryTake(fileFrame)).toBe(false);
+    // A small frame still fits: the bucket is in bytes, not frames.
+    expect(bucket.tryTake(100)).toBe(true);
+  });
+
+  it("refills at the byte rate, not the frame rate", () => {
+    let now = 4_000_000;
+    const bucket = new TokenBucket(
+      { ratePerSec: RELAY_BYTE_RATE, capacity: RELAY_BYTE_BURST },
+      () => now,
+    );
+    bucket.tryTake(RELAY_BYTE_BURST);
+    expect(bucket.tryTake(1)).toBe(false);
+    now += 1000; // one second of refill
+    expect(bucket.tryTake(RELAY_BYTE_RATE)).toBe(true);
+    expect(bucket.tryTake(1)).toBe(false);
+  });
+
+  it("a frame larger than the whole burst never fits", () => {
+    const bucket = new TokenBucket({ ratePerSec: RELAY_BYTE_RATE, capacity: RELAY_BYTE_BURST });
+    expect(bucket.tryTake(RELAY_BYTE_BURST + 1)).toBe(false);
+    // ...and the bucket is not drained by the refusal.
+    expect(bucket.tryTake(RELAY_BYTE_BURST)).toBe(true);
+  });
+});
+
 describe("room creation IP limiter (5 rooms/min)", () => {
   it("allows 5 creations per IP per minute, blocks the 6th, other IPs unaffected", () => {
     let now = 2_000_000;
@@ -76,7 +122,7 @@ describe("room creation IP limiter (5 rooms/min)", () => {
 describe("frame size cap", () => {
   it("accepts a normal control frame and a normal file chunk frame", () => {
     const control = JSON.stringify({
-      v: 2,
+      v: 3,
       roomId: "R",
       kv: 1,
       from: "A",
@@ -87,7 +133,7 @@ describe("frame size cap", () => {
     expect(frameSizeWithinCap(control)).toBe(true);
 
     const chunk = JSON.stringify({
-      v: 2,
+      v: 3,
       roomId: "R",
       kv: 1,
       from: "A",
@@ -100,7 +146,7 @@ describe("frame size cap", () => {
 
   it("refuses frames over the cap (memory-DoS guard)", () => {
     const huge = JSON.stringify({
-      v: 2,
+      v: 3,
       roomId: "R",
       kv: 1,
       from: "A",

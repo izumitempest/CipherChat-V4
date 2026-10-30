@@ -5,6 +5,14 @@
 export const RELAY_FRAME_RATE = 20;
 /** burst capacity per relay socket (a full file transfer is 45 frames) */
 export const RELAY_FRAME_BURST = 64;
+/** sustained bytes per second per relay socket. The frame counter
+ *  alone was not enough: a frame can carry 128 KB, so 20 frames a
+ *  second was 2.5 MB a second out of one socket. */
+export const RELAY_BYTE_RATE = 1024 * 1024; // 1 MB/s
+/** burst capacity in bytes per relay socket: one file transfer
+ *  (44 padded frames, about 4 MB) fits, and then the bucket is
+ *  mostly empty again */
+export const RELAY_BYTE_BURST = 8 * 1024 * 1024; // 8 MB
 /** room creations per minute per IP */
 export const ROOM_CREATE_PER_MIN = 5;
 /** hard cap on a single socket message (memory-DoS guard) */
@@ -19,7 +27,11 @@ export const MEMBER_JOIN_PER_MIN = 12;
 export const MEMBER_FRESH_WINDOW_MS = 15 * 60_000;
 
 /** Classic token bucket: sustained `ratePerSec`, instant burst up to
- *  `capacity`, then throttled to the refill rate. */
+ *  `capacity`, then throttled to the refill rate.
+ *
+ *  The unit is whatever the caller cares about: frames (one per
+ *  tryTake) or bytes (the frame's size per tryTake). One bucket, two
+ *  currencies. */
 export class TokenBucket {
   private tokens: number;
   private last: number;
@@ -32,7 +44,10 @@ export class TokenBucket {
     this.last = now();
   }
 
-  tryTake(): boolean {
+  /** Take `cost` units (1 by default). False when the bucket is
+   *  short: the caller drops the frame. */
+  tryTake(cost = 1): boolean {
+    if (!Number.isFinite(cost) || cost <= 0) return true;
     const t = this.now();
     const elapsed = (t - this.last) / 1000;
     if (elapsed > 0) {
@@ -42,11 +57,16 @@ export class TokenBucket {
       );
       this.last = t;
     }
-    if (this.tokens >= 1) {
-      this.tokens -= 1;
+    if (this.tokens >= cost) {
+      this.tokens -= cost;
       return true;
     }
     return false;
+  }
+
+  /** Units left, for tests and for logging. */
+  get available(): number {
+    return this.tokens;
   }
 }
 
@@ -57,8 +77,8 @@ export class TokenBucket {
  * the compose deployment), and that proxy APPENDS the real client IP
  * to whatever the client sent. The first element is therefore
  * attacker-controlled ("spoofed, ..., real") and must never key a
- * limiter: parsing it first-handedly made every per-IP limit and the
- * anonymous-report "distinct IP" corroboration trivially bypassable.
+ * limiter: parsing it first-handedly made every per-IP limit trivially
+ * bypassable.
  * With no XFF (dev, direct exposure) we fall back to X-Real-Ip, which
  * Caddy-style proxies set exclusively. */
 export function clientIp(request: Request): string {

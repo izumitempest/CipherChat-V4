@@ -5,8 +5,11 @@ import {
   TokenBucket,
   RELAY_FRAME_RATE,
   RELAY_FRAME_BURST,
+  RELAY_BYTE_RATE,
+  RELAY_BYTE_BURST,
   frameSizeWithinCap,
 } from "../../src/lib/rate-limit";
+import { SocketMembership } from "../../src/lib/relay-binding";
 
 /**
  * CipherChat relay: the server only forwards frames.
@@ -36,12 +39,70 @@ import {
  */
 
 const MAX_ROOMS_PER_SOCKET = 16;
+/** members the relay will hold for one room. The app's own cap is
+ *  far lower (eight), but the relay does not know that and must not
+ *  let a socket plant thousands of member ids in one room. */
+const MAX_MEMBERS_PER_ROOM = 64;
+
+/**
+ * Who may open a socket.
+ *
+ * The relay used to answer every origin ("*"). The relay holds no
+ * content, but it does hold the room map and the presence table, and
+ * a page on any site could open a socket, join a room it knows the id
+ * of, and read the presence and the frames it is sent. The frames are
+ * encrypted, so the worst a stranger gets is the room's membership
+ * and their traffic shape. Still, the relay has no business serving
+ * a page that is not the app.
+ *
+ * The list comes from RELAY_ALLOWED_ORIGINS (comma separated). With
+ * nothing set, the defaults are the local app and the deployed site.
+ * The dev origins the QA gateway uses are allowed too, or the preview
+ * would not work, and so are the onion addresses, because Tor
+ * generates that address at runtime and the operator cannot list it
+ * before the first boot.
+ */
+function allowedOrigins(): string[] {
+  const raw = process.env.RELAY_ALLOWED_ORIGINS ?? "";
+  const list = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (list.length) return list;
+  const out = ["http://localhost:3000", "http://127.0.0.1:3000"];
+  const site = process.env.CADDY_SITE;
+  if (site) {
+    out.push(`https://${site}`);
+    out.push(`http://${site}`);
+  }
+  return out;
+}
+
+// The origins that cannot be listed by name: the QA gateway and the
+// preview tunnels in front of the local dev server, and the onion
+// address Tor writes on the first boot.
+const PATTERN_ORIGINS = [/\.space-z\.ai$/i, /\.trycloudflare\.com$/i, /\.onion$/i];
+
+function originAllowed(origin: string): boolean {
+  if (allowedOrigins().includes(origin)) return true;
+  return PATTERN_ORIGINS.some((re) => re.test(origin));
+}
 
 const httpServer = createServer();
 const io = new Server(httpServer, {
   // DO NOT change the path: Caddy uses it to forward requests.
   path: "/",
-  cors: { origin: "*", methods: ["GET", "POST"] },
+  cors: {
+    origin: (origin, callback) => {
+      // No Origin header: not a browser (a health check, a script).
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+      callback(null, originAllowed(origin));
+    },
+    methods: ["GET", "POST"],
+  },
   pingTimeout: 60000,
   pingInterval: 25000,
   maxHttpBufferSize: 1_000_000, // frame-size cap is enforced per message below
@@ -91,7 +152,15 @@ function memberSockets(roomId: string, exceptSocketId?: string): Socket[] {
 io.on("connection", (socket) => {
   // socket.id -> list of { roomId, memberId } this socket joined
   const joined = new Set<string>();
+  // The member ids this socket claimed, per room. The relay takes the
+  // member id from the JOIN and keeps it; every later event uses the
+  // bound id, never one the client types. A client used to be able to
+  // announce that somebody else left, or speak as somebody else.
+  const bound = new SocketMembership();
   const bucket = new TokenBucket({ ratePerSec: RELAY_FRAME_RATE, capacity: RELAY_FRAME_BURST });
+  // The byte bucket. Frames per second was not a limit on traffic: a
+  // frame can be 128 KB, so 20 frames a second was 2.5 MB a second.
+  const bytes = new TokenBucket({ ratePerSec: RELAY_BYTE_RATE, capacity: RELAY_BYTE_BURST });
 
   /** Enforce the per-socket frame budget. Returns false when the
    *  frame should be dropped. */
@@ -99,13 +168,33 @@ io.on("connection", (socket) => {
     return bucket.tryTake();
   }
 
-  /** Enforce the hard size cap. Violations disconnect the socket. */
-  function withinSizeCap(data: unknown): boolean {
+  /** Enforce the per-socket byte budget, charged with the frame's
+   *  own size. */
+  function bytesAllowed(size: number): boolean {
+    return bytes.tryTake(size);
+  }
+
+  /** The member id this socket holds for a room, or null when it has
+   *  not joined that room. */
+  function memberIdFor(roomId: string): string | null {
+    return bound.memberIdFor(roomId);
+  }
+
+  /** Enforce the hard size cap. Violations disconnect the socket.
+   *  Returns the frame's size in bytes, or null when the frame is
+   *  over the cap. */
+  function frameSize(data: unknown): number | null {
     try {
-      return frameSizeWithinCap(JSON.stringify(data ?? {}));
+      const json = JSON.stringify(data ?? {});
+      if (!frameSizeWithinCap(json)) return null;
+      return json.length;
     } catch {
-      return false;
+      return null;
     }
+  }
+
+  function withinSizeCap(data: unknown): boolean {
+    return frameSize(data) !== null;
   }
 
   socket.on(
@@ -136,6 +225,13 @@ io.on("connection", (socket) => {
       let entry = room.get(memberId);
       const isNewMember = !entry;
       if (!entry) {
+        if (room.size >= MAX_MEMBERS_PER_ROOM) {
+          // The relay's room map is memory. A socket that joins with
+          // fresh member ids must not be able to grow it without
+          // bound. The room keeps its members; the new one is refused.
+          console.warn(`[relay] room ${roomId} is at its member cap, join refused`);
+          return;
+        }
         entry = {
           info: { memberId, alias, colorIdx: colorIdx ?? 0, pubkey: data.pubkey, ecdhPub: data.ecdhPub },
           sockets: new Set(),
@@ -148,11 +244,17 @@ io.on("connection", (socket) => {
         // overwritten by a forged join. Allowing the socket path to
         // rewrite them here once let any connection that quoted a
         // memberId replace that member's keys in relay broadcasts.
+        //
+        // The alias is the relay's own copy of what the client said.
+        // The REST roster is the authority, and the client cannot
+        // change the alias there any more (it is derived from the
+        // public key), so this value only has to agree with it.
         entry.info.alias = alias;
         entry.info.colorIdx = colorIdx ?? entry.info.colorIdx;
       }
       entry.sockets.add(socket.id);
       joined.add(`${roomId}:${memberId}`);
+      bound.join(roomId, memberId);
       socket.join(`room:${roomId}`);
       wentOfflineAt.delete(presenceKey(roomId, memberId)); // they came back
 
@@ -172,13 +274,18 @@ io.on("connection", (socket) => {
 
   socket.on("message:send", (data: { roomId: string; envelope: unknown }) => {
     if (!data?.roomId || !data?.envelope) return;
-    if (!withinSizeCap(data)) {
+    const size = frameSize(data);
+    if (size === null) {
       // Protocol violation: hard disconnect (memory-DoS guard).
       console.warn(`[relay] oversized frame from ${socket.id}, disconnecting`);
       socket.disconnect(true);
       return;
     }
+    // The sender has to be in the room. A socket that never joined
+    // used to be able to push frames into any room it knew the id of.
+    if (!memberIdFor(data.roomId)) return;
     if (!frameAllowed()) return; // over budget, dropped
+    if (!bytesAllowed(size)) return; // over the byte budget, dropped
     const envelope = data.envelope as { id?: string };
     for (const s of memberSockets(data.roomId, socket.id)) {
       s.emit("message:new", { roomId: data.roomId, envelope: data.envelope });
@@ -188,6 +295,7 @@ io.on("connection", (socket) => {
 
   socket.on("message:spent", (data: { roomId: string; messageId: string }) => {
     if (!data?.roomId || !data?.messageId) return;
+    if (!memberIdFor(data.roomId)) return;
     if (!frameAllowed()) return;
     for (const s of memberSockets(data.roomId, socket.id)) {
       s.emit("message:spent", { roomId: data.roomId, messageId: data.messageId });
@@ -201,6 +309,7 @@ io.on("connection", (socket) => {
     "message:burn",
     (data: { roomId: string; messageId: string; senderId?: string; sig?: string }) => {
       if (!data?.roomId || !data?.messageId) return;
+      if (!memberIdFor(data.roomId)) return;
       if (!frameAllowed()) return;
       for (const s of memberSockets(data.roomId, socket.id)) {
         s.emit("message:burn", {
@@ -220,12 +329,19 @@ io.on("connection", (socket) => {
     "member:typing",
     (data: { roomId: string; memberId: string; alias: string }) => {
       if (!data?.roomId || !data?.memberId) return;
+      // The member id and the alias come from the relay's own record
+      // of this socket, not from the client. A client used to be able
+      // to type under somebody else's name.
+      const memberId = memberIdFor(data.roomId);
+      if (!memberId) return;
       if (!frameAllowed()) return;
+      const room = rooms.get(data.roomId);
+      const known = room?.get(memberId)?.info;
       for (const s of memberSockets(data.roomId, socket.id)) {
         s.emit("member:typing", {
           roomId: data.roomId,
-          memberId: data.memberId,
-          alias: data.alias,
+          memberId,
+          alias: known?.alias ?? data.alias,
         });
       }
     },
@@ -235,22 +351,32 @@ io.on("connection", (socket) => {
   // answer with ECDH-wrapped offers; the relay still sees nothing.
   socket.on("key:request", (data: { roomId: string; from?: string }) => {
     if (!data?.roomId) return;
+    const from = memberIdFor(data.roomId);
+    if (!from) return;
     if (!frameAllowed()) return;
     for (const s of memberSockets(data.roomId, socket.id)) {
-      s.emit("key:request", { roomId: data.roomId, from: data.from });
+      s.emit("key:request", { roomId: data.roomId, from });
     }
   });
 
   socket.on("member:leave", (data: { roomId: string; memberId: string; alias: string }) => {
     if (!data?.roomId || !data?.memberId) return;
+    // The member id is the one this socket holds for the room. A
+    // client used to be able to announce that somebody else left,
+    // which moved a live member's presence clock.
+    const memberId = memberIdFor(data.roomId);
+    if (!memberId) return;
     if (!frameAllowed()) return; // unauthenticated event, at least rate-limit it
+    const room = rooms.get(data.roomId);
+    const known = room?.get(memberId)?.info;
     for (const s of memberSockets(data.roomId, socket.id)) {
-      s.emit("member:left", { roomId: data.roomId, memberId: data.memberId, alias: data.alias });
+      s.emit("member:left", { roomId: data.roomId, memberId, alias: known?.alias ?? data.alias });
     }
     socket.leave(`room:${data.roomId}`);
-    removeFromRoom(data.roomId, data.memberId, socket.id);
+    removeFromRoom(data.roomId, memberId, socket.id);
+    bound.leave(data.roomId);
     // A clean leave is not a silent one, so no grace clock starts.
-    wentOfflineAt.delete(presenceKey(data.roomId, data.memberId));
+    wentOfflineAt.delete(presenceKey(data.roomId, memberId));
   });
 
   // The coordinator's announcement that a silent leaver was evicted
@@ -261,9 +387,15 @@ io.on("connection", (socket) => {
     "member:expired",
     (data: { roomId: string; memberId: string; alias: string }) => {
       if (!data?.roomId || !data?.memberId) return;
+      // Same rule as the leave: the relay speaks for the member the
+      // socket holds, not for the id the client typed.
+      const memberId = memberIdFor(data.roomId);
+      if (!memberId) return;
       if (!frameAllowed()) return;
+      const room = rooms.get(data.roomId);
+      const known = room?.get(memberId)?.info;
       for (const s of memberSockets(data.roomId, socket.id)) {
-        s.emit("member:expired", { roomId: data.roomId, memberId: data.memberId, alias: data.alias });
+        s.emit("member:expired", { roomId: data.roomId, memberId, alias: known?.alias ?? data.alias });
       }
     },
   );
@@ -273,8 +405,8 @@ io.on("connection", (socket) => {
   // socket's say-so — no token, no signature — which handed anyone
   // holding an invite link (the weakest credential in the system) a
   // one-event kill switch over every member's live session. Authority
-  // lives server-side now: REST /burn (creator token) and /report
-  // (graded proof) call the token-guarded /terminate/:roomId below,
+  // lives server-side now: REST /burn (creator token) calls the
+  // token-guarded /terminate/:roomId below,
   // which is the ONLY thing that emits "room:burned".
   socket.on("room:burn", (data: { roomId?: string }) => {
     console.warn(
@@ -353,8 +485,8 @@ function terminateRoom(roomId: string) {
 createServer((req, res) => {
   const url = req.url ?? "";
 
-  // POST /terminate/:roomId: the abuse path's relay half. The REST
-  // /report route calls this after it has burned the room in the
+  // POST /terminate/:roomId: the burn path's relay half. The REST
+  // /burn route calls this after it has burned the room in the
   // registry, so connected members hear "room:burned" (the event
   // every client already runs its burn sequence on) instead of
   // typing into a dead room until their next poll. Same token guard
