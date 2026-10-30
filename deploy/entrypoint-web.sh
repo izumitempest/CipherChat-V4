@@ -1,9 +1,8 @@
 #!/bin/sh
-# First boot on a fresh volume: the schema exists only in the template
-# baked at build time. Never overwrite a live database.
+# The web container. The schema belongs to the migrations now: the
+# migrate service (see Dockerfile.web's "migrate" stage) backs the
+# database up, applies the pending migrations and exits before this
+# container starts. There is no schema template to copy any more, and
+# nothing here may touch the database file.
 set -eu
-if [ ! -f /app/db/custom.db ]; then
-  echo "[entrypoint] empty volume — seeding fresh database"
-  cp /app/db/custom.db.template /app/db/custom.db
-fi
 exec "$@"

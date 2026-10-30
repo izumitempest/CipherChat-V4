@@ -10,6 +10,20 @@
 name: cipherchat
 
 services:
+  # The migration step. Runs once per deploy, applies the pending
+  # migrations, backs the database up first, and exits. The web
+  # container waits for it.
+  migrate:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+      target: migrate
+    environment:
+      DATABASE_URL: file:/app/db/custom.db
+    volumes:
+      - db-data:/app/db
+    restart: "no"
+
   web:
     build:
       context: ..
@@ -32,7 +46,9 @@ services:
       - db-data:/app/db
     restart: unless-stopped
     depends_on:
-      - relay
+      migrate:
+        condition: service_completed_successfully
+      relay:
 
   relay:
     build:
@@ -40,6 +56,12 @@ services:
       dockerfile: deploy/Dockerfile.relay
     environment:
       RELAY_INTERNAL_TOKEN: ${RELAY_INTERNAL_TOKEN:?set RELAY_INTERNAL_TOKEN in deploy/.env}
+      # The relay answers only the app's origin. With nothing set the
+      # relay takes the local app and the site below. Set it to a
+      # comma separated list to pin it exactly.
+      RELAY_ALLOWED_ORIGINS: ${RELAY_ALLOWED_ORIGINS:-}
+      # So the relay can name the deployed site in its default list.
+      CADDY_SITE: ${CADDY_SITE:-localhost}
     restart: unless-stopped
     expose:
       - "3003" # socket.io relay (only Caddy reaches it)

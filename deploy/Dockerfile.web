@@ -31,8 +31,18 @@ RUN bunx prisma generate
 # `bun run build` also copies .next/static + public into the standalone dir.
 RUN bun run build
 
-# Bake an empty, schema-pushed SQLite file as the first-boot template.
-RUN bunx prisma db push --accept-data-loss --skip-generate
+# --- migrations --------------------------------------------------------------
+# A separate image: the Prisma CLI is a large package and the running
+# app does not need it. This image runs once per deploy, applies the
+# pending migrations, and exits.
+FROM oven/bun:1 AS migrate
+WORKDIR /app
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
+COPY prisma ./prisma
+COPY deploy/entrypoint-migrate.mjs ./entrypoint-migrate.mjs
+ENV DATABASE_URL=file:/app/db/custom.db
+ENTRYPOINT ["bun", "/app/entrypoint-migrate.mjs"]
 
 # --- runtime -----------------------------------------------------------------
 FROM node:22-slim AS runtime
@@ -55,11 +65,9 @@ COPY --from=build /app/.next/standalone ./
 # Prisma engines are sometimes missed by Next's file tracing — carry them.
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build /app/node_modules/@prisma ./node_modules/@prisma
-COPY --from=build /tmp/build.db /app/db/custom.db.template
 COPY deploy/entrypoint-web.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh \
-    && mkdir -p /app/db \
-    && cp /app/db/custom.db.template /app/db/custom.db
+    && mkdir -p /app/db
 
 # Liveness = the API tier answers a READ that touches the database.
 # GET a room id that cannot exist (lowercase never appears in the

@@ -52,8 +52,9 @@ jobs:
       # ---- Dependency audit: two gates, one policy (see AUDIT.md) ----
       # BLOCKING: the runtime tree, i.e. what the standalone build ships.
       # Findings come from `bun audit` over bun.lock (the exact installed
-      # pins); the runtime/dev split comes from a package-lock the gate
-      # materializes itself. Exceptions live ONLY in
+      # pins); the runtime/dev split comes from the same lockfile,
+      # walked from the root workspace's production dependencies.
+      # Exceptions live ONLY in
       # scripts/audit-gate.mjs, each keyed by (module, advisory id) and
       # dispositioned in AUDIT.md, so a NEW advisory against an excepted
       # module still fails the gate. The gate fails closed: an error
@@ -65,7 +66,7 @@ jobs:
       # chains that never ship in the standalone runtime image. Every
       # current finding is dispositioned in AUDIT.md; red here is a
       # review prompt, not a ship stopper. `bun audit` reads bun.lock
-      # directly, so no lockfile materialization needed.
+      # directly, the same file the blocking gate reads.
       - name: Dependency audit (full tree, advisory)
         run: bun audit --audit-level=high
         continue-on-error: true
@@ -75,7 +76,10 @@ jobs:
           DATABASE_URL: file:/tmp/ci.db
           NEXT_PUBLIC_RELAY_URL: /relay/
         run: |
-          bunx prisma db push --accept-data-loss --skip-generate
+          # The migrations are the schema now. Applying them here
+          # means a broken migration fails the build instead of the
+          # first deploy after it.
+          bunx prisma migrate deploy
           bun run build
 
   # The compose E2E: the production stack (web + relay + Caddy) built

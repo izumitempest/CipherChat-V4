@@ -7,6 +7,19 @@
 {$CADDY_SITE:localhost} {
 	encode zstd gzip
 
+	# The security headers, set at the edge so they hold for the
+	# static files and the relay route too. The app sets the same
+	# ones (and the per-request Content-Security-Policy) on its own
+	# responses.
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		X-Frame-Options DENY
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+		-Server
+	}
+
 	# The blind relay. handle_path STRIPS the /relay/ prefix so the
 	# socket.io server (path: "/") sees /?EIO=4&... — websocket
 	# upgrades pass through reverse_proxy automatically.
