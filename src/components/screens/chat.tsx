@@ -35,8 +35,9 @@ const TIME_GAP_MS = 30 * 60 * 1000;
 
 /** How many letters the document holds at once. The room keeps more
  *  in memory; the DOM holds this many, plus the ones the reader
- *  scrolls back to. */
-const WINDOW = 60;
+ *  scrolls back to. Kept low so the DOM never holds thousands of
+ *  nodes. */
+const WINDOW = 40;
 /** The window never grows past this, no matter how far back the
  *  reader scrolls. Older messages stay in memory (up to MESSAGE_CAP)
  *  but leave the DOM, and their file bytes are dropped. */

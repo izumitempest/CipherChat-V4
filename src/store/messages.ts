@@ -26,8 +26,9 @@ import { cancelBurnTimer, scheduleBurn } from "@/store/timers";
 import type { AppSlice, StoreSet } from "@/store/types";
 
 /** How many letters a room keeps in memory. The oldest go when the
- *  cap is reached. */
-export const MESSAGE_CAP = 500;
+ *  cap is reached. Kept low so a long-lived room does not retain
+ *  megabytes of plaintext in memory. */
+export const MESSAGE_CAP = 200;
 
 /** How many bytes of file payload a room keeps. The oldest file goes
  *  when the budget is reached; its message stays, without the bytes,
