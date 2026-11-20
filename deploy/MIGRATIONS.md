@@ -72,3 +72,36 @@ change. The deploy pipeline applies it automatically on the next
 |-----------|---------|
 | `0_init` | Baseline: Room and Member tables |
 | `1_join_proof` | Adds `joinProof` column to Room (password-proof join) |
+## Backup automation
+
+The migrate step creates a single `*.bak` backup beside the database
+file on every run (overwritten each time). For scheduled, rotated
+backups, use `deploy/backup.sh`:
+
+```bash
+# Create a timestamped backup, rotate old ones (keep last 14)
+./deploy/backup.sh
+
+# Also upload to S3
+AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... \
+  S3_BUCKET=my-backups ./deploy/backup.sh --s3
+
+# Restore from a backup
+./deploy/backup.sh restore ./backups/cipherchat-20260101-120000.db
+```
+
+Backups are written to `deploy/backups/` with a timestamp and a SHA-256
+checksum file. Rotation keeps the last `KEEP_COUNT` backups (default 14).
+
+Configure via environment variables:
+- `DATABASE_URL` — SQLite database file (default: `./db/custom.db`)
+- `BACKUP_DIR` — backup directory (default: `./backups`)
+- `KEEP_COUNT` — number of backups to keep (default 14)
+- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION` — S3 upload
+- `S3_BUCKET`, `S3_PREFIX` — S3 bucket and key prefix
+
+## Current migrations (continued)
+
+| Migration | Purpose |
+|-----------|---------|
+| `2_rotation_version` | Adds `rotationVersion` column to Room (server-issued key versions) |
