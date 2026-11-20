@@ -49,6 +49,7 @@ services:
       migrate:
         condition: service_completed_successfully
       relay:
+        condition: service_started
 
   relay:
     build:
@@ -82,8 +83,10 @@ services:
       - caddy-config:/config
     restart: unless-stopped
     depends_on:
-      - web
-      - relay
+      web:
+        condition: service_started
+      relay:
+        condition: service_started
 
 volumes:
   db-data:
