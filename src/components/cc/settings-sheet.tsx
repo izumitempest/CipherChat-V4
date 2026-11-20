@@ -94,6 +94,7 @@ export function SettingsSheet({
   const [changingPassword, setChangingPassword] = useState(false);
   const changePassword = useApp((s) => s.changePassword);
   const upgradeRoom = useApp((s) => s.upgradeRoom);
+  const rekeyRoom = useApp((s) => s.rekeyRoom);
   const upgradePasswordRef = useRef<HTMLInputElement>(null);
   const [upgrading, setUpgrading] = useState(false);
 
@@ -324,6 +325,46 @@ export function SettingsSheet({
                   }}
                 >
                   {upgrading ? "Upgrading" : "Upgrade room security"}
+                </PrimaryAction>
+              </div>
+            ) : null}
+
+            {isCreator ? (
+              <div className="space-y-2">
+                <p className="font-sans text-[13px] font-medium tracking-[0.01em] text-charcoal">
+                  Re-key room
+                </p>
+                <p className="t-meta">
+                  Generates a random entry key that no password can
+                  derive, and delivers it to every member. After this,
+                  the old password no longer unlocks the room — members
+                  must re-join with the new key (delivered automatically
+                  while online, or by re-joining with the password if
+                  the room was also upgraded).
+                </p>
+                <PrimaryAction
+                  full
+                  busy={upgrading}
+                  onClick={async () => {
+                    setUpgrading(true);
+                    const res = await rekeyRoom(roomId);
+                    setUpgrading(false);
+                    if (res.ok) {
+                      toast("Room re-keyed", {
+                        description:
+                          "The entry key is now random; no password can derive it.",
+                      });
+                    } else {
+                      toast("The room could not be re-keyed", {
+                        description:
+                          res.reason === "not-creator"
+                            ? "Only the room's creator can re-key."
+                            : "The server did not answer. Try again.",
+                      });
+                    }
+                  }}
+                >
+                  {upgrading ? "Re-keying" : "Re-key room"}
                 </PrimaryAction>
               </div>
             ) : null}

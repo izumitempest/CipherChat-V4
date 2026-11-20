@@ -133,6 +133,8 @@ export interface AppState {
     joinProof: string,
     creatorToken: string,
   ) => Promise<{ ok: boolean; reason?: string; alreadyUpgraded?: boolean }>;
+  /** Full re-key: replace the entry key with a random key no password can derive. */
+  rekeyRoom: (roomId: string) => Promise<{ ok: boolean; reason?: string }>;
   markVerified: (roomId: string, memberId: string, verified: boolean) => void;
   isVerified: (roomId: string, memberId: string) => boolean;
   refreshMembers: (roomId: string) => Promise<void>;

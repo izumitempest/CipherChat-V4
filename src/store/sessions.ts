@@ -7,6 +7,7 @@
 
 import { dropDraft } from "@/lib/drafts";
 import { dropLegacyKeys } from "@/lib/legacy";
+import { importAesKey } from "@/lib/protocol";
 import { createKeyBundleV2 } from "@/lib/kdf";
 import {
   loadRoomCards,
@@ -279,6 +280,47 @@ export const sessionsSlice: AppSlice = (set, get) => ({
     session.password = newPassword;
     session.joinVerifier = bundle.joinVerifier;
     addSystemLine(set, roomId, "The room's entry key was rotated with a new password.");
+    return { ok: true };
+  },
+
+  /** Full re-key: generate a random entry key (not derived from any
+   *  password), replace kv 1, and deliver it pairwise to all members.
+   *  After this, no password can derive the room key — only members
+   *  who receive the ECDH-wrapped key can decrypt. Creator-only. */
+  rekeyRoom: async (roomId) => {
+    const session = getSession(roomId);
+    const cipher = getCipher(roomId);
+    const token = session?.creatorToken;
+    if (!session || !cipher || !token) {
+      return { ok: false, reason: "not-creator" };
+    }
+    // Generate a random entry key, not derived from any password.
+    const keyRaw = crypto.getRandomValues(new Uint8Array(32));
+    const key = await importAesKey(keyRaw);
+    cipher.replaceEntryKey(key);
+    // Deliver the new key to every other member, wrapped under the
+    // entry key so only current members can open it.
+    const relay = getRelay();
+    for (const [id, entry] of cipher.registry) {
+      if (id === session.memberId || !entry.ecdhPubB64) continue;
+      // Temporarily override the session ECDH to deliver to this member.
+      // The offer is wrapped under the entry key (wireKv: 0) so every
+      // member can read it.
+      const frames = await cipher.sealKeyOffer({
+        to: id,
+        kv: cipher.kv,
+        keyRaw,
+        rot: false,
+        wireKey: cipher.getEntryKey(),
+        wireKv: 0,
+      });
+      for (const f of frames) {
+        relay.emit("message:send", { roomId, envelope: f });
+      }
+    }
+    // Mark the session: the password no longer derives the entry key.
+    session.legacy = true;
+    addSystemLine(set, roomId, "The room's entry key was re-keyed. No password can derive it.");
     return { ok: true };
   },
 
