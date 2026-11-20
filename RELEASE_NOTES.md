@@ -1,4 +1,4 @@
-# CipherChat v1.0.0-rc1
+# CipherChat v1.0.0-rc2
 
 A conversation that leaves no trace.
 
@@ -7,9 +7,69 @@ browser. A room is a link and a password. When you are done, you burn
 it. There are no accounts, and no message history is stored on any
 server.
 
-This is the first release candidate. It is feature-complete and tested,
+This is the second release candidate. It is feature-complete and tested,
 and its limits are listed below. The build history is in CHANGES.md and
 is not repeated here. These notes are written for strangers.
+
+## What changed since rc1
+
+- **Protocol v3 shipped**: the whole frame body is signed, closing the
+  canonical-collision and unsigned-field holes (BUGS.md B1, B2).
+- **Join proof**: joining proves you know the room password; the roster
+  is behind the same proof; aliases and ink are derived server-side
+  from the public key (B7, B8, B9).
+- **Member update requires proof of possession**: rotating a member's
+  ECDH key now needs a signature from their registered room key (B6).
+- **Creator token hashed**: stored as SHA-256, compared in constant
+  time; old plain tokens upgrade on first use (B20).
+- **Route bodies capped at 64 KB** via one shared JSON reader (B14).
+- **Security headers**: per-request CSP nonce, nosniff, no-referrer,
+  DENY framing, permissions policy, cross-origin isolation, HSTS
+  (B15).
+- **Relay CORS pinned** to the app's origin; no wildcard (B16).
+- **Relay byte bucket** beside the frame bucket: 1 MB/s sustained,
+  8 MB burst, charged per frame (B17).
+- **Relay binds sockets to member IDs** claimed at join; a client can
+  no longer speak as another member (B32).
+- **Janitor sweeps clockless rooms** after a year of inactivity
+  (B19).
+- **Prisma migrations**: `0_init` baseline and `1_join_proof`, run
+  before the web container starts (B18).
+- **File size buckets**: 64 KB / 256 KB / 1 MB / 2 MB; a 1 KB file
+  travels in 3 frames instead of 45 (B33).
+- **File viewer is a real dialog**: focus trap, Escape closes,
+  restore on exit (B25).
+- **TTL countdown out of the live region**: speaks at 1 minute and
+  10 seconds only (B26).
+- **44px hit area on the "new password" control** (B27).
+- **Seed vault fallback is memory-only**; the comment matches the
+  code (B38).
+- **README matches the code**: protocol version, buckets, join proof,
+  three ways a room ends, start-dev.sh, migrations (B10, B35).
+- **Dead dependencies removed**; `.mimosa/` untracked; one dev
+  launcher (`start-dev.sh`); one lockfile (`bun.lock`) (B39–B43).
+- **Store sliced into lifecycle, registry, sessions, transport,
+  receive, messages, timers, desk**; memory bounded (500 letters,
+  32MB file payloads, 60-letter document window) (B28, B29).
+- **Strict mode on** (B30).
+- **Fingerprint 64 bits** in four groups (B31).
+- **Abuse report removed**: no button, no endpoint, no modal; rooms
+  end by clock, creator burn, or operator terminate only (B11–B13).
+- **LAN testing over HTTPS**: `start-dev.sh --lan` starts cloudflared
+  tunnels for app and relay, wires `NEXT_PUBLIC_RELAY_URL` to the
+  relay tunnel (B44).
+- **Password rotation**: creators can rotate the entry key with a new
+  password; higher key versions (ECDH-delivered) are unaffected.
+- **Per-member relay rate limiting**: a member with multiple sockets
+  shares one frame and byte bucket instead of multiplying it.
+- **Message virtualization**: DOM window capped at 180 messages;
+  file payloads dropped for messages outside the visible window.
+- **Legacy room badge**: pre-v2 rooms show a warning that the roster
+  is link-readable and aliases are not identity-checked.
+- **Migration downgrade story**: `deploy/MIGRATIONS.md` documents
+  backup/restore for bad migrations.
+- **trycloudflare relay**: `CADDY_SITE=*` catch-all so random tunnel
+  hostnames match; `share.sh` preserves existing `CADDY_SITE`.
 
 ## What it is
 

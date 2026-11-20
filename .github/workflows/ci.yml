@@ -110,7 +110,7 @@ jobs:
       - name: Build and start the compose stack
         run: |
           cd deploy
-          printf 'RELAY_INTERNAL_TOKEN=%s\nCADDY_SITE=http://localhost\n' "$(openssl rand -hex 24)" > .env
+          printf 'RELAY_INTERNAL_TOKEN=%s\nCADDY_SITE=localhost\n' "$(openssl rand -hex 24)" > .env
           docker compose up -d --build
 
       - name: Wait for the stack to answer

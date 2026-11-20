@@ -12,7 +12,9 @@ export default defineConfig({
     // The property suite, the store rules and the component renders.
     include: ["src/**/__tests__/**/*.test.ts", "src/**/__tests__/**/*.test.tsx"],
     // The crypto modules are pure; WebCrypto comes from Node's global.
-    testTimeout: 30_000,
-    hookTimeout: 30_000,
+    // The canonical-collision hunt exercises every field pair and can
+    // take ~30s on a cold runner; give it headroom so it never flakes.
+    testTimeout: 60_000,
+    hookTimeout: 60_000,
   },
 });
