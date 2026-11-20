@@ -184,13 +184,11 @@ if [ ! -f .env ]; then
   fi
   sed -i "s#^RELAY_INTERNAL_TOKEN=.*#RELAY_INTERNAL_TOKEN=$token#" .env
   # Plain HTTP on :80 behind the tunnel: Cloudflare's edge owns TLS.
-  if grep -q "^# CADDY_SITE" .env; then
-    sed -i "s#^# CADDY_SITE.*#CADDY_SITE=localhost#" .env || true
-  fi
-  if grep -q "^CADDY_SITE=" .env; then
-    sed -i "s#^CADDY_SITE=.*#CADDY_SITE=localhost#" .env
-  else
-    printf "CADDY_SITE=localhost\n" >> .env
+  # Only set a default when CADDY_SITE is not already configured — a
+  # trycloudflare quick tunnel needs CADDY_SITE=* (catch-all) because
+  # it picks a new random hostname every run.
+  if ! grep -Eq "^[[:space:]]*#?[[:space:]]*CADDY_SITE[[:space:]]*=" .env; then
+    printf '\nCADDY_SITE=localhost\n' >> .env
   fi
   note ".env created with a fresh RELAY_INTERNAL_TOKEN"
 fi
