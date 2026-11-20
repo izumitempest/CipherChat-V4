@@ -165,7 +165,7 @@ function ActiveRoom({ roomId }: { roomId: string }) {
       growAnchorRef.current = el.scrollHeight;
       setWindowSize((n) => Math.min(MAX_WINDOW, n + WINDOW));
     }
-  }, [hiddenAbove]);
+  }, [hiddenAbove, windowSize]);
 
   useEffect(() => {
     const el = scrollRef.current;
