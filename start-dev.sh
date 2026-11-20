@@ -90,14 +90,16 @@ stop_all() {
   # (container ports are namespaced away from the host).
   if pkill -f "next dev -p $WEB_PORT" 2>/dev/null; then killed=1; fi
   # The quick tunnels from --lan mode.
-  if [ -f "$RUN_DIR/tunnel-relay.pid" ]; then
-    kill "$(cat "$RUN_DIR/tunnel-relay.pid")" 2>/dev/null || true
-    killed=1
-  fi
-  if [ -f "$RUN_DIR/tunnel-app.pid" ]; then
-    kill "$(cat "$RUN_DIR/tunnel-app.pid")" 2>/dev/null || true
-    killed=1
-  fi
+  for name in app relay; do
+    local pid_file="$RUN_DIR/tunnel-$name.pid"
+    if [ -f "$pid_file" ]; then
+      kill "$(cat "$pid_file")" 2>/dev/null || true
+      killed=1
+      rm -f "$pid_file" "$RUN_DIR/tunnel-$name.url"
+    fi
+  done
+  pkill -f "cloudflared tunnel --url http://localhost:$WEB_PORT" 2>/dev/null || true
+  pkill -f "cloudflared tunnel --url http://localhost:$RELAY_PORT" 2>/dev/null || true
   for port in $WEB_PORT $RELAY_PORT $PRESENCE_PORT; do
     local pids; pids="$(port_pids "$port")"
     if [ -n "$pids" ]; then
@@ -152,10 +154,9 @@ ensure_env() {
   # context at all.
   local desired_relay="http://localhost:$RELAY_PORT"
   if [ "${LAN_MODE:-0}" = 1 ]; then
-    desired_relay="__TUNNEL__"
-  fi
-  if [ "$desired_relay" = "__TUNNEL__" ]; then
-    say "NEXT_PUBLIC_RELAY_URL will be the relay's tunnel URL (--lan)"
+    # Don't write a placeholder to .env — the real tunnel URL is set
+    # after the tunnel comes up in start_all.
+    say "NEXT_PUBLIC_RELAY_URL will be set to the relay tunnel URL (--lan)"
   elif ! env_has NEXT_PUBLIC_RELAY_URL; then
     printf '\n# Where the browser finds the relay (auto)\n' >> .env
     printf 'NEXT_PUBLIC_RELAY_URL=%s\n' "$desired_relay" >> .env
@@ -182,6 +183,30 @@ ensure_db() {
   # The same step the production container runs: back up, baseline if
   # the database predates the migrations, apply what is pending.
   bun "$ROOT/deploy/entrypoint-migrate.mjs"
+}
+
+start_tunnel() {
+  # Starts a cloudflared quick tunnel and writes its URL to a pid file.
+  # Usage: start_tunnel <name> <local-port>
+  local name="$1" local_port="$2"
+  local pid_file="$RUN_DIR/tunnel-$name.pid"
+  local url_file="$RUN_DIR/tunnel-$name.url"
+  : > "$TUNNEL_LOG"
+  setsid sh -c "exec cloudflared tunnel --url http://localhost:$local_port" >> "$TUNNEL_LOG" 2>&1 < /dev/null &
+  echo $! > "$pid_file"
+  note "tunnel $name starting (log: $TUNNEL_LOG)"
+  local url=""
+  for i in $(seq 1 45); do
+    url=$(grep -oE "https://[a-z0-9-]+\.trycloudflare\.com" "$TUNNEL_LOG" 2>/dev/null | tail -1)
+    [ -n "${url:-}" ] && break
+    sleep 2
+  done
+  if [ -n "${url:-}" ]; then
+    echo "$url" > "$url_file"
+    note "tunnel $name: $url"
+  else
+    warn "tunnel $name: no URL yet; check $TUNNEL_LOG"
+  fi
 }
 
 # --- 4. launch --------------------------------------------------------------
@@ -221,11 +246,24 @@ start_all() {
     exit 1
   fi
 
+  local app_url="" relay_tunnel_url=""
+  if [ "${LAN_MODE:-0}" = 1 ]; then
+    start_tunnel app "$WEB_PORT"
+    start_tunnel relay "$RELAY_PORT"
+    app_url="$(cat "$RUN_DIR/tunnel-app.url" 2>/dev/null || true)"
+    relay_tunnel_url="$(cat "$RUN_DIR/tunnel-relay.url" 2>/dev/null || true)"
+    # Point the browser at the relay tunnel so ws:// works over https.
+    if [ -n "${relay_tunnel_url:-}" ]; then
+      printf 'NEXT_PUBLIC_RELAY_URL=%s\n' "$relay_tunnel_url" >> .env
+      say "wired NEXT_PUBLIC_RELAY_URL to $relay_tunnel_url"
+    fi
+  fi
+
   local lan; lan="$(lan_ip)"
   printf '\033[1m  CipherChat is up\033[0m\n'
   printf '    local:   http://localhost:%s\n' "$WEB_PORT"
-  if [ -n "$app_url" ]; then
-    printf '    phone:   %s   (https, the tunnel; a LAN http address will not do)\n' "$app_url"
+  if [ -n "${app_url:-}" ]; then
+    printf '    phone:   %s   (https tunnel; LAN http would fail WebCrypto)\n' "$app_url"
     printf '    relay:   %s\n' "$relay_tunnel_url"
   elif [ -n "$lan" ]; then
     printf '    LAN:     http://%s:%s   (plain http: the crypto will not run there)\n' "$lan" "$WEB_PORT"
