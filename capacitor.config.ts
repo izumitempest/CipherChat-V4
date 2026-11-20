@@ -9,9 +9,13 @@
 // The full pipeline (prerequisites, commands, signing, honest
 // limitations) is documented in MOBILE.md.
 
-import type { CapacitorConfig } from "@capacitor/cli";
+// @capacitor/cli is deliberately not a dependency (see bugs/BUGS.md
+// B40 — dead dependencies removed). This config is consumed by the
+// Capacitor CLI at `npx cap sync` time for the optional mobile
+// wrapper, never by the web build. The type annotation is dropped so
+// tsc does not need the removed package.
 
-const config: CapacitorConfig = {
+const config = {
   appId: "app.cipherchat.mobile",
   appName: "CipherChat",
 
