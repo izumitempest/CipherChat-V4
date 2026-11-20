@@ -62,6 +62,15 @@ const EXCEPTIONS = [
       "prisma CLI -> @prisma/config -> c12 -> defu. Same non-shipping " +
       "chain and same refusal rationale as deepmerge-ts above.",
   },
+  {
+    module: "effect",
+    id: "GHSA-7589-6fvf-x4pw",
+    reason:
+      "prisma CLI -> @prisma/config -> effect. Same non-shipping chain " +
+      "and same refusal rationale as deepmerge-ts above: the prisma CLI " +
+      "runs at build time against our own committed schema and does not " +
+      "ship in the runtime image.",
+  },
 ];
 
 const GATE = new Set(["critical", "high"]);

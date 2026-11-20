@@ -69,6 +69,7 @@ masked below. Full tree 22 down to 15 findings.
 |---|---|---|---|---|
 | `deepmerge-ts` | GHSA-ggr8-5vv4-36mx | high | `@prisma/client` (graph) then prisma CLI then `@prisma/config` | `PrismaClient` never requires the CLI chain. Verified with a `require('prisma')` scan of `node_modules/@prisma/client`, zero hits. The runtime image copies only `.next/standalone`, `node_modules/.prisma` and `node_modules/@prisma`, excluding the CLI, `@prisma/config` and everything under it. The CLI runs at build time against our own committed schema. No fixed prisma release exists, the vulnerable range spans to 8.1.0-dev.4. |
 | `defu` | GHSA-737v-mqg7-c878 | high | prisma CLI then `@prisma/config` then `c12` then `defu` | Same chain, same non-shipping argument. |
+| `effect` | GHSA-7589-6fvf-x4pw | high | prisma CLI then `@prisma/config` then `effect` | Same chain, same non-shipping argument: the prisma CLI runs at build time against our own committed schema and does not ship in the runtime image. |
 
 ### The prisma downgrade refusal
 
