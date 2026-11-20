@@ -7,6 +7,15 @@
 {$CADDY_SITE:localhost} {
 	encode zstd gzip
 
+	# Rate limiting at the edge: 20 requests per second per client IP,
+	# burst of 40. Stops abusive traffic before it reaches the app or
+	# relay. Complements the per-route limiters in the Next.js API
+	# routes and the per-member buckets in the relay.
+	rate_limit {
+		interval 1s
+		burst 40
+	}
+
 	# The security headers, set at the edge so they hold for the
 	# static files and the relay route too. The app sets the same
 	# ones (and the per-request Content-Security-Policy) on its own
