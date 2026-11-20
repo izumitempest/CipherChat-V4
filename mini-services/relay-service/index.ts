@@ -11,6 +11,27 @@ import {
 } from "../../src/lib/rate-limit";
 import { SocketMembership } from "../../src/lib/relay-binding";
 
+/** Structured JSON logger for the relay. Each log line is a JSON
+ *  object with a level, timestamp, and message, plus optional fields.
+ *  Easy to ingest with log collectors (Vector, Fluentd, CloudWatch,
+ *  etc.). Sensitive fields (message contents, keys) are never logged. */
+function relayLog(
+  level: "info" | "warn" | "error",
+  msg: string,
+  fields: Record<string, unknown> = {},
+) {
+  const line = JSON.stringify({
+    level,
+    ts: new Date().toISOString(),
+    service: "cipherchat-relay",
+    msg,
+    ...fields,
+  });
+  if (level === "error") console.error(line);
+  else if (level === "warn") console.warn(line);
+  else console.log(line);
+}
+
 /**
  * CipherChat relay: the server only forwards frames.
  *
@@ -180,6 +201,7 @@ function memberSockets(roomId: string, exceptSocketId?: string): Socket[] {
 }
 
 io.on("connection", (socket) => {
+  relayLog("info", "socket connected", { socketId: socket.id });
   // socket.id -> list of { roomId, memberId } this socket joined
   const joined = new Set<string>();
   // The member ids this socket claimed, per room. The relay takes the
@@ -277,7 +299,7 @@ io.on("connection", (socket) => {
           // The relay's room map is memory. A socket that joins with
           // fresh member ids must not be able to grow it without
           // bound. The room keeps its members; the new one is refused.
-          console.warn(`[relay] room ${roomId} is at its member cap, join refused`);
+          relayLog("warn", "room at member cap, join refused", { roomId });
           return;
         }
         entry = {
@@ -316,7 +338,12 @@ io.on("connection", (socket) => {
           s.emit("member:presence", { roomId, memberId, connected: true });
         }
       }
-      console.log(`[relay] ${alias} (${memberId.slice(-6)}) ${isNewMember ? "joined" : "re-joined"} room ${roomId}`);
+      relayLog("info", `${alias} ${isNewMember ? "joined" : "re-joined"} room`, {
+        roomId,
+        memberId: memberId.slice(-6),
+        alias,
+        isNewMember,
+      });
     },
   );
 
@@ -325,7 +352,7 @@ io.on("connection", (socket) => {
     const size = frameSize(data);
     if (size === null) {
       // Protocol violation: hard disconnect (memory-DoS guard).
-      console.warn(`[relay] oversized frame from ${socket.id}, disconnecting`);
+      relayLog("warn", "oversized frame, disconnecting", { socketId: socket.id });
       socket.disconnect(true);
       return;
     }
@@ -457,12 +484,14 @@ io.on("connection", (socket) => {
   // token-guarded /terminate/:roomId below,
   // which is the ONLY thing that emits "room:burned".
   socket.on("room:burn", (data: { roomId?: string }) => {
-    console.warn(
-      `[relay] ignored unauthenticated room:burn from ${socket.id} (room ${data?.roomId ?? "?"})`,
-    );
+    relayLog("warn", "ignored unauthenticated room:burn", {
+      socketId: socket.id,
+      roomId: data?.roomId ?? "?",
+    });
   });
 
   socket.on("disconnect", () => {
+    relayLog("info", "socket disconnected", { socketId: socket.id });
     for (const key of joined) {
       const [roomId, memberId] = key.split(":");
       const stillConnected = removeFromRoom(roomId, memberId, socket.id);
@@ -477,7 +506,9 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("error", (err) => console.error(`[relay] socket error:`, err));
+  socket.on("error", (err) =>
+    relayLog("error", "socket error", { socketId: socket.id, error: String(err) }),
+  );
 });
 
 function removeFromRoom(roomId: string, memberId: string, socketId: string): boolean {
@@ -495,7 +526,7 @@ function removeFromRoom(roomId: string, memberId: string, socketId: string): boo
 
 const PORT = 3003;
 httpServer.listen(PORT, () => {
-  console.log(`[relay] CipherChat blind relay listening on :${PORT}`);
+  relayLog("info", "CipherChat blind relay listening", { port: PORT });
 });
 
 /* ------------------------------------------------------------------ *
@@ -527,7 +558,7 @@ function terminateRoom(roomId: string) {
   for (const key of [...wentOfflineAt.keys()]) {
     if (key.startsWith(`${roomId}:`)) wentOfflineAt.delete(key);
   }
-  console.log(`[relay] room ${roomId} terminated (internal)`);
+  relayLog("info", "room terminated", { roomId });
 }
 
 createServer((req, res) => {
@@ -573,7 +604,8 @@ createServer((req, res) => {
   res.writeHead(200, { "content-type": "application/json" });
   res.end(JSON.stringify({ roomId, connected, offlineSince }));
 }).listen(INTERNAL_PORT, () => {
-  console.log(
-    `[relay] presence snapshot on :${INTERNAL_PORT} ${INTERNAL_TOKEN ? "(token armed)" : "(NO TOKEN: internal port refuses everything)"}`,
-  );
+  relayLog("info", "presence snapshot listening", {
+    port: INTERNAL_PORT,
+    tokenArmed: !!INTERNAL_TOKEN,
+  });
 });
