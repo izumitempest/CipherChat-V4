@@ -9,6 +9,7 @@ import { aliasFromFingerprint, inkFromFingerprint } from "@/lib/identity";
 import { signMemberProof } from "@/lib/member-proof";
 import { encodeJoinProof, makeJoinProof } from "@/lib/join-proof";
 import { createKeyBundleV2, unlockWithBundle } from "@/lib/kdf";
+import { fetchRoomRotationVersion } from "@/lib/room-api";
 import {
   loadRoomSettings,
   loadCreatorToken,
@@ -314,11 +315,14 @@ export const registrySlice: AppSlice = (set, get) => ({
     // coordinator re-seals past the ledger so keys any departed member
     // may still hold are dead again.
     if (info.epoch > 1) {
-      const attemptRotation = (minKv: number) => {
+      const attemptRotation = async (minKv: number) => {
         const c = getCipher(code);
         const s = getSession(code);
         if (!c || !s || c.kv > 1) return;
-        void c.rotateTo(minKv).then((offers) => {
+        // Fetch the server-assigned rotation version to avoid
+        // collision when two members rotate at once.
+        const version = await fetchRoomRotationVersion(code).catch(() => 0);
+        void c.rotateTo(minKv, true, version).then((offers) => {
           const relay2 = getRelay();
           for (const f of offers) {
             relay2.emit("message:send", { roomId: code, envelope: f });
@@ -339,16 +343,14 @@ export const registrySlice: AppSlice = (set, get) => ({
           setResealing(set, code, true);
           // Fallback: if nobody answers (every member refreshed, or the
           // holder is offline), re-seal on our own after a randomized
-          // delay. The version is the server's epoch plus a fresh
-          // random offset, so two members falling back at the same
-          // time land on two different versions: the higher one wins
-          // and the lower one takes it, instead of both installing a
-          // different key under the same number.
-          setTimeout(() => {
+          // delay. The server-assigned rotation version eliminates
+          // collision risk when two members fall back at once.
+          setTimeout(async () => {
             const c = getCipher(code);
             const s = getSession(code);
             if (!c || !s || c.kv > 1) return;
-            void c.rotateTo(info.epoch, false).then((offers) => {
+            const version = await fetchRoomRotationVersion(code).catch(() => 0);
+            void c.rotateTo(info.epoch, false, version).then((offers) => {
               const relay2 = getRelay();
               for (const f of offers) {
                 relay2.emit("message:send", { roomId: code, envelope: f });

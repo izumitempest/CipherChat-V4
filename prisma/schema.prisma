@@ -27,6 +27,7 @@ model Room {
   joinProof    String? // HMAC over the key derivation output, bound to the room. Never published: it is what lets the server tell a password holder from a link holder. See lib/join-proof.ts.
   creatorToken String // sha256 of the creator token, hex. The token itself is never stored. Authorizes burn + lifetime changes.
   epoch        Int       @default(1) // key-derivation epoch; bumped on member leave (key rotation)
+  rotationVersion Int @default(0) // next rotation version to hand out; incremented atomically per rotation
   burned       Boolean   @default(false)
   burnedAt     DateTime?
   expiresAt    DateTime? // chosen by the creator at creation; null = until burned. Expired rooms are refused and swept.

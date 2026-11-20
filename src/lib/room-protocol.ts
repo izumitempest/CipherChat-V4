@@ -575,8 +575,15 @@ export class RoomCipher {
    *  verify the sender is their coordinator). Fallback re-keys use
    *  rot=false: a member-initiated delivery, still ECDH-wrapped,
    *  signature-checked, registry-gated and version-monotonic. */
-  async rotateTo(serverEpoch = 0, rot = true): Promise<WireFrame[]> {
-    const newKv = this.nextVersion(serverEpoch);
+  async rotateTo(
+    serverEpoch = 0,
+    rot = true,
+    /** Server-assigned version number. When provided, used directly
+     *  instead of self-assigning (epoch * SPAN + random offset).
+     *  Eliminates collision risk when two members rotate at once. */
+    serverVersion?: number,
+  ): Promise<WireFrame[]> {
+    const newKv = serverVersion ?? this.nextVersion(serverEpoch);
     const keyRaw = crypto.getRandomValues(new Uint8Array(32));
     const key = await importAesKey(keyRaw);
     this.keys.set(newKv, { key, raw: keyRaw, installedAt: this.now() });
@@ -608,9 +615,13 @@ export class RoomCipher {
    *  so the new version has to sit in a later one. Offers are
    *  encrypted under the ENTRY key so every member can read them no
    *  matter which version they hold. */
-  async rotateAsCoordinator(serverEpoch = 0): Promise<WireFrame[]> {
+  async rotateAsCoordinator(
+    serverEpoch = 0,
+    /** Server-assigned version number, passed through to rotateTo. */
+    serverVersion?: number,
+  ): Promise<WireFrame[]> {
     if (this.expectedCoordinator() !== this.selfId) return [];
-    return this.rotateTo(serverEpoch);
+    return this.rotateTo(serverEpoch, true, serverVersion);
   }
 
   /** The next key version for a rotation.

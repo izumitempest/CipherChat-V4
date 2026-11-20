@@ -13,6 +13,7 @@
 // in receive.ts.
 
 import { verifyCanonical } from "@/lib/crypto";
+import { fetchRoomRotationVersion } from "@/lib/room-api";
 import { getRelay } from "@/lib/relay";
 import { getCipher } from "@/lib/room-protocol";
 import { getSession, sessionRoomIds } from "@/lib/session";
@@ -106,9 +107,15 @@ async function confirmDeparture(
   // the password, not through the wire.
   //
   // The new version sits in the server's rotation epoch, so it lands
-  // in the same range as the versions the other members pick.
+  // in the same range as the versions the other members pick. The
+  // server-assigned rotation version eliminates collision risk when
+  // two members rotate at once.
   if (cipher && cipher.expectedCoordinator() === session.memberId) {
-    const offerFrames = await cipher.rotateAsCoordinator(await fetchRoomEpoch(roomId));
+    const [epoch, version] = await Promise.all([
+      fetchRoomEpoch(roomId),
+      fetchRoomRotationVersion(roomId),
+    ]);
+    const offerFrames = await cipher.rotateAsCoordinator(epoch, version);
     for (const f of offerFrames) {
       getRelay().emit("message:send", { roomId, envelope: f });
     }

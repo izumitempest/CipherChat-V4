@@ -48,6 +48,7 @@ import { db } from "@/lib/db";
 import { POST as membersPost, GET as membersGet } from "@/app/api/rooms/[roomId]/members/route";
 import { POST as burnPost } from "@/app/api/rooms/[roomId]/burn/route";
 import { PUT as upgradePut } from "@/app/api/rooms/[roomId]/upgrade/route";
+import { GET as rotationVersionGet } from "@/app/api/rooms/[roomId]/rotation-version/route";
 import { encodeJoinProof, makeJoinProof } from "@/lib/join-proof";
 import { signMemberProof } from "@/lib/member-proof";
 import { aliasFromFingerprint, inkFromFingerprint, sha256Hex } from "@/lib/identity";
@@ -351,5 +352,73 @@ describe("the upgrade route", () => {
     );
     expect(res.status).toBe(200);
     expect((await res.json()).alreadyUpgraded).toBe(true);
+  });
+});
+
+function rotationVersionRequest(): Request {
+  return new Request(`http://localhost/api/rooms/${ROOM}/rotation-version`, {
+    method: "GET",
+    headers: { "content-type": "application/json" },
+  });
+}
+
+describe("the rotation-version route", () => {
+  beforeEach(async () => {
+    await db.member.deleteMany({ where: { roomId: ROOM } });
+    await db.room.deleteMany({ where: { id: ROOM } });
+    await makeLegacyRoom();
+  });
+
+  it("refuses without a join proof when the room has one", async () => {
+    await db.room.update({
+      where: { id: ROOM },
+      data: { joinProof: JOIN_VERIFIER },
+    });
+    const res = await rotationVersionGet(
+      rotationVersionRequest(),
+      { params: Promise.resolve({ roomId: ROOM }) },
+    );
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("join-proof-required");
+  });
+
+  it("hands out sequential versions", async () => {
+    const res1 = await rotationVersionGet(
+      rotationVersionRequest(),
+      { params: Promise.resolve({ roomId: ROOM }) },
+    );
+    expect(res1.status).toBe(200);
+    expect((await res1.json()).version).toBe(0);
+
+    const res2 = await rotationVersionGet(
+      rotationVersionRequest(),
+      { params: Promise.resolve({ roomId: ROOM }) },
+    );
+    expect(res2.status).toBe(200);
+    expect((await res2.json()).version).toBe(1);
+
+    const res3 = await rotationVersionGet(
+      rotationVersionRequest(),
+      { params: Promise.resolve({ roomId: ROOM }) },
+    );
+    expect(res3.status).toBe(200);
+    expect((await res3.json()).version).toBe(2);
+  });
+
+  it("refuses with join proof for another room", async () => {
+    // First give the room a join proof, then try with a proof for another room.
+    await db.room.update({
+      where: { id: ROOM },
+      data: { joinProof: JOIN_VERIFIER },
+    });
+    const proof = await makeJoinProof(JOIN_VERIFIER, "OTHERROOM");
+    const res = await rotationVersionGet(
+      new Request(`http://localhost/api/rooms/${ROOM}/rotation-version`, {
+        method: "GET",
+        headers: { "x-join-proof": encodeJoinProof(proof) },
+      }),
+      { params: Promise.resolve({ roomId: ROOM }) },
+    );
+    expect(res.status).toBe(403);
   });
 });
