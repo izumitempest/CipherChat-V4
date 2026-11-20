@@ -89,6 +89,26 @@ export const sessionsSlice: AppSlice = (set, get) => ({
 
     const cipher = getCipher(session.roomId);
     const relay = getRelay();
+    // Request a short-lived socket token so the relay can verify this
+    // socket's member identity without consulting the REST registry
+    // for every event.
+    let socketToken: string | undefined;
+    try {
+      const res = await fetch(
+        `/api/rooms/${encodeURIComponent(session.roomId)}/socket-token`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ memberId: session.memberId }),
+        },
+      );
+      if (res.ok) {
+        const json = await res.json();
+        socketToken = json.token as string;
+      }
+    } catch {
+      /* token request failed; join without token (legacy behavior) */
+    }
     relay.emit("room:join", {
       roomId: session.roomId,
       memberId: session.memberId,
@@ -97,6 +117,7 @@ export const sessionsSlice: AppSlice = (set, get) => ({
       pubkey: cipher?.sigPubJwk,
       ecdhPub: cipher?.ecdh.pubRawB64,
       rejoined,
+      socketToken,
     });
     set({ relayOnline: relay.connected });
 

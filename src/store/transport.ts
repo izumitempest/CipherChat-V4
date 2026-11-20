@@ -181,15 +181,34 @@ export function wireRelay(
       const session = getSession(roomId);
       const cipher = getCipher(roomId);
       if (session && cipher) {
-        relay.emit("room:join", {
-          roomId,
-          memberId: session.memberId,
-          alias: session.alias,
-          colorIdx: session.colorIdx,
-          pubkey: cipher.sigPubJwk,
-          ecdhPub: cipher.ecdh.pubRawB64,
-          rejoined: true,
-        });
+        // Request a short-lived socket token for the reconnect
+        // (non-blocking; join without token if it fails).
+        void fetch(
+          `/api/rooms/${encodeURIComponent(roomId)}/socket-token`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ memberId: session.memberId }),
+          },
+        )
+          .then(async (res) => {
+            if (res.ok) {
+              const json = await res.json();
+              relay.emit("room:join", {
+                roomId,
+                memberId: session.memberId,
+                alias: session.alias,
+                colorIdx: session.colorIdx,
+                pubkey: cipher.sigPubJwk,
+                ecdhPub: cipher.ecdh.pubRawB64,
+                rejoined: true,
+                socketToken: json.token as string,
+              });
+            }
+          })
+          .catch(() => {
+            /* token request failed; join without token */
+          });
       }
     }
   });

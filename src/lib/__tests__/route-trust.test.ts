@@ -33,6 +33,7 @@ const testDb = vi.hoisted(() => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-route-test-"));
   const file = path.join(dir, "routes.db");
   process.env.DATABASE_URL = `file:${file}`;
+  process.env.RELAY_INTERNAL_TOKEN = "test-relay-secret-key";
   // The Prisma CLI, through the running runtime (bun in CI, node
   // locally). bunx is a shell script, so it cannot be spawned
   // directly.
@@ -49,6 +50,8 @@ import { POST as membersPost, GET as membersGet } from "@/app/api/rooms/[roomId]
 import { POST as burnPost } from "@/app/api/rooms/[roomId]/burn/route";
 import { PUT as upgradePut } from "@/app/api/rooms/[roomId]/upgrade/route";
 import { GET as rotationVersionGet } from "@/app/api/rooms/[roomId]/rotation-version/route";
+import { POST as socketTokenPost } from "@/app/api/rooms/[roomId]/socket-token/route";
+import { SOCKET_TOKEN_TTL_MS } from "@/lib/socket-token";
 import { encodeJoinProof, makeJoinProof } from "@/lib/join-proof";
 import { signMemberProof } from "@/lib/member-proof";
 import { aliasFromFingerprint, inkFromFingerprint, sha256Hex } from "@/lib/identity";
@@ -420,5 +423,72 @@ describe("the rotation-version route", () => {
       { params: Promise.resolve({ roomId: ROOM }) },
     );
     expect(res.status).toBe(403);
+  });
+});
+
+function socketTokenRequest(body: unknown): Request {
+  return new Request(`http://localhost/api/rooms/${ROOM}/socket-token`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+describe("the socket-token route", () => {
+  beforeEach(async () => {
+    await db.member.deleteMany({ where: { roomId: ROOM } });
+    await db.room.deleteMany({ where: { id: ROOM } });
+    await makeLegacyRoom();
+  });
+
+  it("refuses without a join proof when the room has one", async () => {
+    await db.room.update({
+      where: { id: ROOM },
+      data: { joinProof: JOIN_VERIFIER },
+    });
+    const res = await socketTokenPost(
+      socketTokenRequest({ memberId: "some-member" }),
+      { params: Promise.resolve({ roomId: ROOM }) },
+    );
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("join-proof-required");
+  });
+
+  it("refuses without a member id", async () => {
+    const res = await socketTokenPost(
+      socketTokenRequest({}),
+      { params: Promise.resolve({ roomId: ROOM }) },
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("refuses for a non-existent member", async () => {
+    const res = await socketTokenPost(
+      socketTokenRequest({ memberId: "nonexistent" }),
+      { params: Promise.resolve({ roomId: ROOM }) },
+    );
+    expect(res.status).toBe(404);
+    expect((await res.json()).error).toBe("member-not-found");
+  });
+
+  it("issues a token for an existing member", async () => {
+    await db.member.create({
+      data: {
+        id: "member-abc",
+        roomId: ROOM,
+        pubkey: JSON.stringify({ kty: "EC", x: "x", y: "y" }),
+        alias: "test-member",
+        colorIdx: 0,
+        active: true,
+      },
+    });
+    const res = await socketTokenPost(
+      socketTokenRequest({ memberId: "member-abc" }),
+      { params: Promise.resolve({ roomId: ROOM }) },
+    );
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(typeof json.token).toBe("string");
+    expect(json.expiresIn).toBe(SOCKET_TOKEN_TTL_MS);
   });
 });

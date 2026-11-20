@@ -10,6 +10,7 @@ import {
   frameSizeWithinCap,
 } from "../../src/lib/rate-limit";
 import { SocketMembership } from "../../src/lib/relay-binding";
+import { verifySocketToken } from "../../src/lib/socket-token";
 
 /** Structured JSON logger for the relay. Each log line is a JSON
  *  object with a level, timestamp, and message, plus optional fields.
@@ -269,7 +270,7 @@ io.on("connection", (socket) => {
 
   socket.on(
     "room:join",
-    (data: {
+    async (data: {
       roomId: string;
       memberId: string;
       alias: string;
@@ -277,22 +278,46 @@ io.on("connection", (socket) => {
       pubkey?: unknown;
       ecdhPub?: string;
       rejoined?: boolean;
+      socketToken?: string;
     }) => {
       if (!data?.roomId || !data?.memberId || typeof data.alias !== "string") return;
       if (!withinSizeCap(data)) {
         socket.disconnect(true);
         return;
       }
-      if (joined.size >= MAX_ROOMS_PER_SOCKET && !joined.has(`${data.roomId}:${data.memberId}`)) {
+      // Verify the socket token if present. The relay's shared secret
+      // (RELAY_INTERNAL_TOKEN) is used to verify tokens issued by the
+      // registry. A valid token proves the client is a password holder
+      // and binds the socket to the member id inside the token.
+      let boundMemberId = data.memberId;
+      if (data.socketToken) {
+        const payload = await verifySocketToken(
+          process.env.RELAY_INTERNAL_TOKEN ?? "",
+          data.socketToken,
+        );
+        if (!payload || payload.roomId !== data.roomId) {
+          relayLog("warn", "invalid socket token, refusing join", {
+            socketId: socket.id,
+            roomId: data.roomId,
+          });
+          socket.disconnect(true);
+          return;
+        }
+        boundMemberId = payload.memberId;
+      }
+      if (
+        joined.size >= MAX_ROOMS_PER_SOCKET &&
+        !joined.has(`${data.roomId}:${boundMemberId}`)
+      ) {
         return; // room spam, silently ignored
       }
-      const { roomId, memberId, alias, colorIdx } = data;
+      const { roomId, alias, colorIdx } = data;
       let room = rooms.get(roomId);
       if (!room) {
         room = new Map();
         rooms.set(roomId, room);
       }
-      let entry = room.get(memberId);
+      let entry = room.get(boundMemberId);
       const isNewMember = !entry;
       if (!entry) {
         if (room.size >= MAX_MEMBERS_PER_ROOM) {
@@ -303,10 +328,16 @@ io.on("connection", (socket) => {
           return;
         }
         entry = {
-          info: { memberId, alias, colorIdx: colorIdx ?? 0, pubkey: data.pubkey, ecdhPub: data.ecdhPub },
+          info: {
+            memberId: boundMemberId,
+            alias,
+            colorIdx: colorIdx ?? 0,
+            pubkey: data.pubkey,
+            ecdhPub: data.ecdhPub,
+          },
           sockets: new Set(),
         };
-        room.set(memberId, entry);
+        room.set(boundMemberId, entry);
       } else {
         // A re-join refreshes the alias (it may have been refined) but
         // NEVER the identity keys: identity (pubkey, ECDH) flows from
@@ -323,10 +354,10 @@ io.on("connection", (socket) => {
         entry.info.colorIdx = colorIdx ?? entry.info.colorIdx;
       }
       entry.sockets.add(socket.id);
-      joined.add(`${roomId}:${memberId}`);
-      bound.join(roomId, memberId);
+      joined.add(`${roomId}:${boundMemberId}`);
+      bound.join(roomId, boundMemberId);
       socket.join(`room:${roomId}`);
-      wentOfflineAt.delete(presenceKey(roomId, memberId)); // they came back
+      wentOfflineAt.delete(presenceKey(roomId, boundMemberId)); // they came back
 
       socket.emit("room:state", { roomId, members: roomMembers(roomId) });
       if (isNewMember) {
@@ -335,12 +366,12 @@ io.on("connection", (socket) => {
         }
       } else {
         for (const s of memberSockets(roomId, socket.id)) {
-          s.emit("member:presence", { roomId, memberId, connected: true });
+          s.emit("member:presence", { roomId, memberId: boundMemberId, connected: true });
         }
       }
       relayLog("info", `${alias} ${isNewMember ? "joined" : "re-joined"} room`, {
         roomId,
-        memberId: memberId.slice(-6),
+        memberId: boundMemberId.slice(-6),
         alias,
         isNewMember,
       });
