@@ -147,6 +147,32 @@ stack on the runner and drives the whole product through it: create,
 join, message, reply, react, EXIF strip with byte verification in the
 receiver's viewer, view-once, leave, rotation, rejoin, burn.
 
+## Deploy it
+
+**Docker images** (built and pushed on every release):
+
+```
+ghcr.io/izumitempest/cipherchat-web:<tag>
+ghcr.io/izumitempest/cipherchat-relay:<tag>
+```
+
+**Deploy bundle** (attached to every release):
+
+Download `cipherchat-deploy-<tag>.zip` from the release page. It contains
+`docker-compose.yml`, `Caddyfile`, `.env.example`, `start.sh`, and a
+plain-English `README.md`. Unzip, edit `.env` with your `RELAY_INTERNAL_TOKEN`
+and `CADDY_SITE`, then run:
+
+```bash
+./start.sh
+```
+
+Your CipherChat instance is live at `https://<CADDY_SITE>`. No building
+required — the compose file pulls the pre-built images from GHCR.
+
+See `deploy/MIGRATIONS.md` for backup and migration procedures.
+
+
 ## Reporting
 
 - Vulnerabilities: see SECURITY.md. We aim to respond within 7 days.

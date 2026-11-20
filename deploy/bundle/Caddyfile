@@ -1,0 +1,43 @@
+# CipherChat edge — Caddy with automatic TLS.
+#
+# {$CADDY_SITE} comes from deploy/.env (docker-compose.yml passes it).
+#   localhost          → internal CA, browser will warn (fine for testing)
+#   chat.example.com   → Let's Encrypt, ACME challenge served on :80
+
+{$CADDY_SITE:localhost} {
+	encode zstd gzip
+
+	# Rate limiting at the edge: 20 requests per second per client IP,
+	# burst of 40. Stops abusive traffic before it reaches the app or
+	# relay. Complements the per-route limiters in the Next.js API
+	# routes and the per-member buckets in the relay.
+	rate_limit {
+		interval 1s
+		burst 40
+	}
+
+	# The security headers, set at the edge so they hold for the
+	# static files and the relay route too. The app sets the same
+	# ones (and the per-request Content-Security-Policy) on its own
+	# responses.
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		X-Frame-Options DENY
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+		-Server
+	}
+
+	# The blind relay. handle_path STRIPS the /relay/ prefix so the
+	# socket.io server (path: "/") sees /?EIO=4&... — websocket
+	# upgrades pass through reverse_proxy automatically.
+	handle_path /relay/* {
+		reverse_proxy relay:3003
+	}
+
+	# Everything else — the Next.js app.
+	handle {
+		reverse_proxy web:3000
+	}
+}

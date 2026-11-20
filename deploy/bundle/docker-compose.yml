@@ -1,0 +1,68 @@
+# CipherChat production — deploy bundle.
+#
+# Pre-built images are pulled from GitHub Container Registry.
+# No building required — just configure .env and run `docker compose up -d`.
+
+name: cipherchat
+
+services:
+  # Migration step: runs once per deploy, applies pending database
+  # migrations, backs up the database first, then exits.
+  migrate:
+    image: ghcr.io/izumitempest/cipherchat-web-migrate:latest
+    environment:
+      DATABASE_URL: file:/app/db/custom.db
+    volumes:
+      - db-data:/app/db
+    restart: "no"
+
+  web:
+    image: ghcr.io/izumitempest/cipherchat-web:latest
+    environment:
+      DATABASE_URL: file:/app/db/custom.db
+      RELAY_INTERNAL_TOKEN: ${RELAY_INTERNAL_TOKEN:?set RELAY_INTERNAL_TOKEN in .env}
+      RELAY_PRESENCE_URL: http://relay:3004
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost}
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+    volumes:
+      - db-data:/app/db
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      relay:
+        condition: service_started
+
+  relay:
+    image: ghcr.io/izumitempest/cipherchat-relay:latest
+    environment:
+      RELAY_INTERNAL_TOKEN: ${RELAY_INTERNAL_TOKEN:?set RELAY_INTERNAL_TOKEN in .env}
+      RELAY_ALLOWED_ORIGINS: ${RELAY_ALLOWED_ORIGINS:-}
+      CADDY_SITE: ${CADDY_SITE:-localhost}
+    restart: unless-stopped
+    expose:
+      - "3003"
+      - "3004"
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      CADDY_SITE: ${CADDY_SITE:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
+    depends_on:
+      - web
+      - relay
+
+volumes:
+  db-data:
+  caddy-data:
+  caddy-config:
