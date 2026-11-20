@@ -47,6 +47,7 @@ const testDb = vi.hoisted(() => {
 import { db } from "@/lib/db";
 import { POST as membersPost, GET as membersGet } from "@/app/api/rooms/[roomId]/members/route";
 import { POST as burnPost } from "@/app/api/rooms/[roomId]/burn/route";
+import { PUT as upgradePut } from "@/app/api/rooms/[roomId]/upgrade/route";
 import { encodeJoinProof, makeJoinProof } from "@/lib/join-proof";
 import { signMemberProof } from "@/lib/member-proof";
 import { aliasFromFingerprint, inkFromFingerprint, sha256Hex } from "@/lib/identity";
@@ -250,5 +251,105 @@ describe("the burn route", () => {
     expect(res.status).toBe(200);
     const room = await db.room.findUnique({ where: { id: ROOM } });
     expect(room!.burned).toBe(true);
+  });
+});
+
+/** A legacy room: versionless verifier blob, no joinProof. */
+async function makeLegacyRoom() {
+  await db.room.create({
+    data: {
+      id: ROOM,
+      verifier: JSON.stringify({ v: 1, salt: "legacy", salt2: "x" }),
+      joinProof: null,
+      creatorToken: await hashCreatorToken("creator-token-value"),
+      epoch: 1,
+    },
+  });
+}
+
+function upgradeRequest(body: unknown): Request {
+  return new Request(`http://localhost/api/rooms/${ROOM}/upgrade`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+describe("the upgrade route", () => {
+  beforeEach(async () => {
+    await db.member.deleteMany({ where: { roomId: ROOM } });
+    await db.room.deleteMany({ where: { id: ROOM } });
+    await makeLegacyRoom();
+  });
+
+  it("refuses an upgrade with no creator token", async () => {
+    const res = await upgradePut(
+      upgradeRequest({ verifier: JSON.stringify({ v: 2, alg: "argon2id" }) }),
+      { params: Promise.resolve({ roomId: ROOM }) },
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("refuses an upgrade with a non-v2 bundle", async () => {
+    const res = await upgradePut(
+      upgradeRequest({
+        verifier: JSON.stringify({ v: 1, alg: "pbkdf2" }),
+        creatorToken: "creator-token-value",
+      }),
+      { params: Promise.resolve({ roomId: ROOM }) },
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("upgrades a legacy room with the right creator token", async () => {
+    const bundle = JSON.stringify({
+      v: 2,
+      alg: "argon2id",
+      salt: "x",
+      m: 65536,
+      t: 3,
+      p: 1,
+      iv: "a",
+      ct: "b",
+    });
+    const res = await upgradePut(
+      upgradeRequest({
+        verifier: bundle,
+        creatorToken: "creator-token-value",
+        joinProof: "join-proof-value",
+      }),
+      { params: Promise.resolve({ roomId: ROOM }) },
+    );
+    expect(res.status).toBe(200);
+    const room = await db.room.findUnique({ where: { id: ROOM } });
+    expect(room!.verifier).toBe(bundle);
+    expect(room!.joinProof).toBe("join-proof-value");
+  });
+
+  it("says alreadyUpgraded when the room already has a join proof", async () => {
+    await db.room.update({
+      where: { id: ROOM },
+      data: { joinProof: JOIN_VERIFIER },
+    });
+    const bundle = JSON.stringify({
+      v: 2,
+      alg: "argon2id",
+      salt: "x",
+      m: 65536,
+      t: 3,
+      p: 1,
+      iv: "a",
+      ct: "b",
+    });
+    const res = await upgradePut(
+      upgradeRequest({
+        verifier: bundle,
+        creatorToken: "creator-token-value",
+        joinProof: "join-proof-value",
+      }),
+      { params: Promise.resolve({ roomId: ROOM }) },
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()).alreadyUpgraded).toBe(true);
   });
 });

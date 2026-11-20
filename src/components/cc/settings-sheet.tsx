@@ -93,6 +93,9 @@ export function SettingsSheet({
   const newPasswordRef = useRef<HTMLInputElement>(null);
   const [changingPassword, setChangingPassword] = useState(false);
   const changePassword = useApp((s) => s.changePassword);
+  const upgradeRoom = useApp((s) => s.upgradeRoom);
+  const upgradePasswordRef = useRef<HTMLInputElement>(null);
+  const [upgrading, setUpgrading] = useState(false);
 
   // Re-seed the local fields each time the sheet opens (the
   // render-time adjustment pattern, no effects needed).
@@ -251,6 +254,76 @@ export function SettingsSheet({
                   }}
                 >
                   {changingPassword ? "Rotating" : "Rotate entry key"}
+                </PrimaryAction>
+              </div>
+            ) : null}
+
+            {session?.legacy && isCreator ? (
+              <div className="space-y-2">
+                <p className="font-sans text-[13px] font-medium tracking-[0.01em] text-charcoal">
+                  Upgrade room security
+                </p>
+                <p className="t-meta">
+                  This room was sealed before password proof existed.
+                  Anyone with the link can join and the roster is
+                  visible to link holders. Upgrading requires proof of
+                  the room password to join thereafter and hides the
+                  roster behind that proof.
+                </p>
+                <Field label="Current room password" htmlFor="cc-room-upgrade-pass">
+                  <PasswordField
+                    ref={upgradePasswordRef}
+                    id="cc-room-upgrade-pass"
+                    placeholder="Current room password"
+                    required
+                  />
+                </Field>
+                <PrimaryAction
+                  full
+                  busy={upgrading}
+                  onClick={async () => {
+                    const password = upgradePasswordRef.current?.value ?? "";
+                    if (!password.trim()) return;
+                    setUpgrading(true);
+                    try {
+                      const { createKeyBundleV2 } = await import("@/lib/kdf");
+                      const { bundle, joinVerifier } = await createKeyBundleV2(
+                        password.trim(),
+                        roomId,
+                      );
+                      const verifier = JSON.stringify(bundle);
+                      const res = await upgradeRoom(
+                        roomId,
+                        verifier,
+                        joinVerifier,
+                        session?.creatorToken ?? "",
+                      );
+                      if (upgradePasswordRef.current) {
+                        upgradePasswordRef.current.value = "";
+                      }
+                      setUpgrading(false);
+                      if (res.ok) {
+                        toast("Room upgraded", {
+                          description:
+                            "Joining now requires proof of the room password.",
+                        });
+                      } else {
+                        toast("The room could not be upgraded", {
+                          description:
+                            res.reason === "not-creator"
+                              ? "Only the room's creator can upgrade."
+                              : "The server did not answer. Try again.",
+                        });
+                      }
+                    } catch {
+                      setUpgrading(false);
+                      toast("The room could not be upgraded", {
+                        description: "Failed to derive the key bundle.",
+                      });
+                    }
+                  }}
+                >
+                  {upgrading ? "Upgrading" : "Upgrade room security"}
                 </PrimaryAction>
               </div>
             ) : null}

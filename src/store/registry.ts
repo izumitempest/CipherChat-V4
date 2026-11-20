@@ -431,4 +431,37 @@ export const registrySlice: AppSlice = (set, get) => ({
       return { ok: false, reason: "error" };
     }
   },
+
+  /** Upgrade a legacy room (sealed before join proof existed) to
+   *  protocol v2: store a fresh argon2id bundle and join verifier so
+   *  joining thereafter requires proof of the password. Creator-only. */
+  upgradeRoom: async (roomId, verifier, joinProof, creatorToken) => {
+    const session = getSession(roomId);
+    const token = creatorToken ?? session?.creatorToken ?? loadCreatorToken(roomId);
+    if (!token) {
+      return { ok: false, reason: "not-creator" };
+    }
+    try {
+      const res = await fetch(roomApi(roomId, "/upgrade"), {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ verifier, creatorToken: token, joinProof }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        return { ok: false, reason: body?.error ?? "error" };
+      }
+      const json = await res.json();
+      if (json.alreadyUpgraded) {
+        return { ok: true, alreadyUpgraded: true };
+      }
+      if (session) {
+        session.joinVerifier = joinProof;
+        session.legacy = false;
+      }
+      return { ok: true };
+    } catch {
+      return { ok: false, reason: "error" };
+    }
+  },
 });

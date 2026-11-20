@@ -126,6 +126,13 @@ export interface AppState {
   setDefaultTtl: (roomId: string, ttl: TtlChoice) => void;
   /** Creator-only: rotate the entry key with a new password. */
   changePassword: (roomId: string, newPassword: string) => Promise<{ ok: boolean; reason?: string }>;
+  /** Upgrade a legacy room to protocol v2 (join proof + verifier). */
+  upgradeRoom: (
+    roomId: string,
+    verifier: string,
+    joinProof: string,
+    creatorToken: string,
+  ) => Promise<{ ok: boolean; reason?: string; alreadyUpgraded?: boolean }>;
   markVerified: (roomId: string, memberId: string, verified: boolean) => void;
   isVerified: (roomId: string, memberId: string) => boolean;
   refreshMembers: (roomId: string) => Promise<void>;
