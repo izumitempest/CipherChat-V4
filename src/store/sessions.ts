@@ -7,6 +7,7 @@
 
 import { dropDraft } from "@/lib/drafts";
 import { dropLegacyKeys } from "@/lib/legacy";
+import { createKeyBundleV2 } from "@/lib/kdf";
 import {
   loadRoomCards,
   loadRoomSettings,
@@ -238,6 +239,47 @@ export const sessionsSlice: AppSlice = (set, get) => ({
     });
     if (on) startCoverFor(roomId);
     else stopCoverFor(roomId);
+  },
+
+  /** Rotate the room's entry key by changing its password. Creator-only:
+   *  the creator token authorizes the change. A new argon2id bundle is
+   *  derived from the new password and stored on the server; the entry
+   *  key is re-installed in the cipher. Key versions above 1 (delivered
+   *  over ECDH) are untouched. Members who hold the new password can
+   *  re-join; members who only know the old password cannot derive the
+   *  new entry key. */
+  changePassword: async (roomId, newPassword) => {
+    const session = getSession(roomId);
+    const cipher = getCipher(roomId);
+    const token = session?.creatorToken;
+    if (!session || !cipher || !token) {
+      return { ok: false, reason: "not-creator" };
+    }
+    let bundle;
+    try {
+      bundle = await createKeyBundleV2(newPassword, roomId);
+    } catch {
+      return { ok: false, reason: "error" };
+    }
+    try {
+      const res = await fetch(roomApi(roomId, "/password"), {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password: newPassword, creatorToken: token }),
+      });
+      if (!res.ok) {
+        return { ok: false, reason: "error" };
+      }
+    } catch {
+      return { ok: false, reason: "no-answer" };
+    }
+    // The server accepted. Install the new entry key and keep the
+    // new password in memory for the rest of this session.
+    cipher.replaceEntryKey(bundle.key);
+    session.password = newPassword;
+    session.joinVerifier = bundle.joinVerifier;
+    addSystemLine(set, roomId, "The room's entry key was rotated with a new password.");
+    return { ok: true };
   },
 
   closeExpiredRoom: (roomId) => {

@@ -4,7 +4,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Check, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -22,8 +22,8 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Field, TextField } from "@/components/cc/fields";
-import { DestructiveAction, SecondaryAction } from "@/components/cc/actions";
+import { Field, PasswordField, TextField } from "@/components/cc/fields";
+import { DestructiveAction, PrimaryAction, SecondaryAction } from "@/components/cc/actions";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
 import { SheetGrabber } from "@/components/cc/sheet-grabber";
 import { TtlPicker } from "@/components/cc/ttl-picker";
@@ -90,6 +90,9 @@ export function SettingsSheet({
   const [roomTtlBusy, setRoomTtlBusy] = useState(false);
   const [confirmBurn, setConfirmBurn] = useState(false);
   const [burning, setBurning] = useState(false);
+  const newPasswordRef = useRef<HTMLInputElement>(null);
+  const [changingPassword, setChangingPassword] = useState(false);
+  const changePassword = useApp((s) => s.changePassword);
 
   // Re-seed the local fields each time the sheet opens (the
   // render-time adjustment pattern, no effects needed).
@@ -202,6 +205,55 @@ export function SettingsSheet({
                 </p>
               ) : null}
             </div>
+
+            {isCreator ? (
+              <div className="space-y-2">
+                <p className="font-sans text-[13px] font-medium tracking-[0.01em] text-charcoal">
+                  Room password
+                </p>
+                <p className="t-meta">
+                  Changing the password rotates the room's entry key.
+                  Everyone who needs to keep using the room must re-join
+                  with the new password. Keys already delivered over
+                  ECDH are unaffected.
+                </p>
+                <Field label="New password" htmlFor="cc-room-password">
+                  <PasswordField
+                    ref={newPasswordRef}
+                    id="cc-room-password"
+                    placeholder="New room password"
+                    required
+                  />
+                </Field>
+                <PrimaryAction
+                  full
+                  busy={changingPassword}
+                  onClick={async () => {
+                    const password = newPasswordRef.current?.value ?? "";
+                    if (!password.trim()) return;
+                    setChangingPassword(true);
+                    const res = await changePassword(roomId, password.trim());
+                    setChangingPassword(false);
+                    if (newPasswordRef.current) newPasswordRef.current.value = "";
+                    if (res.ok) {
+                      toast("Entry key rotated", {
+                        description:
+                          "Re-join this room with the new password on any other device.",
+                      });
+                    } else {
+                      toast("The password could not be changed", {
+                        description:
+                          res.reason === "not-creator"
+                            ? "Only the room's creator can rotate the password."
+                            : "The server did not answer. Try again.",
+                      });
+                    }
+                  }}
+                >
+                  {changingPassword ? "Rotating" : "Rotate entry key"}
+                </PrimaryAction>
+              </div>
+            ) : null}
 
             <div className="space-y-2">
               <div className="flex items-start justify-between gap-3">

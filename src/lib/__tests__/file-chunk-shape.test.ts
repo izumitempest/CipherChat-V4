@@ -189,6 +189,34 @@ describe("file transfer: the chunk shape", () => {
     }
   });
 
+  it("a slot that already holds a chunk keeps it", async () => {
+    // A second frame for a seq that already landed is refused. The
+    // sha check at assembly would catch a swap, but a frame that
+    // lands twice must not be able to move anything at all.
+    const key = await randomAesKey();
+    const [alice, bob] = await makeRoom(ROOM, ["m-a", "m-b"], key);
+    const clock = createSendClock();
+    expect((await openMeta(alice, bob, key, "f1", clock)).type).toBe("file-meta");
+
+    const chunk = async (dataB64: string) => {
+      const frame = await sealRaw(
+        alice,
+        key,
+        {
+          kind: "file:chunk",
+          chunk: { messageId: "f1", seq: 0, total: bucketTotal, dataB64 },
+        },
+        clock,
+      );
+      return bob.cipher.open(frame);
+    };
+
+    expect((await chunk("A".repeat(100))).type).toBe("file-chunk");
+    const second = await chunk("B".repeat(100));
+    expect(second.type).toBe("reject");
+    if (second.type === "reject") expect(second.reason).toBe("shape");
+  });
+
   it("an honest file still arrives", async () => {
     const key = await randomAesKey();
     const [alice, bob] = await makeRoom(ROOM, ["m-a", "m-b"], key);

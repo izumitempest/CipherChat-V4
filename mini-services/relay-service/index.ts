@@ -119,6 +119,36 @@ interface MemberInfo {
 // roomId -> (memberId -> { info, sockets:Set<socketId> })
 const rooms = new Map<string, Map<string, { info: MemberInfo; sockets: Set<string> }>>();
 
+// Per-member rate buckets, keyed by "roomId:memberId". A member with
+// multiple sockets shares one budget instead of one per socket.
+const memberBuckets = new Map<string, { frames: TokenBucket; bytes: TokenBucket }>();
+
+function memberBucketKey(roomId: string, memberId: string): string {
+  return `${roomId}:${memberId}`;
+}
+
+function getOrCreateMemberBuckets(roomId: string, memberId: string): {
+  frames: TokenBucket;
+  bytes: TokenBucket;
+} {
+  const key = memberBucketKey(roomId, memberId);
+  let b = memberBuckets.get(key);
+  if (!b) {
+    b = {
+      frames: new TokenBucket({
+        ratePerSec: RELAY_FRAME_RATE,
+        capacity: RELAY_FRAME_BURST,
+      }),
+      bytes: new TokenBucket({
+        ratePerSec: RELAY_BYTE_RATE,
+        capacity: RELAY_BYTE_BURST,
+      }),
+    };
+    memberBuckets.set(key, b);
+  }
+  return b;
+}
+
 // "roomId:memberId" -> epoch ms when their last socket dropped. Set on
 // silent departure, cleared on any return (join / clean leave). This is
 // the clock behind the eviction grace floor. REST asks, the relay answers.
@@ -157,21 +187,39 @@ io.on("connection", (socket) => {
   // bound id, never one the client types. A client used to be able to
   // announce that somebody else left, or speak as somebody else.
   const bound = new SocketMembership();
-  const bucket = new TokenBucket({ ratePerSec: RELAY_FRAME_RATE, capacity: RELAY_FRAME_BURST });
-  // The byte bucket. Frames per second was not a limit on traffic: a
-  // frame can be 128 KB, so 20 frames a second was 2.5 MB a second.
-  const bytes = new TokenBucket({ ratePerSec: RELAY_BYTE_RATE, capacity: RELAY_BYTE_BURST });
+  // This socket's per-room-member buckets: roomId -> {frames, bytes}.
+  // All of a member's sockets share one budget, so a member with many
+  // sockets cannot multiply their frame or byte rate.
+  const socketMemberBuckets = new Map<
+    string,
+    { frames: TokenBucket; bytes: TokenBucket }
+  >();
 
-  /** Enforce the per-socket frame budget. Returns false when the
-   *  frame should be dropped. */
-  function frameAllowed(): boolean {
-    return bucket.tryTake();
+  /** The rate buckets for the member this socket holds in a room.
+   *  Looked up (or created) when the socket joins the room. */
+  function memberBucketsFor(roomId: string): { frames: TokenBucket; bytes: TokenBucket } | null {
+    const memberId = memberIdFor(roomId);
+    if (!memberId) return null;
+    let b = socketMemberBuckets.get(roomId);
+    if (!b) {
+      b = getOrCreateMemberBuckets(roomId, memberId);
+      socketMemberBuckets.set(roomId, b);
+    }
+    return b;
   }
 
-  /** Enforce the per-socket byte budget, charged with the frame's
-   *  own size. */
-  function bytesAllowed(size: number): boolean {
-    return bytes.tryTake(size);
+  /** Enforce the per-member frame budget for the room this frame is
+   *  being sent to. Returns false when the frame should be dropped. */
+  function frameAllowed(roomId: string): boolean {
+    const b = memberBucketsFor(roomId);
+    return b ? b.frames.tryTake() : false;
+  }
+
+  /** Enforce the per-member byte budget for the room this frame is
+   *  being sent to, charged with the frame's own size. */
+  function bytesAllowed(roomId: string, size: number): boolean {
+    const b = memberBucketsFor(roomId);
+    return b ? b.bytes.tryTake(size) : false;
   }
 
   /** The member id this socket holds for a room, or null when it has
@@ -284,8 +332,8 @@ io.on("connection", (socket) => {
     // The sender has to be in the room. A socket that never joined
     // used to be able to push frames into any room it knew the id of.
     if (!memberIdFor(data.roomId)) return;
-    if (!frameAllowed()) return; // over budget, dropped
-    if (!bytesAllowed(size)) return; // over the byte budget, dropped
+    if (!frameAllowed(data.roomId)) return; // over the member's budget, dropped
+    if (!bytesAllowed(data.roomId, size)) return; // over the member's byte budget, dropped
     const envelope = data.envelope as { id?: string };
     for (const s of memberSockets(data.roomId, socket.id)) {
       s.emit("message:new", { roomId: data.roomId, envelope: data.envelope });
@@ -296,7 +344,7 @@ io.on("connection", (socket) => {
   socket.on("message:spent", (data: { roomId: string; messageId: string }) => {
     if (!data?.roomId || !data?.messageId) return;
     if (!memberIdFor(data.roomId)) return;
-    if (!frameAllowed()) return;
+    if (!frameAllowed(data.roomId)) return;
     for (const s of memberSockets(data.roomId, socket.id)) {
       s.emit("message:spent", { roomId: data.roomId, messageId: data.messageId });
     }
@@ -310,7 +358,7 @@ io.on("connection", (socket) => {
     (data: { roomId: string; messageId: string; senderId?: string; sig?: string }) => {
       if (!data?.roomId || !data?.messageId) return;
       if (!memberIdFor(data.roomId)) return;
-      if (!frameAllowed()) return;
+      if (!frameAllowed(data.roomId)) return;
       for (const s of memberSockets(data.roomId, socket.id)) {
         s.emit("message:burn", {
           roomId: data.roomId,
@@ -334,7 +382,7 @@ io.on("connection", (socket) => {
       // to type under somebody else's name.
       const memberId = memberIdFor(data.roomId);
       if (!memberId) return;
-      if (!frameAllowed()) return;
+      if (!frameAllowed(data.roomId)) return;
       const room = rooms.get(data.roomId);
       const known = room?.get(memberId)?.info;
       for (const s of memberSockets(data.roomId, socket.id)) {
@@ -353,7 +401,7 @@ io.on("connection", (socket) => {
     if (!data?.roomId) return;
     const from = memberIdFor(data.roomId);
     if (!from) return;
-    if (!frameAllowed()) return;
+    if (!frameAllowed(data.roomId)) return;
     for (const s of memberSockets(data.roomId, socket.id)) {
       s.emit("key:request", { roomId: data.roomId, from });
     }
@@ -366,7 +414,7 @@ io.on("connection", (socket) => {
     // which moved a live member's presence clock.
     const memberId = memberIdFor(data.roomId);
     if (!memberId) return;
-    if (!frameAllowed()) return; // unauthenticated event, at least rate-limit it
+    if (!frameAllowed(data.roomId)) return; // unauthenticated event, at least rate-limit it
     const room = rooms.get(data.roomId);
     const known = room?.get(memberId)?.info;
     for (const s of memberSockets(data.roomId, socket.id)) {
@@ -391,7 +439,7 @@ io.on("connection", (socket) => {
       // socket holds, not for the id the client typed.
       const memberId = memberIdFor(data.roomId);
       if (!memberId) return;
-      if (!frameAllowed()) return;
+      if (!frameAllowed(data.roomId)) return;
       const room = rooms.get(data.roomId);
       const known = room?.get(memberId)?.info;
       for (const s of memberSockets(data.roomId, socket.id)) {

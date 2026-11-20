@@ -37,6 +37,10 @@ const TIME_GAP_MS = 30 * 60 * 1000;
  *  in memory; the DOM holds this many, plus the ones the reader
  *  scrolls back to. */
 const WINDOW = 60;
+/** The window never grows past this, no matter how far back the
+ *  reader scrolls. Older messages stay in memory (up to MESSAGE_CAP)
+ *  but leave the DOM, and their file bytes are dropped. */
+const MAX_WINDOW = WINDOW * 3;
 
 export function ChatScreen({ roomId }: { roomId: string }) {
   // Subscribe to the room's message memory: entering a room resets it,
@@ -127,6 +131,16 @@ function ActiveRoom({ roomId }: { roomId: string }) {
     [groups, windowSize],
   );
   const hiddenAbove = groups.length - visibleGroups.length;
+  // Drop file payloads for messages that have left the visible
+  // window. The message metadata stays (it is part of the 500-letter
+  // cap), but the bytes go: a long-lived room does not hold every
+  // file it has ever received.
+  const visibleIds = new Set(visibleGroups.map((g) => g.message.id));
+  const visibleKey = visibleGroups.map((g) => g.message.id).join(",");
+  const dropNonVisiblePayloads = useApp((s) => s.dropNonVisiblePayloads);
+  useEffect(() => {
+    dropNonVisiblePayloads(roomId, visibleIds);
+  }, [visibleKey, roomId, dropNonVisiblePayloads]);
   // The height before the window grows, so the reader's place in the
   // log can be kept when the older lines arrive.
   const growAnchorRef = useRef<number | null>(null);
@@ -145,10 +159,11 @@ function ActiveRoom({ roomId }: { roomId: string }) {
     nearBottomRef.current = near;
     setShowJump(!near && el.scrollHeight > el.clientHeight + 80);
     if (near) setNewBelow(0);
-    // Back at the top: bring the older lines in.
-    if (el.scrollTop < 120 && hiddenAbove > 0) {
+    // Back at the top: bring the older lines in. The window is capped
+    // so a long room never turns into thousands of DOM nodes.
+    if (el.scrollTop < 120 && hiddenAbove > 0 && windowSize < MAX_WINDOW) {
       growAnchorRef.current = el.scrollHeight;
-      setWindowSize((n) => n + WINDOW);
+      setWindowSize((n) => Math.min(MAX_WINDOW, n + WINDOW));
     }
   }, [hiddenAbove]);
 
@@ -380,6 +395,20 @@ function ActiveRoom({ roomId }: { roomId: string }) {
             />
             <p className="t-meta min-w-0 flex-1 text-terracotta/85">
               The line is down - letters pause until it returns.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      {session?.legacy ? (
+        <div className="mx-auto w-full max-w-[720px] px-4 pb-1 pt-1">
+          <div className="flex items-center gap-2 rounded-[8px] border border-hairline bg-wash px-3 py-2">
+            <span className="size-1.5 shrink-0 rounded-full bg-terracotta" aria-hidden />
+            <p className="t-meta min-w-0 flex-1 text-terracotta/90">
+              Legacy room: joined before password proof existed. The
+              roster is visible to anyone with the link, and aliases
+              are not checked against identities. Verify fingerprints
+              out of band.
             </p>
           </div>
         </div>

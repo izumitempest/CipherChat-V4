@@ -38,6 +38,17 @@
 # tunnel URL serves app and relay because Caddy routes /relay/* to the
 # relay and everything else to the web app. Nothing in the app needs to
 # know the public hostname.
+#
+# IMPORTANT for trycloudflare quick tunnels: Caddy must accept the
+# random tunnel hostname in its Host header. Since quick tunnels pick a
+# new random hostname every run, set CADDY_SITE=* in deploy/.env before
+# running this script, or edit deploy/.env after the first run:
+#
+#   CADDY_SITE=*
+#
+# This tells Caddy to answer any Host header, which is what a random
+# trycloudflare hostname needs. For a named tunnel with a fixed hostname,
+# set CADDY_SITE to that hostname instead.
 
 set -eu
 
@@ -174,12 +185,12 @@ if [ ! -f .env ]; then
   sed -i "s#^RELAY_INTERNAL_TOKEN=.*#RELAY_INTERNAL_TOKEN=$token#" .env
   # Plain HTTP on :80 behind the tunnel: Cloudflare's edge owns TLS.
   if grep -q "^# CADDY_SITE" .env; then
-    sed -i "s#^# CADDY_SITE.*#CADDY_SITE=http://localhost#" .env || true
+    sed -i "s#^# CADDY_SITE.*#CADDY_SITE=localhost#" .env || true
   fi
   if grep -q "^CADDY_SITE=" .env; then
-    sed -i "s#^CADDY_SITE=.*#CADDY_SITE=http://localhost#" .env
+    sed -i "s#^CADDY_SITE=.*#CADDY_SITE=localhost#" .env
   else
-    printf "CADDY_SITE=http://localhost\n" >> .env
+    printf "CADDY_SITE=localhost\n" >> .env
   fi
   note ".env created with a fresh RELAY_INTERNAL_TOKEN"
 fi

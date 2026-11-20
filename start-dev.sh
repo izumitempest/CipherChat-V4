@@ -42,6 +42,7 @@ PRESENCE_PORT=3004
 RUN_DIR="$ROOT/.run"
 LOG_WEB="$ROOT/dev.log"
 LOG_RELAY="$ROOT/relay-dev.log"
+TUNNEL_LOG="/tmp/cc-dev-tunnel.log"
 
 # --- helpers ---------------------------------------------------------------
 

@@ -287,21 +287,12 @@ the cost of grinding resistance, not a bug. The sealing screen says so.
 
 ## Reporting abuse
 
-The architecture permits exactly one act of moderation: ending a
-room. There is no content to review (the server is blind), no member
-to suspend (identity is per-room and derived), no history to scrub
-(none is stored). There is no report button in the app and no report
-endpoint on the server, because the only act a report could trigger
-was ending the room, and every path to that act was reachable by
-anyone holding an invite link.
-
-A graded report looked safer because it had to carry a signature from
-a registered key, but registering took no proof of anything, so a link
-holder could register and then burn. The anonymous version was worse:
-three distinct IPs counted, the tally lived in memory, and the server
-kept a reporter's free text for seven days against the nothing-stored
-promise. Grading bought the shape of moderation without the
-substance, so the feature went.
+There is no report button and no report endpoint. The server is blind:
+it holds no content, so it has nothing to review, no member to
+suspend (identity is per-room and derived), and no history to scrub
+(none is stored). The only act moderation could take was ending a
+room, and every path to that act was reachable by anyone holding an
+invite link — grading it did not fix that, so the feature went.
 
 A room ends three ways: its clock runs out, the creator burns it, or
 the operator terminates it. The creator holds the burn button. The

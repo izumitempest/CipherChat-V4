@@ -110,6 +110,8 @@ export interface AppState {
   spendViewOnce: (roomId: string, messageId: string) => void;
   reactToMessage: (roomId: string, messageId: string, mark: string) => void;
   burnMessage: (roomId: string, messageId: string) => Promise<void>;
+  /** Drop file payloads for messages outside the visible window. */
+  dropNonVisiblePayloads: (roomId: string, visibleIds: Set<string>) => void;
   burnRoom: (roomId: string) => Promise<{ ok: boolean; reason?: "refused" | "no-answer" }>;
   finishRoomBurn: (roomId: string) => void;
   leaveRoom: (roomId: string) => Promise<void>;
@@ -122,6 +124,8 @@ export interface AppState {
   panicLock: () => void;
   setCoverTraffic: (roomId: string, on: boolean) => void;
   setDefaultTtl: (roomId: string, ttl: TtlChoice) => void;
+  /** Creator-only: rotate the entry key with a new password. */
+  changePassword: (roomId: string, newPassword: string) => Promise<{ ok: boolean; reason?: string }>;
   markVerified: (roomId: string, memberId: string, verified: boolean) => void;
   isVerified: (roomId: string, memberId: string) => boolean;
   refreshMembers: (roomId: string) => Promise<void>;

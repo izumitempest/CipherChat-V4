@@ -197,7 +197,7 @@ export class RoomCipher {
   kv = 1;
 
   private readonly sigPriv: JsonWebKey | CryptoKey;
-  private readonly entryKey: CryptoKey;
+  private entryKey: CryptoKey;
   private readonly keys = new Map<number, InstalledKey>();
   private readonly clock: SendClock = createSendClock();
   private readonly replay: ReplayGuard;
@@ -310,6 +310,16 @@ export class RoomCipher {
   /** The entry key (kv 1): permanent, used to wrap join deliveries. */
   getEntryKey(): CryptoKey {
     return this.entryKey;
+  }
+
+  /** Replace the entry key after a password rotation. The new key
+   *  becomes kv 1; old key versions (kv > 1, delivered over ECDH)
+   *  are untouched. Callers must also re-derive the join verifier
+   *  from the new key material and store it on the server. */
+  replaceEntryKey(newKey: CryptoKey): void {
+    this.entryKey = newKey;
+    this.keys.set(1, { key: newKey, raw: new Uint8Array(0), installedAt: this.now() });
+    this.kv = 1;
   }
 
   private pruneGrace() {
@@ -808,8 +818,13 @@ export class RoomCipher {
         // The byte budget: the pending transfers may not hold more than
         // their ceiling of chunk strings. When a chunk does not fit,
         // the oldest transfers go until it does.
-        const previous = known.chunks.get(c.seq);
-        const delta = c.dataB64.length - (previous?.length ?? 0);
+        // A slot that already holds a chunk keeps it. A second frame
+        // for the same seq is refused, so a sender cannot swap the
+        // bytes under a chunk that already landed. The sha check at
+        // assembly would catch a swap anyway, but a frame that lands
+        // twice should not be able to move anything at all.
+        if (known.chunks.has(c.seq)) return { type: "reject", reason: "shape" };
+        const delta = c.dataB64.length;
         if (this.pendingFileBytes + delta > this.pendingByteBudget) {
           this.evictFilesUntilRoom(delta);
         }

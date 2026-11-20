@@ -366,4 +366,19 @@ export const messagesSlice: AppSlice = (set, get) => ({
     cancelBurnTimer(messageId);
     onMessageBurn(set, target, messageId);
   },
+
+  /** Drop file payloads for messages that are not in the visible
+   *  window. Keeps the room's byte budget honest for long-lived
+   *  rooms where the reader scrolls back through many messages. */
+  dropNonVisiblePayloads: (roomId, visibleIds) => {
+    set((s) => {
+      const payloads = s.filePayloads[roomId];
+      if (!payloads) return {};
+      const toDrop = Object.keys(payloads).filter((id) => !visibleIds.has(id));
+      if (toDrop.length === 0) return {};
+      const next = { ...s.filePayloads };
+      for (const id of toDrop) delete next[id];
+      return { filePayloads: next };
+    });
+  },
 });
